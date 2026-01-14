@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "cc-local-marketplace",
+  "version": "1.0.0",
+  "description": "Local marketplace for Claude Code plugins",
+  "owner": {
+    "name": "Neo",
+    "email": "neo@tokenz.local"
+  },
+  "plugins": [
+    {
+      "name": "tmux-session-tools",
+      "description": "Tmux integration for Claude Code with session forking and comprehensive tmux knowledge",
+      "version": "1.0.0",
+      "source": "./tmux-session-tools",
+      "category": "development"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# Local plugins (not for publishing)
+local_plugins/
+
+# Claude Code metadata
+.claude/

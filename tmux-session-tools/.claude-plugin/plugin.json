@@ -1,0 +1,9 @@
+{
+  "name": "tmux-session-tools",
+  "version": "1.0.0",
+  "description": "Tmux integration for Claude Code with session forking and comprehensive tmux knowledge",
+  "author": {
+    "name": "neo"
+  },
+  "keywords": ["tmux", "terminal", "session", "fork", "multiplexer"]
+}
