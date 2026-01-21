@@ -1,0 +1,9 @@
+{
+  "name": "firecrawl",
+  "version": "1.0.0",
+  "description": "Web scraping, crawling, and data extraction using Firecrawl API and official MCP server",
+  "author": {
+    "name": "neo"
+  },
+  "keywords": ["firecrawl", "scrape", "crawl", "web", "extract", "mcp", "api", "screenshot", "search"]
+}
