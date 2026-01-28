@@ -13,6 +13,9 @@ A local marketplace for Claude Code plugins, providing custom tools, skills, and
 │   ├── commands/           # Slash commands
 │   ├── scripts/            # Helper scripts
 │   └── skills/             # Knowledge skills
+├── stackey-backend/        # Stackey API integration plugin
+│   ├── agents/             # Code generation agents
+│   └── skills/             # API, auth, database knowledge
 └── local_plugins/          # Additional local plugins
     └── tokenz-checkout-skills/
 ```
@@ -26,6 +29,14 @@ Tmux integration for Claude Code with session forking and comprehensive tmux kno
 - **Commands**: `/fork-session` - Fork current tmux session
 - **Skills**: Tmux scripting and advanced usage knowledge
 - **Keywords**: tmux, terminal, session, fork, multiplexer
+
+### stackey-backend
+
+Skills for working with StackeyBackend Supabase API - blocks, media, favorites, and authentication.
+
+- **Skills**: API endpoints, authentication patterns, database schema
+- **Agents**: TypeScript/Swift code generation for API integration
+- **Keywords**: stackey, supabase, api, blocks, media, authentication
 
 ### tokenz-specs (local)
 

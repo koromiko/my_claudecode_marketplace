@@ -1,9 +1,9 @@
 {
   "name": "tmux-session-tools",
-  "version": "1.0.0",
-  "description": "Tmux integration for Claude Code with session forking and comprehensive tmux knowledge",
+  "version": "2.0.0",
+  "description": "Tmux integration for Claude Code with session forking, pane management, output capture, and context injection",
   "author": {
     "name": "neo"
   },
-  "keywords": ["tmux", "terminal", "session", "fork", "multiplexer"]
+  "keywords": ["tmux", "terminal", "session", "fork", "multiplexer", "pane", "split", "capture", "watch", "context"]
 }

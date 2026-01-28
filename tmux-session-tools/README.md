@@ -1,16 +1,22 @@
 # tmux-session-tools
 
-A Claude Code plugin for tmux integration with session forking capabilities and comprehensive tmux knowledge.
+A Claude Code plugin for tmux integration with session forking, pane management, output capture, and context injection.
 
 ## Features
 
-- **`/fork-session` command**: Fork your current Claude Code session into a new tmux window, allowing parallel conversations
-- **tmux skill**: Comprehensive tmux knowledge including windows, panes, sessions, keybindings, copy mode, scripting, and plugins
+- **`/fork-session`**: Fork your current Claude Code session into a new tmux window
+- **`/split-run`**: Split current pane and run a command with an auto-assigned name
+- **`/list-panes`**: List all panes with their Claude names
+- **`/capture-pane`**: Capture output from a named pane (one-time)
+- **`/watch-pane`**: Auto-inject pane output as context periodically
+- **`/unwatch-pane`**: Stop watching a pane
+- **`/close-pane`**: Close a pane by name or ID
+- **tmux skill**: Comprehensive tmux knowledge for windows, panes, scripting, and more
 
 ## Requirements
 
 - [tmux](https://github.com/tmux/tmux) installed on your system
-- Claude Code running inside a tmux session (for the fork-session command)
+- Claude Code running inside a tmux session
 
 ## Installation
 
@@ -32,35 +38,69 @@ claude --plugin-dir /path/to/tmux-session-tools
 
 ## Usage
 
-### Fork Session Command
+### Split & Run (Create Named Panes)
 
-While running Claude Code inside tmux, use the fork-session command to create a parallel conversation:
+Create a new pane, run a command, and name it for future reference:
+
+```
+/split-run server npm run dev
+/split-run logs tail -f /var/log/app.log
+/split-run build npm run build:watch
+```
+
+### List Panes
+
+See all panes with their names:
+
+```
+/list-panes
+```
+
+### Capture Pane Output
+
+Get a one-time capture of pane output:
+
+```
+/capture-pane server
+/capture-pane server 500   # Last 500 lines
+```
+
+### Watch Pane (Context Injection)
+
+Automatically inject pane output as context on every prompt:
+
+```
+/watch-pane server 30      # Capture every 30 seconds
+/unwatch-pane              # Stop watching
+```
+
+### Close Panes
+
+Close a pane by name:
+
+```
+/close-pane server
+/close-pane                # Interactive selection
+```
+
+### Fork Session
+
+Create a parallel Claude session with full conversation history:
 
 ```
 /fork-session
-```
-
-Or with a custom window name:
-
-```
 /fork-session my-experiment
 ```
 
-This will:
-1. Create a new tmux window
-2. Launch a forked Claude Code session with the full conversation history
-3. Switch focus to the new window
+## Pane Naming
 
-Both sessions can then proceed independently.
+Panes created with `/split-run` are automatically named using tmux's user-defined options. Names persist across detach/reattach and can be referenced in other commands:
 
-### Tmux Skill
-
-The tmux skill activates automatically when you ask questions about tmux:
-
-- "How do I split panes in tmux?"
-- "What are the tmux keybindings for window management?"
-- "How do I create a tmux session script?"
-- "Help me configure tmux"
+```
+/split-run logs tail -f app.log    # Creates pane named "logs"
+/capture-pane logs                  # Capture output from "logs" pane
+/close-pane logs                    # Close the "logs" pane
+```
 
 ## Plugin Structure
 
@@ -69,13 +109,34 @@ tmux-session-tools/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── commands/
-│   └── fork-session.md
+│   ├── fork-session.md
+│   ├── split-run.md
+│   ├── list-panes.md
+│   ├── capture-pane.md
+│   ├── watch-pane.md
+│   ├── unwatch-pane.md
+│   └── close-pane.md
+├── agents/
+│   ├── fork-session-agent.md
+│   ├── split-run-agent.md
+│   ├── list-panes-agent.md
+│   ├── capture-pane-agent.md
+│   ├── watch-pane-agent.md
+│   ├── unwatch-pane-agent.md
+│   └── close-pane-agent.md
+├── hooks/
+│   └── hooks.json
+├── scripts/
+│   ├── list-sessions.sh
+│   ├── resolve-pane.sh
+│   ├── list-named-panes.sh
+│   ├── set-pane-name.sh
+│   └── check-watch.sh
 ├── skills/
 │   └── tmux/
 │       ├── SKILL.md
 │       └── references/
-│           ├── advanced-scripting.md
-│           └── plugins.md
+│           └── advanced-scripting.md
 └── README.md
 ```
 

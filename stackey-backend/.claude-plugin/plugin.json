@@ -1,0 +1,9 @@
+{
+  "name": "stackey-backend",
+  "version": "1.0.1",
+  "description": "Skills for working with StackeyBackend Supabase API - blocks, media, favorites, and authentication",
+  "author": {
+    "name": "neo"
+  },
+  "keywords": ["stackey", "supabase", "api", "blocks", "media", "favorites", "authentication", "edge-functions"]
+}

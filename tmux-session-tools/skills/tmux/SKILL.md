@@ -2,6 +2,7 @@
 name: tmux
 description: Use this skill when users mention "tmux", "tmux pane", "tmux window", "tmux session", "background terminal", "parallel terminal", or when users need to run commands in separate terminals, capture output from other panes, or manage multiple Claude Code sessions in tmux.
 version: 1.0.0
+context: fork
 ---
 
 # Tmux Operations for Claude Code
@@ -145,6 +146,61 @@ tmux send-keys -t :.1 "npm test" Enter
 # Wait a bit then capture output
 sleep 5
 tmux capture-pane -t :.1 -p -S -50
+```
+
+### Get User Selection from Another Pane
+
+**For iTerm2 with mouse selection (recommended):**
+
+Mouse selections in iTerm2 go to the macOS clipboard. Access via `pbpaste`:
+
+```bash
+# Get user's mouse selection from clipboard
+selection=$(pbpaste)
+echo "$selection"
+```
+
+**For tmux copy-mode selections:**
+
+When using tmux copy-mode (prefix + `[`), selections go to tmux buffer:
+
+```bash
+# Get from tmux buffer
+if selection=$(tmux show-buffer 2>/dev/null); then
+    echo "$selection"
+else
+    echo "No selection in tmux buffer"
+fi
+
+# List all buffers
+tmux list-buffers
+
+# Load text into buffer programmatically
+echo "some text" | tmux load-buffer -
+```
+
+## Plugin Commands
+
+This plugin provides commands for managing tmux panes:
+
+| Command | Description |
+|---------|-------------|
+| `/split-run <name> <cmd>` | Split pane and run command with a name |
+| `/capture-pane <name> [lines]` | Capture output from a named pane |
+| `/watch-pane <name> [secs]` | Auto-inject pane output as context |
+| `/unwatch-pane` | Stop watching a pane |
+| `/close-pane <name>` | Close a pane by name |
+| `/list-panes` | List all panes with their names |
+| `/fork-session [name]` | Fork Claude session into new window |
+
+### Named Panes
+
+Panes created with `/split-run` are automatically named. Reference them by name:
+
+```
+/split-run server npm run dev
+/capture-pane server
+/close-pane server
 ```
 
 ## Additional Resources
