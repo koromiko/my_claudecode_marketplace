@@ -1,0 +1,39 @@
+appId: com.example.myapp
+name: Tab Navigation Flow
+tags:
+  - smoke
+  - regression
+  - navigation
+---
+# Test navigation between all main tabs
+
+- launchApp:
+    appId: "com.example.myapp"
+    clearState: true
+
+# Start on Home tab
+- assertVisible:
+    id: "tab_home"
+
+# Navigate to Settings
+- tapOn:
+    id: "tab_settings"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "settings_content"
+
+# Navigate to Profile
+- tapOn:
+    id: "tab_profile"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "profile_content"
+
+# Return to Home
+- tapOn:
+    id: "tab_home"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "home_content"
+
+- takeScreenshot: "navigation_complete"

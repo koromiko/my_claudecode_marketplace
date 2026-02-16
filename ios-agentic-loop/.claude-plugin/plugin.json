@@ -1,0 +1,9 @@
+{
+  "name": "ios-agentic-loop",
+  "version": "1.0.0",
+  "description": "Agentic iOS testing system combining idb-driven UI exploration with Maestro deterministic regression. Provides skills for accessibility auditing, Maestro flow authoring, and autonomous idb observe-reason-act-verify loops.",
+  "author": {
+    "name": "neo"
+  },
+  "keywords": ["ios", "testing", "idb", "maestro", "accessibility", "agentic", "simulator", "ui-testing", "regression", "exploration"]
+}

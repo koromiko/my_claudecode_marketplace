@@ -1,0 +1,24 @@
+appId: com.example.myapp
+name: App Launch Smoke Test
+tags:
+  - smoke
+  - regression
+---
+# Verify the app launches and shows the main screen
+
+- launchApp:
+    appId: "com.example.myapp"
+    clearState: true
+
+# Wait for initial load
+- waitForAnimationToEnd
+
+# Verify main navigation is visible
+- assertVisible:
+    id: "tab_home"
+
+- assertVisible:
+    id: "tab_settings"
+
+# Take screenshot for visual record
+- takeScreenshot: "smoke_app_launch"

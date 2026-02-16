@@ -1,0 +1,56 @@
+# GitHub Actions workflow for Maestro regression tests
+# Copy to .github/workflows/maestro-regression.yml and customize
+
+name: Maestro Regression Tests
+on:
+  pull_request:
+    paths:
+      - 'src/**'                   # Adjust to your source paths
+      - 'tests/maestro/**'
+  schedule:
+    - cron: '0 6 * * 1-5'         # Weekday mornings
+
+jobs:
+  maestro-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          # Add project-specific dependencies here
+          # brew install xcodegen
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+
+      - name: Build app
+        run: |
+          # Replace with your build command
+          xcodebuild -scheme YOUR_SCHEME \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            build
+
+      - name: Boot simulator
+        run: xcrun simctl boot "iPhone 16 Pro"
+
+      - name: Install app
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData \
+            -name "YOUR_APP.app" \
+            -path "*/Debug-iphonesimulator/*" \
+            -maxdepth 5 | head -1)
+          xcrun simctl install booted "$APP_PATH"
+
+      - name: Run smoke tests
+        run: maestro test tests/maestro/flows/smoke/
+
+      - name: Run regression tests
+        run: maestro test tests/maestro/flows/ --include-tags=regression
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-artifacts-${{ github.run_number }}
+          path: ~/.maestro/tests/
+          retention-days: 7

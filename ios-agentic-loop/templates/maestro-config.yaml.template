@@ -1,0 +1,11 @@
+# Maestro Workspace Configuration
+# Place at tests/maestro/config.yaml
+
+appId: "YOUR_BUNDLE_ID"
+
+tags:
+  - smoke
+  - regression
+
+flows:
+  - "flows/**/*.yaml"

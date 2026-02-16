@@ -1,0 +1,38 @@
+appId: com.example.myapp
+name: Form Submission Flow
+tags:
+  - regression
+  - forms
+---
+# Test a typical form input and submission flow
+
+- launchApp:
+    appId: "com.example.myapp"
+    clearState: true
+
+# Navigate to form
+- tapOn:
+    id: "nav_button_create"
+
+# Fill in text fields
+- tapOn:
+    id: "form_field_title"
+- inputText: "Test Entry"
+
+- tapOn:
+    id: "form_field_description"
+- inputText: "This is a test description for the form submission flow."
+
+# Submit
+- tapOn:
+    id: "form_button_submit"
+
+# Wait for response
+- waitForAnimationToEnd
+
+# Verify success
+- assertVisible:
+    id: "success_message"
+
+- assertNotVisible:
+    id: "error_banner"

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ios-agentic-loop": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/dist/index.js"],
+      "env": {
+        "SIMULATOR_UDID": "auto",
+        "IDB_PATH": "idb"
+      }
+    }
+  }
+}

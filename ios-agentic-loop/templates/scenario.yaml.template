@@ -1,0 +1,25 @@
+# Agentic Exploration Scenario Template
+# Copy to tests/agentic/scenarios/ and customize
+
+name: "YOUR_SCENARIO_NAME"
+description: >
+  Describe what this scenario tests and why.
+
+goal: >
+  Describe the goal in natural language. Be specific about
+  what actions should be taken and what the expected outcome is.
+
+preconditions:
+  - app_launched: true
+  - logged_in: false              # Set to true if auth is required
+
+success_criteria:
+  - description: "What must be true for the scenario to pass"
+
+max_steps: 30                     # Maximum ORAV loop iterations
+timeout_minutes: 5                # Hard timeout
+
+# Optional: steps to run before the exploration loop begins
+setup_steps:
+  - launch_app: true
+  - wait_for_element: "main_screen_element_id"
