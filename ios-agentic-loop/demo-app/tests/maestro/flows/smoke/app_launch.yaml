@@ -1,0 +1,50 @@
+appId: com.agentic-loop.demo
+name: App Launch Smoke Test
+tags:
+  - smoke
+  - regression
+---
+# Verify the app launches and shows the login screen
+
+- launchApp:
+    appId: "com.agentic-loop.demo"
+    clearState: true
+
+- waitForAnimationToEnd
+
+# Verify login screen elements are visible
+- assertVisible:
+    id: "login_field_email"
+
+- assertVisible:
+    id: "login_field_password"
+
+- assertVisible:
+    id: "login_button_submit"
+
+# Log in with test credentials
+- tapOn:
+    id: "login_field_email"
+- inputText: "test@example.com"
+
+- tapOn:
+    id: "login_field_password"
+- inputText: "password123"
+
+- tapOn:
+    id: "login_button_submit"
+
+- waitForAnimationToEnd
+
+# Verify main app loaded with tabs
+- assertVisible:
+    id: "tab_home"
+
+- assertVisible:
+    id: "tab_settings"
+
+# Verify task list is visible
+- assertVisible:
+    id: "home_list_tasks"
+
+- takeScreenshot: "smoke_app_launch"

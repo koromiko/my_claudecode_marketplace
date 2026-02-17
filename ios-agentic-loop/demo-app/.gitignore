@@ -1,0 +1,10 @@
+# XcodeGen output
+*.xcodeproj
+
+# Xcode
+build/
+DerivedData/
+*.xcworkspace
+
+# Test results
+tests/agentic/results/

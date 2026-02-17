@@ -1,0 +1,30 @@
+# Agentic Testing Loop Configuration for AgenticTodo Demo App
+
+simulator:
+  device: "iPhone 16 Pro"
+  runtime: "iOS 18.2"
+  udid: auto
+
+app:
+  bundle_id: "com.agentic-loop.demo"
+  extension_bundle_ids: []
+  build_command: "cd demo-app && xcodegen generate && xcodebuild -project AgenticTodoDemo.xcodeproj -scheme AgenticTodoDemo -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build"
+  app_group: ""
+
+idb:
+  action_delay_ms: 700     # SwiftUI needs slightly longer delays
+  describe_all_timeout_ms: 5000
+
+loop:
+  max_steps_per_goal: 30
+  max_retries_per_action: 3
+  verify_timeout_ms: 2000
+
+maestro:
+  output_dir: "demo-app/tests/maestro/flows"
+  prefer_id_selectors: true
+  include_ai_assertions: true
+
+artifacts:
+  results_dir: "demo-app/tests/agentic/results"
+  keep_last_n_runs: 10
