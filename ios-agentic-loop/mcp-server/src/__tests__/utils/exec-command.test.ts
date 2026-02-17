@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { execCommand, CommandError } from "../../utils/exec-command.js";
+import { execCommand, execShell, CommandError } from "../../utils/exec-command.js";
 import * as childProcess from "child_process";
 
 vi.mock("child_process");
@@ -25,6 +25,7 @@ describe("execCommand", () => {
   });
 
   it("rejects with CommandError containing ENOENT for missing binary", async () => {
+    expect.assertions(2);
     const err = Object.assign(new Error("not found"), { code: "ENOENT" });
     vi.mocked(childProcess.execFile).mockImplementation(
       (_cmd, _args, _opts, cb: any) => { cb(err, "", ""); return {} as any; }
@@ -35,5 +36,18 @@ describe("execCommand", () => {
       expect(e).toBeInstanceOf(CommandError);
       expect((e as CommandError).message).toContain("not found");
     }
+  });
+});
+
+describe("execShell", () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it("resolves with stdout on success", async () => {
+    vi.mocked(childProcess.exec).mockImplementation(
+      (_cmd, _opts, cb: any) => { cb(null, "shell output\n", ""); return {} as any; }
+    );
+    const result = await execShell("echo hello");
+    expect(result.stdout).toBe("shell output\n");
+    expect(result.exitCode).toBe(0);
   });
 });
