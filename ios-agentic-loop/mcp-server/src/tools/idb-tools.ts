@@ -3,9 +3,8 @@
  * Provides screenshot, accessibility tree, and interaction tools.
  */
 
-// TODO: Phase 2 - Import MCP types
-// import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-// import { AgenticConfig } from "../config.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ServerContext } from "../types.js";
 
 export interface ScreenshotParams {
   output_path?: string;
@@ -46,40 +45,4 @@ export interface ObserveScreenResult {
   elements: AccessibilityElement[];
 }
 
-// TODO: Phase 2 - Implement tool registration
-// export function registerIdbTools(server: Server, config: AgenticConfig): void {
-//   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-//     tools: [
-//       {
-//         name: "idb_screenshot",
-//         description: "Capture a screenshot of the current simulator screen",
-//         inputSchema: { type: "object", properties: { output_path: { type: "string" } } }
-//       },
-//       {
-//         name: "idb_describe_all",
-//         description: "Get the accessibility element tree of the current screen",
-//         inputSchema: { type: "object", properties: {} }
-//       },
-//       {
-//         name: "idb_tap",
-//         description: "Tap at coordinates on the simulator screen",
-//         inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"] }
-//       },
-//       {
-//         name: "idb_text",
-//         description: "Type text into the currently focused field",
-//         inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] }
-//       },
-//       {
-//         name: "idb_swipe",
-//         description: "Swipe from (x1,y1) to (x2,y2)",
-//         inputSchema: { type: "object", properties: { x1: { type: "number" }, y1: { type: "number" }, x2: { type: "number" }, y2: { type: "number" }, duration: { type: "number" } }, required: ["x1", "y1", "x2", "y2"] }
-//       },
-//       {
-//         name: "observe_screen",
-//         description: "Take a screenshot AND get the accessibility tree in one call",
-//         inputSchema: { type: "object", properties: {} }
-//       }
-//     ]
-//   }));
-// }
+export function registerIdbTools(_server: McpServer, _ctx: ServerContext): void {}

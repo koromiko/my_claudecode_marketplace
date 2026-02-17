@@ -3,6 +3,9 @@
  * Provides test execution and flow export tools.
  */
 
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ServerContext } from "../types.js";
+
 export interface MaestroRunParams {
   flow_path: string;
   continuous?: boolean;
@@ -46,8 +49,4 @@ export interface ExportFlowResult {
   steps_count: number;
 }
 
-// TODO: Phase 2 - Implement tool registration
-// export function registerMaestroTools(server: Server, config: AgenticConfig): void {
-//   // maestro_run: Run Maestro test flows
-//   // maestro_export_flow: Convert action log to Maestro YAML
-// }
+export function registerMaestroTools(_server: McpServer, _ctx: ServerContext): void {}

@@ -3,6 +3,9 @@
  * Provides launch, terminate, install, and build+launch tools.
  */
 
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ServerContext } from "../types.js";
+
 export interface LaunchParams {
   bundle_id: string;
 }
@@ -26,10 +29,4 @@ export interface BuildAndLaunchResult {
   launch_success: boolean;
 }
 
-// TODO: Phase 2 - Implement tool registration
-// export function registerLifecycleTools(server: Server, config: AgenticConfig): void {
-//   // idb_launch: Launch app by bundle ID
-//   // idb_terminate: Terminate running app
-//   // idb_install: Install .app bundle on simulator
-//   // build_and_launch: Build with project build command, install, and launch
-// }
+export function registerLifecycleTools(_server: McpServer, _ctx: ServerContext): void {}

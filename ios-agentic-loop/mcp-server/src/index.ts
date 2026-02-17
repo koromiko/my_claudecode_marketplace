@@ -1,45 +1,32 @@
-/**
- * iOS Agentic Loop MCP Server
- *
- * Provides tools for iOS simulator interaction via idb,
- * Maestro test execution, and app lifecycle management.
- *
- * Phase 2+ implementation - currently stubs.
- */
-
-// TODO: Phase 2 - Import and initialize MCP SDK
-// import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-// import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-
-// TODO: Phase 2 - Import tool implementations
-// import { registerIdbTools } from "./tools/idb-tools.js";
-// import { registerLifecycleTools } from "./tools/lifecycle-tools.js";
-// import { registerMaestroTools } from "./tools/maestro-tools.js";
-// import { loadConfig } from "./config.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { loadConfig } from "./config.js";
+import { resolveUdid } from "./utils/udid-resolver.js";
+import { registerIdbTools } from "./tools/idb-tools.js";
+import { registerLifecycleTools } from "./tools/lifecycle-tools.js";
+import { registerMaestroTools } from "./tools/maestro-tools.js";
+import { registerUtilityTools } from "./tools/utility-tools.js";
+import type { ServerContext } from "./types.js";
 
 async function main(): Promise<void> {
-  console.log("ios-agentic-loop MCP server");
-  console.log("Status: Stub implementation (Phase 2+)");
-  console.log("");
-  console.log("Available tool categories:");
-  console.log("  - idb tools: screenshot, describe_all, tap, text, swipe, observe_screen");
-  console.log("  - lifecycle tools: launch, terminate, install, build_and_launch");
-  console.log("  - maestro tools: run, export_flow");
-  console.log("");
-  console.log("To implement: npm install && npm run build");
+  const config = await loadConfig();
+  const udid = await resolveUdid(config);
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || process.cwd();
 
-  // TODO: Phase 2 - Initialize server
-  // const config = await loadConfig();
-  // const server = new Server({ name: "ios-agentic-loop", version: "1.0.0" }, {
-  //   capabilities: { tools: {} }
-  // });
-  //
-  // registerIdbTools(server, config);
-  // registerLifecycleTools(server, config);
-  // registerMaestroTools(server, config);
-  //
-  // const transport = new StdioServerTransport();
-  // await server.connect(transport);
+  const ctx: ServerContext = { config, udid, pluginRoot };
+
+  const server = new McpServer({ name: "ios-agentic-loop", version: "1.0.0" });
+
+  registerIdbTools(server, ctx);
+  registerLifecycleTools(server, ctx);
+  registerMaestroTools(server, ctx);
+  registerUtilityTools(server, ctx);
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error("MCP server failed to start:", err.message);
+  process.exit(1);
+});
