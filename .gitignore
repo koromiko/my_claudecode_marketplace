@@ -3,3 +3,6 @@ local_plugins/
 
 # Claude Code metadata
 .claude/
+
+# Git worktrees
+.worktrees/
