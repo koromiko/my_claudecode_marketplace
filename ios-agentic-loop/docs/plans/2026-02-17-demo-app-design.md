@@ -31,10 +31,10 @@ Following the plugin's `{scope}_{type}_{name}` convention:
 ```
 Login:      login_field_email, login_field_password, login_button_submit, login_button_forgot
 Home:       home_list_tasks, home_button_add, home_cell_task_{id}
-Detail:     detail_field_title, detail_field_description, detail_picker_priority, detail_button_save
-Settings:   settings_toggle_dark_mode, settings_toggle_notifications, settings_button_clear, settings_label_version
+Detail:     detail_field_title, detail_field_description, detail_picker_priority, detail_picker_date, detail_button_save
+Settings:   settings_toggle_dark_mode, settings_toggle_notifications, settings_button_clear, settings_label_version, settings_button_logout
 Add Task:   modal_field_title, modal_field_description, modal_picker_priority, modal_button_save, modal_button_cancel
-Navigation: tab_home, tab_settings, nav_button_back
+Navigation: tab_home, tab_settings
 ```
 
 ## File Structure
