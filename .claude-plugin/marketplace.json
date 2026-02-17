@@ -21,6 +21,26 @@
       "version": "1.0.0",
       "source": "./stackey-backend",
       "category": "integration"
+    },
+    {
+      "name": "swift-project-tools",
+      "description": "Skills for setting up and extending Swift Project Tools in iOS/Swift projects",
+      "source": "./swift-project-tools",
+      "category": "ios"
+    },
+    {
+      "name": "stackey-experts",
+      "description": "Expert agents for StackeyApp (iOS/Swift), StackeyBackend (Supabase/Deno), and API contract management with cross-component coordination",
+      "version": "1.0.0",
+      "source": "./stackey-experts",
+      "category": "integration"
+    },
+    {
+      "name": "agent-orchestration",
+      "description": "Protocol for dispatching, monitoring, and recovering from subagent failures — pre-flight checks, retry policy, fallback strategy, output contracts, and team swarm coordination",
+      "version": "0.1.0",
+      "source": "./agent-orchestration",
+      "category": "workflow"
     }
   ]
 }

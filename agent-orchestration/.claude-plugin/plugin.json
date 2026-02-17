@@ -1,0 +1,5 @@
+{
+  "name": "agent-orchestration",
+  "version": "0.1.0",
+  "description": "Reusable protocol for dispatching, monitoring, and recovering from subagent failures in Claude Code"
+}
