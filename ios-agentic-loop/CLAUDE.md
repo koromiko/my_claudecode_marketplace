@@ -11,7 +11,12 @@ A Claude Code plugin for agentic iOS UI testing. Combines **idb** (iOS Developme
 - macOS with Xcode
 - idb: `pip3 install fb-idb` + `brew tap facebook/fb && brew install idb-companion`
 - Maestro: `curl -Ls 'https://get.maestro.mobile.dev' | bash`
-- Java 17+ (required by Maestro): `brew install openjdk@21`
+- Java 17+ (required by Maestro): `brew install openjdk@21`, then set `JAVA_HOME`:
+  ```bash
+  export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+  export PATH="$JAVA_HOME/bin:$PATH"
+  ```
+  Add both to `~/.zshrc` for persistence. Without `JAVA_HOME`, the system `java` may point to an older version.
 - A booted iOS Simulator with the target app installed
 
 Verify setup: `bash scripts/check-prerequisites.sh`
@@ -62,6 +67,7 @@ Action logs are written to `/tmp/agentic/action_log.json` and can be exported to
 - **Accessibility identifier naming**: `{scope}_{type}_{name}` (e.g., `login_button_submit`, `settings_toggle_dark_mode`)
 - **Maestro selector priority**: `id:` (accessibility ID, preferred) > `text:` (visible text) > `point:` (percentage coords, last resort)
 - **Scripts use** `set -euo pipefail` for safety
+- **Shell version parsing**: When writing sed/awk patterns that extract version numbers, test with actual command output. Use `\.` (escaped dot) to match literal dots in version strings — an unescaped `.` causes greedy matching that silently produces empty output.
 - **Config file**: `agentic-loop.config.yaml` in the target project root (created by `/setup-project`)
 
 ### Action Log Format

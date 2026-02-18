@@ -45,7 +45,7 @@ check "Maestro" \
     "curl -Ls 'https://get.maestro.mobile.dev' | bash"
 
 check "Java 17+ (required by Maestro)" \
-    "java -version 2>&1 | head -1 | sed 's/.*\"\([0-9]*\).*/\1/' | awk '{ exit (\$1 >= 17) ? 0 : 1 }'" \
+    "java -version 2>&1 | head -1 | sed 's/.*\"\([0-9]*\)\..*/\1/' | awk '{ exit (\$1 >= 17) ? 0 : 1 }'" \
     "brew install openjdk@21 && export JAVA_HOME=\$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
 
 check "Booted simulator" \

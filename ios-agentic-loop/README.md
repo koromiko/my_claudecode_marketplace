@@ -23,6 +23,11 @@ The core idea: Claude explores your app through an observe-reason-act-verify loo
 - macOS with Xcode installed
 - idb (`pip3 install fb-idb` + `brew tap facebook/fb && brew install idb-companion`)
 - Maestro (`curl -Ls 'https://get.maestro.mobile.dev' | bash`)
+- Java 17+ (`brew install openjdk@21`) — required by Maestro. Set `JAVA_HOME` in `~/.zshrc`:
+  ```bash
+  export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+  export PATH="$JAVA_HOME/bin:$PATH"
+  ```
 - A booted iOS Simulator with your app installed
 
 Run `/check-prerequisites` to verify your setup.

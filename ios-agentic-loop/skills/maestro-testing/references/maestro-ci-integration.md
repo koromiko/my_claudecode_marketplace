@@ -18,6 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
       - name: Install Maestro
         run: curl -Ls "https://get.maestro.mobile.dev" | bash
 

@@ -77,4 +77,4 @@ The most common cause is the app running at legacy 320x480 resolution (letterbox
 - For XcodeGen: use `info.properties` with `UILaunchScreen: {}`, NOT `INFOPLIST_VALUES`
 - After fixing, uninstall the app from the simulator and reinstall (the old launch screen config is cached)
 
-**"Java 17 or higher is required":** See `/check-prerequisites` for fix.
+**"Java 17 or higher is required":** Install Java 21 (`brew install openjdk@21`) and set `JAVA_HOME` in `~/.zshrc`. See `/check-prerequisites` for full instructions.
