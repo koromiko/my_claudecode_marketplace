@@ -6,3 +6,11 @@ local_plugins/
 
 # Git worktrees
 .worktrees/
+
+# Build output
+**/dist/
+**/node_modules/
+
+# Local symlinks (machine-specific)
+stackey-experts
+swift-project-tools
