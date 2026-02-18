@@ -98,6 +98,12 @@ TabView(selection: $selectedTab) {
 }
 ```
 
+> **Maestro caveat:** `.accessibilityIdentifier("tab_settings")` sets the ID on the *content view*, not the tab bar button. SwiftUI only mounts active tab content in the accessibility tree, so Maestro `id:` selectors **cannot find inactive tabs**. Use `text:` selectors for tab bar navigation:
+> ```yaml
+> - tapOn:
+>     text: "Settings"   # Targets visible tab bar label
+> ```
+
 ## Modifiers That Affect Accessibility
 
 ### `.buttonStyle(.plain)`

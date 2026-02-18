@@ -125,6 +125,14 @@ Apps with multiple languages must use `id:` selectors:
     id: "tab_profile"
 ```
 
+> **SwiftUI exception:** Native `TabView` puts `accessibilityIdentifier` on the content view, not the tab bar button. Inactive tab content is not in the accessibility tree. Use `text:` selectors instead:
+> ```yaml
+> - tapOn:
+>     text: "Home"
+> - tapOn:
+>     text: "Settings"
+> ```
+
 ### Grid/Collection
 
 ```yaml
@@ -155,3 +163,8 @@ Apps with multiple languages must use `id:` selectors:
 - tapOn:
     id: "list_item_99"
 ```
+
+## SwiftUI Gotchas
+
+- **TabView tabs:** Use `text:` selectors for tab bar navigation, not `id:`. The `accessibilityIdentifier` on tab content is only in the tree when that tab is active.
+- **Legacy resolution breaks hierarchy:** If `maestro hierarchy` returns almost no elements but `idb ui describe-all` works, the app is likely running at 320x480 due to a missing `UILaunchScreen` in Info.plist. Fix the resolution before debugging element selectors.

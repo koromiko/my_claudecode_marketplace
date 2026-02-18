@@ -11,6 +11,7 @@ A Claude Code plugin for agentic iOS UI testing. Combines **idb** (iOS Developme
 - macOS with Xcode
 - idb: `pip3 install fb-idb` + `brew tap facebook/fb && brew install idb-companion`
 - Maestro: `curl -Ls 'https://get.maestro.mobile.dev' | bash`
+- Java 17+ (required by Maestro): `brew install openjdk@21`
 - A booted iOS Simulator with the target app installed
 
 Verify setup: `bash scripts/check-prerequisites.sh`

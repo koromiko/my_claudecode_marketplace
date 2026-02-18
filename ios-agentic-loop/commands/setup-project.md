@@ -56,10 +56,25 @@ echo "tests/agentic/results/" >> .gitignore
 
 ## Step 7: Verify
 
-Run the smoke test to verify setup:
+First verify the app runs at native resolution (not legacy 320x480):
+- Build and install the app on the simulator
+- Take a screenshot or run `idb ui describe-all` — check that the app frame matches the device resolution (e.g., ~393x852 for iPhone 16 Pro), NOT 320x480
+- If the app is letterboxed at 320x480, the Info.plist is missing `UILaunchScreen`. For XcodeGen projects, use `info.properties` (not `INFOPLIST_VALUES`) to set `UILaunchScreen: {}`. Uninstall and reinstall after fixing.
+
+Then run the smoke test:
 
 ```bash
 maestro test tests/maestro/flows/smoke/app_launch.yaml
 ```
 
 Report success or failure and next steps.
+
+## Troubleshooting
+
+**Smoke test fails with "element not visible" for all elements:**
+The most common cause is the app running at legacy 320x480 resolution (letterboxed). Maestro's XCUITest driver cannot enumerate SwiftUI elements at this resolution, even though `idb ui describe-all` works fine.
+- Verify the app's Info.plist contains `<key>UILaunchScreen</key><dict/>`
+- For XcodeGen: use `info.properties` with `UILaunchScreen: {}`, NOT `INFOPLIST_VALUES`
+- After fixing, uninstall the app from the simulator and reinstall (the old launch screen config is cached)
+
+**"Java 17 or higher is required":** See `/check-prerequisites` for fix.

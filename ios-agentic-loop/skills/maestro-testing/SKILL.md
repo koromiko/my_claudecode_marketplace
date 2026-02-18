@@ -58,6 +58,8 @@ Always prefer the most stable selector:
     point: "50%,90%"
 ```
 
+> **SwiftUI TabView exception:** Use `text:` selectors for tab bar navigation. `.accessibilityIdentifier()` on TabView children sets the ID on the content view, which is only in the tree when that tab is active. See `references/maestro-selectors.md`.
+
 See `references/maestro-selectors.md` for the full selector reference.
 
 ## Key Commands
@@ -114,6 +116,7 @@ When flows break after UI changes:
 2. **Update selector**: If text changed, switch to `id:` selector
 3. **Re-record**: If flow structure changed, re-run idb exploration to generate new flow
 4. **Validate**: Run `maestro test` on the updated flow
+5. **Empty hierarchy**: If `maestro hierarchy` returns almost no elements but `idb ui describe-all` works, the app is likely running at legacy 320x480 resolution. Fix by adding `UILaunchScreen: {}` to Info.plist, then uninstall and reinstall the app.
 
 See `references/maestro-ci-integration.md` for CI setup.
 

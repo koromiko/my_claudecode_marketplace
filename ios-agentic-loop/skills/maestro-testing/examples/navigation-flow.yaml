@@ -12,26 +12,27 @@ tags:
     clearState: true
 
 # Start on Home tab
+# Use text: for SwiftUI TabView — id: targets content views (only active tab)
 - assertVisible:
-    id: "tab_home"
+    text: "Home"
 
 # Navigate to Settings
 - tapOn:
-    id: "tab_settings"
+    text: "Settings"
 - waitForAnimationToEnd
 - assertVisible:
     id: "settings_content"
 
 # Navigate to Profile
 - tapOn:
-    id: "tab_profile"
+    text: "Profile"
 - waitForAnimationToEnd
 - assertVisible:
     id: "profile_content"
 
 # Return to Home
 - tapOn:
-    id: "tab_home"
+    text: "Home"
 - waitForAnimationToEnd
 - assertVisible:
     id: "home_content"

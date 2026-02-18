@@ -14,11 +14,12 @@ tags:
 - waitForAnimationToEnd
 
 # Verify main navigation is visible
+# Use text: for SwiftUI TabView — id: targets content views (only active tab)
 - assertVisible:
-    id: "tab_home"
+    text: "Home"
 
 - assertVisible:
-    id: "tab_settings"
+    text: "Settings"
 
 # Take screenshot for visual record
 - takeScreenshot: "smoke_app_launch"
