@@ -1,8 +1,8 @@
 # Agentic Testing Loop Configuration for AgenticTodo Demo App
 
 simulator:
-  device: "iPhone 16 Pro"
-  runtime: "iOS 18.2"
+  device: "iPhone 17 Pro"
+  runtime: "iOS 26.0"
   udid: auto
 
 app:

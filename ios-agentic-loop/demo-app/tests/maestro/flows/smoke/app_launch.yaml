@@ -36,14 +36,14 @@ tags:
 
 - waitForAnimationToEnd
 
-# Verify main app loaded with tabs
+# Verify main app loaded with tab bar
 - assertVisible:
-    id: "tab_home"
+    text: "Tasks"
 
 - assertVisible:
-    id: "tab_settings"
+    text: "Settings"
 
-# Verify task list is visible
+# Verify task list is visible on home tab
 - assertVisible:
     id: "home_list_tasks"
 
