@@ -16,6 +16,10 @@ A local marketplace for Claude Code plugins, providing custom tools, skills, and
 ├── stackey-backend/        # Stackey API integration plugin
 │   ├── agents/             # Code generation agents
 │   └── skills/             # API, auth, database knowledge
+├── stackey-experts/        # Stackey expert agents (symlink → /Users/neo/Projects/Stackey)
+│   ├── agents/             # Domain expert agents
+│   └── commands/           # Orchestration commands
+├── swift-project-tools/    # Swift Project Tools (symlink)
 └── local_plugins/          # Additional local plugins
     └── tokenz-checkout-skills/
 ```
@@ -37,6 +41,17 @@ Skills for working with StackeyBackend Supabase API - blocks, media, favorites, 
 - **Skills**: API endpoints, authentication patterns, database schema
 - **Agents**: TypeScript/Swift code generation for API integration
 - **Keywords**: stackey, supabase, api, blocks, media, authentication
+
+### stackey-experts
+
+Expert agents for the Stackey ecosystem with specialized knowledge for each component.
+
+- **Agents**:
+  - `stackey-app-expert` - iOS/Swift, XcodeGen, SwiftUI, keyboard extension
+  - `stackey-backend-expert` - Supabase Edge Functions, PostgreSQL, authentication
+  - `contract-manager` - OpenAPI specs, Swift type generation, contract testing
+- **Commands**: `/generate-orchestration` - Generate agent orchestration instructions for CLAUDE.md
+- **Keywords**: stackey, ios, swift, supabase, openapi, api-contract, agents
 
 ### tokenz-specs (local)
 
