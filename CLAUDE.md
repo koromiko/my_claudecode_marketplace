@@ -14,8 +14,6 @@ marketplace.json (registry)
   ├── claude-usage-analyzer/ → Python pipeline analyzing ~/.claude/ session data
   ├── default-tools/        → Hook-only plugin: auto-approve, macOS notifications
   ├── ios-agentic-loop/     → iOS testing via idb + Maestro, includes TypeScript MCP server
-  ├── stackey-backend/      → Supabase API skills and code-gen agents
-  ├── stackey-experts/      → (symlink) Domain expert agents for Stackey ecosystem
   ├── agent-orchestration/  → Reusable subagent dispatch/retry/fallback protocol
   └── swift-project-tools/  → (symlink) Swift project setup skills
 ```
@@ -33,7 +31,7 @@ plugin-name/
 └── mcp-server/                  # MCP server (only ios-agentic-loop)
 ```
 
-Symlinked plugins (`stackey-experts`, `swift-project-tools`) live in external repos and are gitignored.
+Symlinked plugin (`swift-project-tools`) lives in an external repo and is gitignored.
 
 ## Commands
 
