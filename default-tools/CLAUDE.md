@@ -46,7 +46,7 @@ echo '{"tool_name":"Read","tool_input":{"file_path":"/some/file.txt"}}' | bash h
 echo '{"tool_name":"Read","tool_input":{"file_path":"/home/user/.ssh/id_rsa"}}' | bash hooks/auto-approve.sh
 
 # Clear plugin cache to pick up changes
-../../scripts/bump-plugin.sh default-tools
+../../scripts/local_release.sh default-tools
 ```
 
 ## Prerequisites
