@@ -9,13 +9,6 @@
   },
   "plugins": [
     {
-      "name": "tmux-session-tools",
-      "description": "Tmux integration for Claude Code with session forking and comprehensive tmux knowledge",
-      "version": "1.0.0",
-      "source": "./tmux-session-tools",
-      "category": "development"
-    },
-    {
       "name": "stackey-backend",
       "description": "Skills for working with StackeyBackend Supabase API - blocks, media, favorites, and authentication",
       "version": "1.0.0",
@@ -40,6 +33,27 @@
       "description": "Protocol for dispatching, monitoring, and recovering from subagent failures — pre-flight checks, retry policy, fallback strategy, output contracts, and team swarm coordination",
       "version": "0.1.0",
       "source": "./agent-orchestration",
+      "category": "workflow"
+    },
+    {
+      "name": "session-manager",
+      "description": "Terminal session management - fork sessions, run commands in panes/tabs, capture output",
+      "version": "2.1.0",
+      "source": "./session-manager",
+      "category": "development"
+    },
+    {
+      "name": "claude-usage-analyzer",
+      "description": "Analyze Claude Code session usage data and generate comprehensive reports",
+      "version": "1.1.0",
+      "source": "./claude-usage-analyzer",
+      "category": "analytics"
+    },
+    {
+      "name": "default-tools",
+      "description": "Auto-approve safe tools with sensitive-path guards, macOS notifications, and session retrospective command",
+      "version": "1.2.0",
+      "source": "./default-tools",
       "category": "workflow"
     }
   ]

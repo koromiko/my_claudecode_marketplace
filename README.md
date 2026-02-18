@@ -8,11 +8,16 @@ A local marketplace for Claude Code plugins, providing custom tools, skills, and
 .
 ├── .claude-plugin/
 │   └── marketplace.json    # Marketplace manifest
-├── tmux-session-tools/     # Tmux integration plugin
-│   ├── agents/             # Autonomous agents
+├── session-manager/        # Terminal session management plugin
 │   ├── commands/           # Slash commands
 │   ├── scripts/            # Helper scripts
 │   └── skills/             # Knowledge skills
+├── claude-usage-analyzer/  # Usage analytics plugin
+│   ├── commands/           # Slash commands
+│   ├── scripts/            # Python analysis pipeline
+│   └── reference/          # Reference data
+├── default-tools/          # Auto-approve hooks plugin
+│   └── hooks/              # Event handlers
 ├── stackey-backend/        # Stackey API integration plugin
 │   ├── agents/             # Code generation agents
 │   └── skills/             # API, auth, database knowledge
@@ -26,13 +31,28 @@ A local marketplace for Claude Code plugins, providing custom tools, skills, and
 
 ## Available Plugins
 
-### tmux-session-tools
+### session-manager
 
-Tmux integration for Claude Code with session forking and comprehensive tmux knowledge.
+Terminal session management - fork sessions, run commands in panes/tabs, capture output.
 
-- **Commands**: `/fork-session` - Fork current tmux session
-- **Skills**: Tmux scripting and advanced usage knowledge
-- **Keywords**: tmux, terminal, session, fork, multiplexer
+- **Commands**: `/fork` - Fork current Claude Code session, `/run-in-pane` - Run command in new pane/tab, `/list-sessions` - List managed sessions
+- **Skills**: Pane context capture and interaction
+- **Keywords**: tmux, iterm, terminal, session, fork, pane
+
+### claude-usage-analyzer
+
+Analyze Claude Code session usage data and generate comprehensive reports with quantitative and qualitative insights.
+
+- **Commands**: `/analyze-usage` - Run full analysis pipeline
+- **Scripts**: Python analysis pipeline (generate_report.py, analyze_sessions.py, etc.)
+- **Keywords**: usage, analytics, sessions, reports, statistics
+
+### default-tools
+
+Auto-approve safe tools with sensitive-path guards, macOS permission and stop notifications.
+
+- **Hooks**: Auto-approve (PreToolUse), permission notification, stop notification
+- **Keywords**: auto-approve, notifications, hooks, permissions
 
 ### stackey-backend
 

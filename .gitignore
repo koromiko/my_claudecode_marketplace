@@ -14,3 +14,8 @@ local_plugins/
 # Local symlinks (machine-specific)
 stackey-experts
 swift-project-tools
+
+**/__pycache__/
+*.pyc
+.DS_Store
+**/.DS_Store

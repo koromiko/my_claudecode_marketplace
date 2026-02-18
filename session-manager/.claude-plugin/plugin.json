@@ -1,0 +1,8 @@
+{
+  "name": "session-manager",
+  "version": "2.1.0",
+  "description": "Manage Claude Code sessions across tmux panes and iTerm tabs - fork sessions, run commands, and capture output",
+  "author": {
+    "name": "sthuang"
+  }
+}

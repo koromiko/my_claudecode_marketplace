@@ -1,0 +1,12 @@
+reports/
+aggregate_report.json
+global_stats.json
+qualitative_data.json
+session_analysis.json
+session_analysis_*.json
+analysis_prompt.md
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.claude/

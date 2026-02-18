@@ -1,0 +1,18 @@
+# Claude Usage Analyzer Dependencies
+#
+# This plugin uses only Python standard library modules.
+# No external dependencies required.
+#
+# Required Python version: 3.8+
+#
+# Standard library modules used:
+# - json
+# - os
+# - re
+# - datetime
+# - pathlib
+# - collections
+# - typing
+# - argparse
+# - statistics
+# - glob

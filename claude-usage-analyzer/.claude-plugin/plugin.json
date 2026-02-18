@@ -1,0 +1,17 @@
+{
+  "name": "claude-usage-analyzer",
+  "version": "1.1.0",
+  "description": "Analyze Claude Code session usage data and generate comprehensive reports with quantitative and qualitative insights",
+  "author": {
+    "name": "sthuang"
+  },
+  "license": "MIT",
+  "keywords": [
+    "analytics",
+    "usage",
+    "reporting",
+    "sessions",
+    "metrics"
+  ],
+  "commands": "./commands/"
+}
