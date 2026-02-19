@@ -44,7 +44,7 @@ Uses `McpServer` from `@modelcontextprotocol/sdk` v1 with Zod schemas. Config lo
 
 ### Plugin Components
 
-- **Agents** (`agents/`): `ui-explorer.md` (ORAV loop via idb, model: sonnet) and `regression-runner.md` (Maestro suite runner, model: sonnet)
+- **Agents** (`agents/`): `ui-explorer.md` (ORAV loop via idb, model: sonnet), `regression-runner.md` (Maestro suite runner, model: sonnet), and `flow-recorder.md` (end-to-end flow recording + verification, model: sonnet)
 - **Commands** (`commands/`): Six slash commands — `/check-prerequisites`, `/setup-project`, `/audit-accessibility`, `/run-maestro`, `/reset-test-state`, `/export-maestro-flow`
 - **Skills** (`skills/`): Three methodology guides — `idb-exploration/` (ORAV loop), `accessibility-testing/` (identifier naming/auditing), `maestro-testing/` (flow authoring)
 - **Scripts** (`scripts/`): Bash utilities — `check-prerequisites.sh`, `reset-test-state.sh`, `boot-simulator.sh`, `find-app-bundle.sh`
