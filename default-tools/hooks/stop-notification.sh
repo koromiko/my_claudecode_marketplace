@@ -44,11 +44,15 @@ else
   message="Claude has finished working."
 fi
 
-# Send macOS notification
-if command -v terminal-notifier &>/dev/null; then
-  terminal-notifier -title "Claude Code" -subtitle "Project: $project_name" \
-    -message "$message" -activate com.googlecode.iterm2
-fi
+# Suppress notifications during meetings (Zoom, mic active)
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! "$HOOK_DIR/is-in-meeting.sh"; then
+  # Send macOS notification
+  if command -v terminal-notifier &>/dev/null; then
+    terminal-notifier -title "Claude Code" -subtitle "Project: $project_name" \
+      -message "$message" -activate com.googlecode.iterm2
+  fi
 
-# Read out project name and status
-say "$project_name: $message" &
+  # Read out project name and status
+  say "$project_name: $message" &
+fi

@@ -53,6 +53,8 @@ struct LoginView: View {
             Spacer()
             Spacer()
         }
+        .onAppear {
+        }
         .alert("Reset Password", isPresented: $showForgotAlert) {
             Button("OK", role: .cancel) {}
         } message: {

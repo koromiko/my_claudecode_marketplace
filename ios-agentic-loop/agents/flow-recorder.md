@@ -44,9 +44,9 @@ Phase 6: Cleanup injected logs & report
    - Sub-goals: [Navigate to login screen, Enter email, Enter password, Tap submit, Verify logged in]
 
 2. Read the project's `agentic-loop.config.yaml` for:
-   - `app.bundle_id` — needed for Maestro frontmatter and `idb log`
+   - `app.bundle_id` — needed for Maestro frontmatter and log filtering
    - `app.build_command` — needed for `build_and_launch`
-   - `simulator.udid` — needed for `idb log`
+   - `simulator.udid` — needed for `xcrun simctl spawn` log capture
 
 3. Create working directory:
    ```bash
@@ -130,7 +130,7 @@ Write the YAML to `tests/maestro/flows/generated/<flow_name>.yaml`. Create the `
 
 ## Phase 4: Inject Verification Logs
 
-For each step in the action log, inject a print statement into the corresponding Swift source file.
+For each step in the action log, inject an `os_log` statement into the corresponding Swift source file. Use `os_log` (not `print()`) because `print()` goes to stdout and is invisible to `log show`/`log stream` on iOS simulators.
 
 ### Step 4.1: Find Swift files
 
@@ -145,43 +145,62 @@ For each action log entry with an `a11y_id`:
 For entries with only a `label`:
 - Search for the label text in Swift files to find the view.
 
-### Step 4.2: Inject log statements
+### Step 4.2: Inject the `import os` statement
+
+Before injecting log statements, each Swift file that will receive markers needs `import os` at the top. Check if the file already has `import os`; if not, add it immediately after the last existing `import` line:
+
+```swift
+import SwiftUI
+import os  // [FlowVerify]
+```
+
+The `// [FlowVerify]` trailing comment ensures the import is removed during cleanup.
+
+### Step 4.3: Inject log statements
 
 **Marker format:**
 ```swift
-print("[FlowVerify:<step>] <description>")  // [FlowVerify]
+os_log("[FlowVerify:<step>] <description>")  // [FlowVerify]
 ```
+
+**Why `os_log` instead of `print()`:** Swift `print()` writes to stdout, which is only visible in Xcode's console. It does NOT appear in the unified logging system (`log show`/`log stream`/`xcrun simctl spawn ... log`). `os_log` writes to the unified log and is capturable from the simulator via `log show --predicate`.
 
 **Injection rules by Swift pattern:**
 
 1. **SwiftUI `onAppear` / view body** — For screen arrival markers, find the view's `.onAppear` block or the `var body` property and inject after the opening brace:
    ```swift
    .onAppear {
-       print("[FlowVerify:1] LoginView appeared")  // [FlowVerify]
+       os_log("[FlowVerify:1] LoginView appeared")  // [FlowVerify]
    ```
 
 2. **SwiftUI `Button(action:)`** — For tap actions, find the button's action closure and inject as first line:
    ```swift
    Button(action: {
-       print("[FlowVerify:2] submitButton tapped")  // [FlowVerify]
+       os_log("[FlowVerify:2] submitButton tapped")  // [FlowVerify]
    ```
 
 3. **UIKit `viewDidAppear`** — Inject after `super.viewDidAppear(animated)`:
    ```swift
    override func viewDidAppear(_ animated: Bool) {
        super.viewDidAppear(animated)
-       print("[FlowVerify:1] LoginVC appeared")  // [FlowVerify]
+       os_log("[FlowVerify:1] LoginVC appeared")  // [FlowVerify]
    ```
 
 4. **UIKit `@IBAction`** — Inject as first line of method body:
    ```swift
    @IBAction func submitTapped(_ sender: UIButton) {
-       print("[FlowVerify:2] submitButton tapped")  // [FlowVerify]
+       os_log("[FlowVerify:2] submitButton tapped")  // [FlowVerify]
+   ```
+
+5. **SwiftUI view body (no `.onAppear`)** — For views without an `.onAppear` block, inject as the first line inside `var body: some View {` using a `let _ =` expression:
+   ```swift
+   var body: some View {
+       let _ = os_log("[FlowVerify:3] TaskListView appeared")  // [FlowVerify]
    ```
 
 Use the Edit tool for each injection. The `// [FlowVerify]` trailing comment is the cleanup anchor.
 
-### Step 4.3: Build expected log sequence
+### Step 4.4: Build expected log sequence
 
 Create an ordered list of expected markers:
 ```json
@@ -198,7 +217,7 @@ Save to `/tmp/agentic/flow-recorder/<timestamp>/expected_markers.json`.
 
 ### Step 5.1: Rebuild with injected logs
 
-Call the `build_and_launch` MCP tool to rebuild the app with the injected print statements:
+Call the `build_and_launch` MCP tool to rebuild the app with the injected os_log statements:
 
 ```
 MCP tool: build_and_launch
@@ -214,13 +233,15 @@ Determine the UDID (from config or auto-detect):
 UDID=$(xcrun simctl list devices booted -j | python3 -c "import sys,json; devs=[d for r in json.loads(sys.stdin.read())['devices'].values() for d in r if d['state']=='Booted']; print(devs[0]['udid'])")
 ```
 
-Start `idb log` in the background, filtering for FlowVerify markers:
+Start a log stream on the simulator, filtering for FlowVerify markers via the unified log:
 ```bash
-idb log --udid $UDID > /tmp/agentic/flow-recorder/<timestamp>/idb_log.txt 2>&1 &
+xcrun simctl spawn $UDID log stream --level debug --style compact --predicate 'composedMessage CONTAINS "FlowVerify"' > /tmp/agentic/flow-recorder/<timestamp>/idb_log.txt 2>&1 &
 LOG_PID=$!
 ```
 
 Wait 2 seconds for the log stream to start.
+
+> **Note:** `os_log` output appears in the unified logging system, which is why we use `xcrun simctl spawn ... log stream` with a predicate filter instead of `idb log`. Plain `print()` does NOT appear here.
 
 ### Step 5.3: Run the Maestro flow
 
@@ -261,7 +282,7 @@ Grep for: // \[FlowVerify\]
 In: **/*.swift
 ```
 
-For each file, use the Edit tool to remove lines containing `// [FlowVerify]`. Read the file first, identify all lines with the marker, and remove them.
+For each file, use the Edit tool to remove lines containing `// [FlowVerify]`. Read the file first, identify all lines with the marker, and remove them. This removes both the `os_log(...)` statements and the `import os` line added in Step 4.2, since all injected lines carry the `// [FlowVerify]` anchor comment.
 
 ### Step 6.2: Final report
 
@@ -311,5 +332,5 @@ ARTIFACTS:
 | No Swift files found for a11y IDs | Skip log injection for those steps, warn, continue |
 | `build_and_launch` fails | Clean up injected logs immediately, report build error, stop |
 | Maestro flow fails | Report failing step, still check partial log verification |
-| `idb log` produces no output | Warn about log capture failure, rely on Maestro pass/fail only |
+| `log stream` produces no output | Warn about log capture failure, rely on Maestro pass/fail only |
 | Log markers missing | Report as partial verification, flow may still be correct |

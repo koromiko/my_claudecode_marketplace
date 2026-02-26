@@ -135,7 +135,7 @@ def extract_jira_ticket(git_branch: Optional[str]) -> Optional[str]:
     """Extract JIRA ticket from git branch name."""
     if not git_branch:
         return None
-    # Match patterns like jira/PROJ-3450, feature/APP-1234, etc.
+    # Match patterns like jira/JSO-3450, jira/EMOBAPP-3336, etc.
     match = re.search(r'([A-Z]+-\d+)', git_branch, re.IGNORECASE)
     return match.group(1).upper() if match else None
 

@@ -33,11 +33,15 @@ if [[ -n "$session_id" ]]; then
   touch "/tmp/claude-hook-session-${session_id}"
 fi
 
-# Send macOS notification
-if command -v terminal-notifier &>/dev/null; then
-  terminal-notifier -title "Claude Code" -subtitle "$project_name" \
-    -message "$message" -activate com.googlecode.iterm2
-fi
+# Suppress notifications during meetings (Zoom, mic active)
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! "$HOOK_DIR/is-in-meeting.sh"; then
+  # Send macOS notification
+  if command -v terminal-notifier &>/dev/null; then
+    terminal-notifier -title "Claude Code" -subtitle "$project_name" \
+      -message "$message" -activate com.googlecode.iterm2
+  fi
 
-# Speak the notification
-say "$project_name: $message" &
+  # Speak the notification
+  say "$project_name: $message" &
+fi

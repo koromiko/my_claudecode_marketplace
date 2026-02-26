@@ -2,10 +2,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": {
-          "tool_name": "Edit",
-          "input_contains": "View.swift"
-        },
+        "matcher": "Edit",
         "hooks": [
           {
             "type": "prompt",

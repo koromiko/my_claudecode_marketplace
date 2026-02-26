@@ -1,7 +1,7 @@
 {
   "name": "default-tools",
   "version": "1.2.0",
-  "description": "Default tool auto-approval with sensitive-path guards, macOS notification hooks, and session retrospective command",
+  "description": "Default tool auto-approval with sensitive-path guards and macOS permission/stop notification hooks",
   "author": {
     "name": "sthuang"
   }
