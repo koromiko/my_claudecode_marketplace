@@ -14,8 +14,10 @@ It generates comprehensive usage reports with quantitative and qualitative insig
 
 - `.claude-plugin/plugin.json` - Plugin manifest
 - `commands/analyze-usage.md` - Slash command definition with execution steps
+- `commands/compose-tech-note.md` - Slash command for generating "How I Use Claude Code" articles
 - `scripts/` - Python analysis scripts (no external dependencies, Python 3.8+ standard library only)
 - `reference/analysis_prompt.md` - Guidelines for Claude to follow when analyzing data
+- `reference/article_prompt.md` - Article structure and tone guide for compose-tech-note
 - `reports/data/` - Generated report data JSON files
 - `reports/sessions/` - Generated individual session HTML detail pages
 
@@ -78,6 +80,22 @@ Optional HTML output:
    - Takes `session_deep_dive_{uuid}.json` from generate_report.py --session
    - Produces tool usage patterns, workflow phase detection, conversation analysis, file impact
    - Outputs: `session_analysis_{uuid_short}.json`
+
+### compose-tech-note Command
+
+`/compose-tech-note [period] [--html]` — generates a "How I Use Claude Code" article.
+
+- Default period: monthly (all projects, no project filter)
+- Reuses the same 3-step data pipeline as analyze-usage
+- Orchestrates via Task subagents to keep main context lean:
+  1. Pipeline scripts produce JSON data
+  2. Data Analysis agent extracts an article brief
+  3. Article Writing agent composes the narrative
+  4. (Optional) HTML agent fills the styled template
+  5. Cleanup removes intermediate files
+- Article reference prompt: `reference/article_prompt.md`
+- HTML template: `scripts/article_html_template.py`
+- HTML generator: `scripts/generate_article_html.py`
 
 ## Key Implementation Details
 
