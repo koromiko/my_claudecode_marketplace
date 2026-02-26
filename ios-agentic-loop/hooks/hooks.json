@@ -3,10 +3,11 @@
     "PostToolUse": [
       {
         "matcher": "Edit",
+        "filePattern": "*View.swift",
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "A SwiftUI/UIKit view file was just edited. Check: does the edited view have accessibility identifiers on all interactive elements (buttons, text fields, toggles, tappable cards)? If any interactive elements are missing .accessibilityIdentifier() (SwiftUI) or accessibilityIdentifier (UIKit), suggest adding them following the {scope}_{type}_{name} convention."
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-a11y-identifiers.sh"
           }
         ]
       }
