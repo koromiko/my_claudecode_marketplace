@@ -12,14 +12,13 @@ It generates comprehensive usage reports with quantitative and qualitative insig
 
 ## Plugin Structure
 
-- `.claude-plugin/plugin.json` - Plugin manifest
-- `commands/analyze-usage.md` - Slash command definition with execution steps
+- `commands/analyze-usage.md` - Slash command definition with full execution steps (the primary entry point)
 - `commands/compose-tech-note.md` - Slash command for generating "How I Use Claude Code" articles
-- `scripts/` - Python analysis scripts (no external dependencies, Python 3.8+ standard library only)
+- `scripts/` - Python analysis scripts (Python 3.8+ stdlib only, no pip install)
 - `reference/analysis_prompt.md` - Guidelines for Claude to follow when analyzing data
 - `reference/article_prompt.md` - Article structure and tone guide for compose-tech-note
-- `reports/data/` - Generated report data JSON files
-- `reports/sessions/` - Generated individual session HTML detail pages
+- `docs/plans/` - Design/planning documents
+- `reports/` - Generated output (data JSON, markdown, HTML, session detail pages)
 
 ## Script Pipeline
 
@@ -99,6 +98,14 @@ Optional HTML output:
 
 ## Key Implementation Details
 
+### Module Dependencies
+`generate_report.py` is the orchestrator and imports heavily from the other modules:
+- `extract_sessions.SessionExtractor` + `generate_summary_for_analysis` - session JSONL parsing
+- `analyze_sessions.classify_task_type`, `detect_issues`, `detect_successes`, `evaluate_task_completion`, `calculate_completion_confidence`, etc. - all classification/scoring logic lives in analyze_sessions.py
+- `extract_global_stats.GlobalStatsExtractor` - `~/.claude.json` parsing
+
+All scripts must be run from within the `scripts/` directory or with `scripts/` on `sys.path` because they use relative imports (e.g., `from extract_sessions import ...`).
+
 ### Session Data Format (`~/.claude/projects/`)
 - Claude Code stores sessions as JSONL files in `~/.claude/projects/{encoded-project-path}/`
 - Each line is a JSON object: user messages (`type: "user"`), assistant messages (`type: "assistant"` with `tool_use` blocks), metadata, summaries (`type: "summary"`)
@@ -140,89 +147,23 @@ The extractor tracks three categories of Claude Code features:
 - **slash_commands**: User messages starting with `/` (e.g., `/commit`, `/help`)
 
 ### Task Classification
-Tasks are classified by keyword matching in prompts (in priority order), with session-characteristic fallback:
-- `bug_fix`: bug, fix, error, issue, broken, doesn't work, failing, crash, resolve, patch
-- `testing`: test, spec, e2e, unit test, integration test, coverage, jest, pytest
-- `config`: config, setup, install, terraform, infra, deploy, ci, cd, docker, kubernetes
-- `review`: review, pr, pull request, code review, feedback, approve, merge
-- `exploration`: explain, what is, how does, document, learn, describe, help me understand
-- `debug`: debug, investigate, why, understand, trace, log, look into, diagnose
-- `refactor`: refactor, clean, improve, optimize, restructure, simplify, rename
-- `feature`: add, create, implement, new feature, build, introduce, develop, make
-- `update`: update, change, modify, edit, adjust, tweak, revise, enhance, upgrade, migrate
-- `lookup`: find, search, locate, where, show me, list, get, check, verify, validate; also: sessions <5 min with no edits and <10 tool calls default to lookup instead of general
-- `general`: fallback (target: <30% of sessions)
+Tasks are classified by keyword matching in prompts (in priority order) via `classify_task_type()` in `analyze_sessions.py`. Categories: `bug_fix`, `testing`, `config`, `review`, `exploration`, `debug`, `refactor`, `feature`, `update`, `lookup`, `general` (fallback, target <30%). Sessions <5 min with no edits and <10 tool calls default to `lookup` instead of `general`.
 
 ### Session Type Classification
-Sessions are classified as "work" or "lookup" based on activity:
-- `lookup`: <5 min duration, <10 tool calls, no file edits (quick information retrieval)
-- `work`: >=5 min duration OR >=10 tool calls OR has file edits (substantive work sessions)
+- `lookup`: <5 min duration, <10 tool calls, no file edits
+- `work`: everything else (>=5 min OR >=10 tool calls OR has file edits)
 
 ### Completion Detection
-The completion detection system uses a multi-layered approach:
+Multi-layered system in `analyze_sessions.py`:
+1. **Task-type specific criteria** - each type has different completion signals (e.g., `bug_fix` needs Edit+test/commit, `exploration` needs Read+user engagement)
+2. **Failure signal detection** - `detect_failure_signals()` checks for errors, high retry ratio, abandonment, user frustration keywords, etc.
+3. **Confidence scoring (0-100)** - `calculate_completion_confidence()` sums positive signals (edits, commits, tests) minus negative signals. Threshold: >= 60 = "likely completed" (`COMPLETION_CONFIDENCE_THRESHOLD`)
+4. **Outcome classification** - `completed`, `completed_with_issues`, `partially_completed`, `exploration_complete`, `lookup_complete`, `abandoned`, `blocked`, `unclear`
 
-**1. Task-Type Specific Criteria:**
-Each task type has different completion signals:
-| Task Type | Completion Signals |
-|-----------|-------------------|
-| `bug_fix` | Edit/Write + (test run OR git commit) |
-| `feature` | Edit/Write + files_touched > 0 |
-| `refactor` | Edit/Write + files_touched > 1 |
-| `debug` | Read operations + duration > 5 min + user_msgs > 1 |
-| `testing` | Test command execution |
-| `config` | Bash OR Edit/Write |
-| `exploration` | Read/Grep/Glob + user_msgs > 1 |
-| `general` | Edit/Write OR (files_touched > 0 + git commit/push) |
-
-**2. Failure Signal Detection:**
-Signals that indicate a session may have failed or been abandoned:
-- `error_in_commands`: Error patterns in bash output (severity 1-3 based on count)
-- `high_retry_ratio`: Tool-to-message ratio > 15
-- `quick_abandonment`: Duration < 2 min with > 5 tool calls
-- `read_without_edit`: Many reads but no edits with > 10 tool calls
-- `failed_git_commit`: Git commit with error indicators
-- `user_frustration`: Keywords like "never mind", "doesn't work", "give up"
-- `no_tangible_output`: Long session with no edits or commits
-
-**3. Confidence Scoring (0-100):**
-Each session receives a confidence score based on:
-- Positive signals: has_edits (+15), successful_commit (+20), git_push (+10), tests_ran (+15), files_touched (+10), multiple_files (+5), sufficient_work_time (+5), user_engagement (+5)
-- Negative signals: errors_detected (-5 to -20), failed_commit (-15), high_retry_ratio (-15), user_frustration (-20), quick_abandonment (-20), no_tangible_output (-10)
-- Threshold: Sessions with confidence >= 60 are considered "likely completed"
-
-**4. Expanded Outcome States:**
-Sessions are classified into one of these outcomes:
-| Outcome | Definition |
-|---------|------------|
-| `completed` | Task accomplished, no issues, confidence >= 60 |
-| `completed_with_issues` | Task done but had problems along the way |
-| `partially_completed` | Some criteria met but not all |
-| `exploration_complete` | Research/exploration task answered (no code needed) |
-| `lookup_complete` | Short read-only session that answered a question (duration <5 min, no edits, no frustration) |
-| `abandoned` | Quick abandonment or user frustration signals |
-| `blocked` | External dependency prevented completion (errors after significant effort) |
-| `unclear` | Cannot determine outcome |
-
-### Issue Detection Heuristics
-- `command_error`: Commands containing "error" or "fail"
-- `high_tool_usage`: Tool calls per user message ratio > 10
-- `rapid_interactions`: >20 turns in <5 minutes
-
-### Git Operations Classification
-Git commands are classified into categories:
-- `has_commit`: git commit was executed
-- `has_push`: git push was executed
-- `has_add`: git add was executed
-- `read_only`: Only read operations (status, log, diff, branch, show)
-- `has_failed_commit`: Commit appears to have failed (error in output)
-
-### Metrics Formulas
+### Key Metrics
 - Completion rate: `(completed + completed_with_issues + exploration_complete + lookup_complete) / total_sessions * 100`
-- Expanded completion rate: Includes all successful outcomes
-- Average confidence score: Mean of all session confidence scores
-- Tools per file: `total_tool_calls / files_touched`
-- Files per hour: `files_touched / (duration_minutes / 60)`
-- Percentiles: Linear interpolation at percentile index
+- Git operations classified via `classify_git_operations()`: commit, push, add, read_only, failed_commit
+- Efficiency: tools per file, files per hour, tools per message
 
 ## Running Scripts Directly
 
@@ -313,20 +254,11 @@ reports/analysis_report_{dates}.md   partial HTML + markers
                                      (individual session detail pages)
 ```
 
-**Note on output locations:**
+**Output locations:**
 - Report data: `reports/data/` (within plugin or CWD)
 - Final reports: `reports/` (markdown and HTML)
 - Session detail pages: `reports/sessions/`
-- Intermediate files (`aggregate_report.json`, `session_analysis.json`, `qualitative_data.json`): generated in the current working directory
-
-### HTML Report Features
-- Self-contained: all CSS embedded, no external dependencies
-- Dark theme with responsive design (works on mobile)
-- CSS-based horizontal bar charts for tool usage
-- SVG pie chart for task type distribution
-- Progress bars showing completion and issue rates
-- Time series sparkline for sessions over time
-- Qualitative sections filled by Claude after initial generation
+- Intermediate files (`aggregate_report.json`, `session_analysis.json`, `qualitative_data.json`): current working directory
 
 ## Testing & Validation
 

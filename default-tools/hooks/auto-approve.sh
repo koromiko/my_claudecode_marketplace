@@ -8,7 +8,7 @@
 # This hook handles tools that need conditional approval:
 #   - Read/Glob/Grep with sensitive-path guard
 #   - WebFetch with credential-in-URL guard
-#   - Bash with read-only command allowlist + metacharacter guard
+#   - Bash with read-only command/pipeline allowlist + metacharacter guard
 
 set -euo pipefail
 
@@ -75,26 +75,16 @@ allow() {
   exit 0
 }
 
-# --- Helper: check if a Bash command is read-only ---
-is_readonly_bash_command() {
+# --- Helper: check a single command (no pipes) against the read-only allowlist ---
+is_readonly_single_command() {
   local cmd="$1"
   [[ -z "$cmd" ]] && return 1
 
-  # Strip leading whitespace
+  # Strip leading and trailing whitespace
   cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+  cmd="${cmd%"${cmd##*[![:space:]]}"}"
 
-  # Reject anything with shell meta-characters that could chain commands
-  # (pipes, semicolons, &&, ||, backticks, $(), redirects)
-  if [[ "$cmd" == *"|"* ]] || \
-     [[ "$cmd" == *";"* ]] || \
-     [[ "$cmd" == *"&&"* ]] || \
-     [[ "$cmd" == *"||"* ]] || \
-     [[ "$cmd" == *'`'* ]] || \
-     [[ "$cmd" == *'$('* ]] || \
-     [[ "$cmd" == *">"* ]] || \
-     [[ "$cmd" == *"<"* ]]; then
-    return 1
-  fi
+  [[ -z "$cmd" ]] && return 1
 
   # Read-only command prefixes — order matters (longest prefixes first where needed)
   local -a readonly_prefixes=(
@@ -134,6 +124,26 @@ is_readonly_bash_command() {
     "realpath "
     "dirname "
     "basename "
+    "find "
+    "grep "
+    "grep$"
+    "egrep "
+    "egrep$"
+    "fgrep "
+    "fgrep$"
+    "rg "
+    "rg$"
+    "head "
+    "head$"
+    "tail "
+    "tail$"
+    "sort "
+    "sort$"
+    "uniq "
+    "uniq$"
+    "cut "
+    "cut$"
+    "cat "
     "gh pr view"
     "gh pr list"
     "gh pr diff"
@@ -176,6 +186,39 @@ is_readonly_bash_command() {
   done
 
   return 1
+}
+
+# --- Helper: check if a Bash command (possibly a pipeline) is read-only ---
+is_readonly_bash_command() {
+  local cmd="$1"
+  [[ -z "$cmd" ]] && return 1
+
+  # Strip leading whitespace
+  cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+
+  # Reject dangerous metacharacters (single pipe is allowed for read-only pipelines)
+  if [[ "$cmd" == *";"* ]] || \
+     [[ "$cmd" == *"&&"* ]] || \
+     [[ "$cmd" == *"||"* ]] || \
+     [[ "$cmd" == *'`'* ]] || \
+     [[ "$cmd" == *'$('* ]] || \
+     [[ "$cmd" == *">"* ]] || \
+     [[ "$cmd" == *"<"* ]]; then
+    return 1
+  fi
+
+  # Split by pipe and verify every segment is a read-only command
+  local IFS='|'
+  local -a segments
+  read -ra segments <<< "$cmd"
+
+  for segment in "${segments[@]}"; do
+    if ! is_readonly_single_command "$segment"; then
+      return 1
+    fi
+  done
+
+  return 0
 }
 
 # --- Tool-specific logic ---
