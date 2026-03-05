@@ -10,6 +10,13 @@ struct MainTabView: View {
                 }
                 .accessibilityIdentifier("tab_home")
 
+            ExploreView()
+                .tabItem {
+                    Image(systemName: "mappin.and.ellipse")
+                    Text("Explore")
+                }
+                .accessibilityIdentifier("tab_explore")
+
             SettingsView()
                 .tabItem {
                     Image(systemName: "gear")
