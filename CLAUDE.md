@@ -68,3 +68,4 @@ jq . <plugin>/hooks/hooks.json
 - **MCP config**: Only `ios-agentic-loop` has an MCP server. Config is in `.mcp.json` using `${CLAUDE_PLUGIN_ROOT}` for portable paths.
 - **No external Python deps**: `claude-usage-analyzer` uses only Python 3.8+ stdlib. No pip install needed.
 - **Per-plugin CLAUDE.md**: Each plugin has its own CLAUDE.md with detailed implementation guidance. Read the relevant one when working on a specific plugin.
+- **Skill creation/improvement**: Always use the `skill-creator:skill-creator` skill, not `plugin-dev:skill-development`.
