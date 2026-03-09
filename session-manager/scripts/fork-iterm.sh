@@ -164,8 +164,8 @@ detect_session_id() {
             echo "$symlink_id"
         else
             echo "Session IDs differ - symlink: $symlink_id, project: $project_id" >&2
-            echo "Using symlink ID (more reliable for current session)" >&2
-            echo "$symlink_id"
+            echo "Using project ID (actual conversation session file)" >&2
+            echo "$project_id"
         fi
     elif [ -n "$symlink_id" ]; then
         echo "Session ID from debug symlink: $symlink_id" >&2
@@ -200,10 +200,16 @@ if [ -n "$TMUX" ]; then
     fork_cmd="claude -r $SESSION_ID --fork-session"
 
     # Fork session in new tmux pane (horizontal split) and capture pane ID
-    # Use the user's default shell for the new session
-    pane_id=$(tmux split-window -h -P -F '#{pane_id}' "$DEFAULT_SHELL -c 'cd \"$WORKING_DIR\" && $fork_cmd'")
+    # Open an interactive shell first, then send the fork command via send-keys.
+    # This ensures: (1) .zshrc is sourced so `claude` is in PATH,
+    # (2) the pane stays open if the command exits unexpectedly.
+    pane_id=$(tmux split-window -h -P -F '#{pane_id}' -c "$WORKING_DIR" "$DEFAULT_SHELL")
 
     if [ $? -eq 0 ] && [ -n "$pane_id" ]; then
+        # Brief delay to ensure shell is ready, then send the fork command
+        sleep 0.3
+        tmux send-keys -t "$pane_id" "$fork_cmd" Enter
+
         # Register the forked session
         registry_add "$managed_id" "tmux" "$pane_id" "$WORKING_DIR" "$fork_cmd" "$timestamp"
         echo "Session forked successfully into new tmux pane." >&2
