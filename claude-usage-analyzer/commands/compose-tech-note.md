@@ -1,7 +1,7 @@
 ---
 description: Compose a "How I Use Claude Code" technical article from session data
 allowed-tools: Bash(python3:*), Bash(ls:*), Bash(rm:*), Read, Task
-argument-hint: [period] [--html]
+argument-hint: [period] [--project <name>] [--html]
 ---
 
 # Compose Tech Note: "How I Use Claude Code"
@@ -18,6 +18,9 @@ Arguments: $ARGUMENTS
 - `daily` - Last 24 hours
 - `N` (number) - Custom number of days
 
+### Project Filter (optional)
+- `--project <name>` - Filter sessions by project name (partial match, case-insensitive)
+
 ### Output Format (optional)
 - `--html` - Generate HTML article instead of markdown
 
@@ -26,6 +29,8 @@ Arguments: $ARGUMENTS
 - `/compose-tech-note weekly` - Weekly article
 - `/compose-tech-note --html` - Monthly HTML article
 - `/compose-tech-note 90 --html` - 90-day HTML article
+- `/compose-tech-note --project ema` - Monthly article for "ema" project only
+- `/compose-tech-note weekly --project myapp --html` - Weekly HTML article for "myapp"
 
 ## Execution Steps
 
@@ -33,21 +38,23 @@ Arguments: $ARGUMENTS
 
 **Parse the arguments:**
 1. Check if `--html` flag is present in $ARGUMENTS
-2. The remaining argument (if any) is the period (default: `monthly`)
+2. Extract project filter if `--project <name>` is present in $ARGUMENTS
+3. The remaining argument (if any) is the period (default: `monthly`)
 
 **Determine CLI arguments:**
 - Period argument:
   - If "weekly", "monthly", or "daily": use `--period <value>`
   - If a number: use `--days <value>`
   - If empty/not provided: use `--period monthly`
+- Project filter (if specified): add `--project <name>`
 
 **Run the 3 pipeline scripts sequentially:**
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/generate_report.py [period-args]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/generate_report.py [period-args] [--project <name>]
 ```
 
-Note the output filename from stdout (e.g., `reports/data/report_data_2026-01-19_to_2026-02-19.json`).
+Note the output filename from stdout (e.g., `reports/data/report_data_2026-01-19_to_2026-02-19.json`, or `report_data_2026-01-19_to_2026-02-19_ema.json` with project filter).
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/analyze_sessions.py --input <report_file> --report aggregate_report.json --output session_analysis.json
@@ -104,8 +111,8 @@ Spawn a `general-purpose` Task agent with this prompt:
 >
 > Output ONLY the article markdown text, starting with the `# How I Use Claude Code` title.
 
-Save the agent's returned article to: `reports/tech_note_{start_date}_to_{end_date}.md`
-(Use the dates from the report_data filename.)
+Save the agent's returned article to: `reports/tech_note_{start_date}_to_{end_date}.md` (or `reports/tech_note_{start_date}_to_{end_date}_{project}.md` with project filter).
+(Use the dates and optional project suffix from the report_data filename.)
 
 ### Step 4: Generate HTML (if --html flag, Task subagent)
 
@@ -118,7 +125,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/generate_article_html.py \
   --aggregate aggregate_report.json \
   --qualitative qualitative_data.json \
   --report-data <report_file> \
-  --output reports/tech_note_{dates}.html
+  --output reports/tech_note_{dates}[_{project}].html
 ```
 
 **4b. Fill HTML sections (Task subagent):**
@@ -128,7 +135,7 @@ Spawn a `general-purpose` Task agent with this prompt:
 > You are filling in the narrative sections of an HTML article about Claude Code usage.
 >
 > Read these files:
-> 1. `reports/tech_note_{dates}.html` — partial HTML with `<!-- CLAUDE_ARTICLE section_name -->` placeholders
+> 1. `reports/tech_note_{dates}[_{project}].html` — partial HTML with `<!-- CLAUDE_ARTICLE section_name -->` placeholders
 > 2. `article_brief.md` — the data brief with all talking points
 > 3. `${CLAUDE_PLUGIN_ROOT}/reference/article_prompt.md` — structure and tone guide
 >
@@ -157,7 +164,7 @@ The `reports/data/report_data_{dates}.json` is kept for potential reuse.
 ## Deliverables
 
 The final output is:
-- **Markdown** (default): `reports/tech_note_{start_date}_to_{end_date}.md`
-- **HTML** (with `--html`): `reports/tech_note_{start_date}_to_{end_date}.html`
+- **Markdown** (default): `reports/tech_note_{start_date}_to_{end_date}.md` (or `..._{project}.md` with project filter)
+- **HTML** (with `--html`): `reports/tech_note_{start_date}_to_{end_date}.html` (or `..._{project}.html` with project filter)
 
 Tell the user where the file was saved and offer to open it.
