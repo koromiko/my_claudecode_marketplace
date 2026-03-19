@@ -196,11 +196,15 @@ is_readonly_bash_command() {
   # Strip leading whitespace
   cmd="${cmd#"${cmd%%[![:space:]]*}"}"
 
+  # Strip harmless stderr suppression before checking for dangerous redirections
+  local cmd_check
+  cmd_check="${cmd//2>\/dev\/null/}"
+
   # Reject dangerous metacharacters that can't be safely split
-  if [[ "$cmd" == *'`'* ]] || \
-     [[ "$cmd" == *'$('* ]] || \
-     [[ "$cmd" == *">"* ]] || \
-     [[ "$cmd" == *"<"* ]]; then
+  if [[ "$cmd_check" == *'`'* ]] || \
+     [[ "$cmd_check" == *'$('* ]] || \
+     [[ "$cmd_check" == *">"* ]] || \
+     [[ "$cmd_check" == *"<"* ]]; then
     return 1
   fi
 
