@@ -188,7 +188,7 @@ is_readonly_single_command() {
   return 1
 }
 
-# --- Helper: check if a Bash command (possibly a pipeline) is read-only ---
+# --- Helper: check if a Bash command (possibly a pipeline/compound) is read-only ---
 is_readonly_bash_command() {
   local cmd="$1"
   [[ -z "$cmd" ]] && return 1
@@ -196,26 +196,39 @@ is_readonly_bash_command() {
   # Strip leading whitespace
   cmd="${cmd#"${cmd%%[![:space:]]*}"}"
 
-  # Reject dangerous metacharacters (single pipe is allowed for read-only pipelines)
-  if [[ "$cmd" == *";"* ]] || \
-     [[ "$cmd" == *"&&"* ]] || \
-     [[ "$cmd" == *"||"* ]] || \
-     [[ "$cmd" == *'`'* ]] || \
+  # Reject dangerous metacharacters that can't be safely split
+  if [[ "$cmd" == *'`'* ]] || \
      [[ "$cmd" == *'$('* ]] || \
      [[ "$cmd" == *">"* ]] || \
      [[ "$cmd" == *"<"* ]]; then
     return 1
   fi
 
-  # Split by pipe and verify every segment is a read-only command
-  local IFS='|'
-  local -a segments
-  read -ra segments <<< "$cmd"
+  # Split compound commands (&&, ||, ;) into individual pipelines,
+  # then split each pipeline by | and verify every segment is read-only.
+  # Use awk to split on &&, ||, and ; while preserving the segments.
+  local -a pipelines
+  while IFS= read -r line; do
+    pipelines+=("$line")
+  done < <(printf '%s' "$cmd" | awk '{
+    gsub(/&&/, "\n")
+    gsub(/\|\|/, "\n")
+    gsub(/;/, "\n")
+    print
+  }')
 
-  for segment in "${segments[@]}"; do
-    if ! is_readonly_single_command "$segment"; then
-      return 1
-    fi
+  for pipeline in "${pipelines[@]}"; do
+    [[ -z "$pipeline" ]] && continue
+    # Split each pipeline by single pipe
+    local IFS='|'
+    local -a segments
+    read -ra segments <<< "$pipeline"
+
+    for segment in "${segments[@]}"; do
+      if ! is_readonly_single_command "$segment"; then
+        return 1
+      fi
+    done
   done
 
   return 0
