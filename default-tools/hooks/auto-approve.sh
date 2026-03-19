@@ -185,7 +185,24 @@ is_readonly_single_command() {
     fi
   done
 
+  # Check against extra allowed prefixes from project config
+  local extra_prefix
+  while IFS= read -r extra_prefix; do
+    [[ -n "$extra_prefix" ]] && [[ "$cmd" == "$extra_prefix"* ]] && return 0
+  done < <(load_extra_prefixes)
+
   return 1
+}
+
+# --- Helper: load extra allowed prefixes from project config ---
+load_extra_prefixes() {
+  local config_file root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root="$PWD"
+  config_file="${root}/.claude/auto-approve-commands.json"
+
+  if [[ -f "$config_file" ]]; then
+    jq -r '.allowed_command_prefixes[]? // empty' "$config_file" 2>/dev/null
+  fi
 }
 
 # --- Helper: check if a Bash command (possibly a pipeline/compound) is read-only ---
@@ -208,31 +225,36 @@ is_readonly_bash_command() {
     return 1
   fi
 
-  # Split compound commands (&&, ||, ;) into individual pipelines,
-  # then split each pipeline by | and verify every segment is read-only.
-  # Use awk to split on &&, ||, and ; while preserving the segments.
-  local -a pipelines
+  # Split on unquoted &&, ||, ;, and | into simple commands.
+  # Respects single/double quotes so operators inside quoted strings
+  # (e.g., grep -E "(a|b)") are not treated as separators.
+  local -a commands
   while IFS= read -r line; do
-    pipelines+=("$line")
-  done < <(printf '%s' "$cmd" | awk '{
-    gsub(/&&/, "\n")
-    gsub(/\|\|/, "\n")
-    gsub(/;/, "\n")
-    print
+    [[ -n "$line" ]] && commands+=("$line")
+  done < <(printf '%s' "$cmd" | awk '
+  BEGIN { FS=""; sq = sprintf("%c", 39) }
+  {
+    in_sq=0; in_dq=0; esc=0
+    for (i=1; i<=length($0); i++) {
+      c = substr($0, i, 1)
+      if (esc) { esc=0; printf "%s", c; continue }
+      if (c == "\\") { esc=1; printf "%s", c; continue }
+      if (c == sq && !in_dq) { in_sq = !in_sq; printf "%s", c; continue }
+      if (c == "\"" && !in_sq) { in_dq = !in_dq; printf "%s", c; continue }
+      if (!in_sq && !in_dq) {
+        two = substr($0, i, 2)
+        if (two == "&&" || two == "||") { printf "\n"; i++; continue }
+        if (c == ";" || c == "|") { printf "\n"; continue }
+      }
+      printf "%s", c
+    }
+    printf "\n"
   }')
 
-  for pipeline in "${pipelines[@]}"; do
-    [[ -z "$pipeline" ]] && continue
-    # Split each pipeline by single pipe
-    local IFS='|'
-    local -a segments
-    read -ra segments <<< "$pipeline"
-
-    for segment in "${segments[@]}"; do
-      if ! is_readonly_single_command "$segment"; then
-        return 1
-      fi
-    done
+  for segment in "${commands[@]}"; do
+    if ! is_readonly_single_command "$segment"; then
+      return 1
+    fi
   done
 
   return 0
