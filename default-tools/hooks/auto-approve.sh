@@ -194,15 +194,18 @@ is_readonly_single_command() {
   return 1
 }
 
-# --- Helper: load extra allowed prefixes from project config ---
+# --- Helper: load extra allowed prefixes from .claude/settings.json ---
 load_extra_prefixes() {
-  local config_file root
+  local root
   root=$(git rev-parse --show-toplevel 2>/dev/null) || root="$PWD"
-  config_file="${root}/.claude/auto-approve-commands.json"
 
-  if [[ -f "$config_file" ]]; then
-    jq -r '.allowed_command_prefixes[]? // empty' "$config_file" 2>/dev/null
-  fi
+  # Check settings.local.json first (user-specific), then settings.json (shared)
+  local f
+  for f in "${root}/.claude/settings.local.json" "${root}/.claude/settings.json"; do
+    if [[ -f "$f" ]]; then
+      jq -r '.autoApproveCommands[]? // empty' "$f" 2>/dev/null
+    fi
+  done
 }
 
 # --- Helper: check if a Bash command (possibly a pipeline/compound) is read-only ---
