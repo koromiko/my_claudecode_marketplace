@@ -86,6 +86,12 @@ is_readonly_single_command() {
 
   [[ -z "$cmd" ]] && return 1
 
+  # Shell comment lines are harmless — skip them
+  [[ "$cmd" == "#"* ]] && return 0
+
+  # Reject mutating variants of otherwise read-only commands
+  [[ "$cmd" == "sed -i"* ]] && return 1
+
   # Read-only command prefixes — order matters (longest prefixes first where needed)
   local -a readonly_prefixes=(
     "git status"
@@ -120,6 +126,8 @@ is_readonly_single_command() {
     "du "
     "df "
     "file "
+    "strings "
+    "strings$"
     "stat "
     "realpath "
     "dirname "
@@ -172,6 +180,18 @@ is_readonly_single_command() {
     "go version"
     "rustc --version"
     "ruby --version"
+    "cd "
+    "sed "
+    "sed$"
+    "glab mr view"
+    "glab mr list"
+    "glab mr diff"
+    "glab mr status"
+    "glab ci view"
+    "glab ci list"
+    "glab ci status"
+    "glab repo view"
+    "xcrun simctl list"
   )
 
   for prefix in "${readonly_prefixes[@]}"; do
@@ -216,9 +236,10 @@ is_readonly_bash_command() {
   # Strip leading whitespace
   cmd="${cmd#"${cmd%%[![:space:]]*}"}"
 
-  # Strip harmless stderr suppression before checking for dangerous redirections
+  # Strip harmless stderr suppression/redirection before checking for dangerous chars
   local cmd_check
   cmd_check="${cmd//2>\/dev\/null/}"
+  cmd_check="${cmd_check//2>\&1/}"
 
   # Reject dangerous metacharacters that can't be safely split
   if [[ "$cmd_check" == *'`'* ]] || \
