@@ -346,8 +346,8 @@ case "$TOOL_NAME" in
     if is_sensitive_path "$FILE_PATH"; then
       exit 0
     fi
-    # Hard guard: files outside project scope never reach the LLM
-    if [[ -n "$FILE_PATH" ]] && [[ "$FILE_PATH" != "$GIT_ROOT"* ]]; then
+    # Hard guard: empty path or files outside project scope never reach the LLM
+    if [[ -z "$FILE_PATH" ]] || [[ "$FILE_PATH" != "$GIT_ROOT/"* ]]; then
       exit 0
     fi
     # In-scope, non-sensitive: delegate to LLM
