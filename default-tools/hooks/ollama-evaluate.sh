@@ -10,7 +10,7 @@
 #   OLLAMA_HOST    — default: http://localhost:11434
 #   OLLAMA_TIMEOUT — default: 4 (seconds)
 
-set -euo pipefail
+set -u
 
 MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
 HOST="${OLLAMA_HOST:-http://localhost:11434}"
@@ -40,11 +40,14 @@ DENY if the operation is:
 
 Respond with ONLY valid JSON: {\"decision\": \"allow\" or \"deny\", \"reason\": \"brief explanation\"}"
 
-# Build the full prompt: system prompt + tool JSON
+# Extract structured fields to mitigate prompt injection via raw tool input
+TOOL_NAME_PARSED=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
+TOOL_PARAMS=$(echo "$INPUT" | jq -r '.tool_input | to_entries | map("\(.key): \(.value | tostring | .[0:200])") | join(", ")' 2>/dev/null) || TOOL_PARAMS="(unable to parse)"
+
 FULL_PROMPT="${SYSTEM_PROMPT}
 
-Evaluate this tool use request:
-${INPUT}"
+Tool: ${TOOL_NAME_PARSED}
+Parameters: ${TOOL_PARAMS}"
 
 # Build the request body with structured output format
 REQUEST_BODY=$(jq -n \
@@ -66,7 +69,7 @@ REQUEST_BODY=$(jq -n \
   }')
 
 # Call Ollama — any failure (connection refused, timeout, bad JSON) falls through
-RESPONSE=$(curl -s --max-time "$TIMEOUT" \
+RESPONSE=$(curl -s --fail --max-time "$TIMEOUT" \
   -H "Content-Type: application/json" \
   -d "$REQUEST_BODY" \
   "${HOST}/api/generate" 2>/dev/null) || exit 0
