@@ -286,6 +286,10 @@ is_readonly_bash_command() {
 
 # --- Tool-specific logic ---
 
+# Resolve git root once for scope checks
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT="$PWD"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 case "$TOOL_NAME" in
   Read)
     FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
@@ -331,11 +335,29 @@ case "$TOOL_NAME" in
     if is_readonly_bash_command "$COMMAND"; then
       allow "Auto-approved: read-only Bash command"
     fi
+    # Non-readonly bash: delegate to LLM
+    echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh"
+    exit 0
+    ;;
+
+  Edit|Write)
+    FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
+    # Hard guard: sensitive paths never reach the LLM
+    if is_sensitive_path "$FILE_PATH"; then
+      exit 0
+    fi
+    # Hard guard: files outside project scope never reach the LLM
+    if [[ -n "$FILE_PATH" ]] && [[ "$FILE_PATH" != "$GIT_ROOT"* ]]; then
+      exit 0
+    fi
+    # In-scope, non-sensitive: delegate to LLM
+    echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh"
     exit 0
     ;;
 
   *)
-    # All other tools handled by native permission rules or default prompts
+    # All other tools: delegate to LLM for evaluation
+    echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh"
     exit 0
     ;;
 esac
