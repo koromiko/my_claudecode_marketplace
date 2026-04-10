@@ -27,6 +27,22 @@ Exit conventions:
 - `allow "reason"` → outputs JSON with `permissionDecision: "allow"` and exits 0
 - `exit 0` with no output → no decision, falls through to default permission prompt
 
+### Ollama LLM Evaluator
+
+`ollama-evaluate.sh` is a fallback for tool calls not handled by the fast path. It sends the tool JSON to a local Ollama model for a binary allow/deny decision.
+
+**Tools routed to the LLM:**
+- `Edit` / `Write` — after passing sensitive-path and project-scope hard guards
+- `Bash` — non-readonly commands (after the allowlist check fails)
+- `*` catch-all — any tool not explicitly handled (Agent, NotebookEdit, etc.)
+
+**Configuration (environment variables):**
+- `OLLAMA_MODEL` — default `qwen3:0.6b`
+- `OLLAMA_HOST` — default `http://localhost:11434`
+- `OLLAMA_TIMEOUT` — default `4` (seconds)
+
+**Failure behavior:** If Ollama is unavailable, times out, or returns a deny/malformed response, the script exits silently and the tool falls through to the normal permission prompt.
+
 ### Notification Flow
 
 Both notification scripts derive a project name from the git root of `cwd`. They use `terminal-notifier` (activating iTerm2) and `say` for audio. The Stop hook guards against re-entry via `stop_hook_active` and only fires if the session marker exists.
@@ -47,8 +63,17 @@ echo '{"tool_name":"Read","tool_input":{"file_path":"/home/user/.ssh/id_rsa"}}' 
 
 # Clear plugin cache to pick up changes
 ../../scripts/bump-plugin.sh default-tools
+
+# Test LLM evaluation of an Edit (should allow — file is in project scope)
+echo '{"tool_name":"Edit","tool_input":{"file_path":"'$(git rev-parse --show-toplevel)'/src/main.py","old_string":"foo","new_string":"bar"}}' | bash hooks/auto-approve.sh
+
+# Test LLM evaluation with Ollama down (should fall through silently)
+OLLAMA_HOST=http://localhost:99999 echo '{"tool_name":"Agent","tool_input":{"prompt":"do something"}}' | bash hooks/auto-approve.sh
+
+# Test ollama-evaluate.sh directly
+echo '{"tool_name":"Write","tool_input":{"file_path":"/project/README.md","content":"hello"}}' | bash hooks/ollama-evaluate.sh
 ```
 
 ## Prerequisites
 
-macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts.
+macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Qwen3:0.6b (`ollama pull qwen3:0.6b`) for LLM-based tool evaluation.
