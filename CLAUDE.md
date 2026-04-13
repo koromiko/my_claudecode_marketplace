@@ -69,3 +69,4 @@ jq . <plugin>/hooks/hooks.json
 - **No external Python deps**: `claude-usage-analyzer` uses only Python 3.8+ stdlib. No pip install needed.
 - **Per-plugin CLAUDE.md**: Each plugin has its own CLAUDE.md with detailed implementation guidance. Read the relevant one when working on a specific plugin.
 - **Skill creation/improvement**: Always use the `skill-creator:skill-creator` skill, not `plugin-dev:skill-development`.
+- **Agent teams + MCP tools**: Background agents cannot handle MCP permission prompts. If a team task requires MCP tools (Chrome DevTools, Slack, etc.), the coordinator must run those calls directly or spawn the agent in the foreground.
