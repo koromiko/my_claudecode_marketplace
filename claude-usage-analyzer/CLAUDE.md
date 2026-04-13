@@ -14,6 +14,7 @@ It generates comprehensive usage reports with quantitative and qualitative insig
 
 - `commands/analyze-usage.md` - Slash command definition with full execution steps (the primary entry point)
 - `commands/compose-tech-note.md` - Slash command for generating "How I Use Claude Code" articles
+- `commands/chronicle.md` - Slash command for generating a visual session timeline + retrospective
 - `scripts/` - Python analysis scripts (Python 3.8+ stdlib only, no pip install)
 - `reference/analysis_prompt.md` - Guidelines for Claude to follow when analyzing data
 - `reference/article_prompt.md` - Article structure and tone guide for compose-tech-note
@@ -95,6 +96,19 @@ Optional HTML output:
 - Article reference prompt: `reference/article_prompt.md`
 - HTML template: `scripts/article_html_template.py`
 - HTML generator: `scripts/generate_article_html.py`
+
+### chronicle Command
+
+`/chronicle` — generates a visual timeline HTML of the current session, then runs a retrospective.
+
+- Locates the current session JSONL from `~/.claude/projects/{encoded_path}/`
+- Runs `scripts/generate_chronicle.py` to parse JSONL and render HTML
+- Opens the HTML in the browser
+- Hands off to `/workflow:retrospective` for improvement analysis
+
+Scripts:
+- `scripts/generate_chronicle.py` — JSONL parser + timeline builder + HTML renderer (standalone, no cross-module imports)
+- `scripts/chronicle_template.py` — HTML template with embedded CSS (dark theme, tool-color-coded timeline bars, summary cards)
 
 ## Key Implementation Details
 

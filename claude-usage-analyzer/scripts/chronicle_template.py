@@ -13,52 +13,55 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chronicle: {session_id_short} - {project_name}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {{
-            /* Dark theme base palette */
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-card: #21262d;
-            --bg-elevated: #30363d;
+            /* Surface */
+            --bg-primary: #0a0a0c;
+            --bg-secondary: #111114;
+            --bg-card: #18181b;
+            --bg-elevated: #222225;
 
             /* Text */
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #6e7681;
+            --text-primary: #ececef;
+            --text-secondary: #9898a0;
+            --text-muted: #5c5c66;
 
             /* Accent */
-            --accent-primary: #58a6ff;
-            --accent-secondary: #79c0ff;
+            --accent-primary: #d4a853;
+            --accent-secondary: #e8c47a;
 
             /* Status */
-            --success: #3fb950;
-            --success-bg: rgba(63, 185, 80, 0.1);
-            --warning: #d29922;
-            --warning-bg: rgba(210, 153, 34, 0.1);
-            --error: #f85149;
-            --error-bg: rgba(248, 81, 73, 0.1);
+            --success: #4ade80;
+            --success-bg: rgba(74, 222, 128, 0.08);
+            --warning: #fbbf24;
+            --warning-bg: rgba(251, 191, 36, 0.08);
+            --error: #f87171;
+            --error-bg: rgba(248, 113, 113, 0.08);
 
             /* Borders */
-            --border-default: #30363d;
-            --border-muted: #21262d;
+            --border-default: rgba(255, 255, 255, 0.07);
+            --border-muted: rgba(255, 255, 255, 0.04);
 
             /* Tool colors */
-            --tool-read: #58a6ff;
-            --tool-edit: #3fb950;
-            --tool-write: #a371f7;
-            --tool-bash: #d29922;
-            --tool-grep: #f778ba;
-            --tool-glob: #79c0ff;
-            --tool-skill: #f0883e;
-            --tool-agent: #56d364;
-            --tool-mcp: #e3b341;
-            --tool-web: #e3b341;
-            --tool-other: #8b949e;
+            --tool-read: #60a5fa;
+            --tool-edit: #4ade80;
+            --tool-write: #c084fc;
+            --tool-bash: #fbbf24;
+            --tool-grep: #f472b6;
+            --tool-glob: #38bdf8;
+            --tool-skill: #fb923c;
+            --tool-agent: #34d399;
+            --tool-mcp: #facc15;
+            --tool-web: #facc15;
+            --tool-other: #9898a0;
 
             /* Timeline-specific */
-            --thinking: #58a6ff;
-            --user-idle: #484f58;
-            --slow-warning: #d29922;
+            --thinking: #60a5fa;
+            --user-idle: #3f3f46;
+            --slow-warning: #fbbf24;
         }}
 
         * {{
@@ -68,10 +71,10 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                         'Noto Sans', Helvetica, Arial, sans-serif;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 14px;
             line-height: 1.5;
+            letter-spacing: 0.01em;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             background: var(--bg-primary);
@@ -84,14 +87,21 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
         h3 {{ font-size: 1rem; font-weight: 600; }}
 
         code, pre {{
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+        }}
+
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(6px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
         }}
 
         /* ── Sticky header ─────────────────────────────────────────── */
         .header {{
             position: sticky;
             top: 0;
-            background: var(--bg-secondary);
+            background: rgba(17, 17, 20, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--border-default);
             padding: 0.875rem 2rem;
             z-index: 100;
@@ -170,7 +180,7 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
 
         /* ── Legend bar ────────────────────────────────────────────── */
         .legend-bar {{
-            background: var(--bg-card);
+            background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-muted);
             padding: 0.5rem 2rem;
             display: flex;
@@ -211,6 +221,7 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
             max-width: 1100px;
             margin: 0 auto;
             padding: 2rem;
+            animation: fadeIn 0.4s ease-out;
         }}
 
         /* ── Timeline container ────────────────────────────────────── */
@@ -306,6 +317,25 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
 
         .bar-row:hover {{
             background: var(--bg-card);
+        }}
+
+        .bar-row[data-has-details] {{
+            cursor: pointer;
+        }}
+
+        .bar-chevron {{
+            width: 14px;
+            font-size: 0.5rem;
+            color: var(--text-muted);
+            transition: transform 0.15s;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }}
+
+        .bar-row.expanded .bar-chevron {{
+            transform: rotate(90deg);
         }}
 
         .bar-name {{
@@ -433,6 +463,22 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
             color: var(--accent-secondary);
         }}
 
+        .detail-section {{
+            margin-bottom: 0.5rem;
+        }}
+
+        .detail-section:last-child {{
+            margin-bottom: 0;
+        }}
+
+        .detail-label {{
+            font-size: 0.6875rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 0.25rem;
+        }}
+
         /* ── Summary section ────────────────────────────────────────── */
         .summary-section {{
             margin-top: 3rem;
@@ -455,8 +501,8 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
         .summary-card {{
             background: var(--bg-card);
             border: 1px solid var(--border-default);
-            border-radius: 8px;
-            padding: 1rem 1.125rem;
+            border-radius: 12px;
+            padding: 1.25rem 1.25rem;
         }}
 
         .summary-card h3 {{
@@ -707,13 +753,17 @@ CHRONICLE_TEMPLATE = '''<!DOCTYPE html>
     </footer>
 
     <script>
-        // Toggle collapsible event details
-        function toggleDetails(btn) {{
-            const details = btn.parentElement.querySelector('.event-details');
-            if (!details) return;
-            details.classList.toggle('open');
-            btn.textContent = details.classList.contains('open') ? 'hide' : 'show';
-        }}
+        document.addEventListener('DOMContentLoaded', () => {{
+            document.querySelectorAll('.bar-row[data-has-details]').forEach(row => {{
+                row.addEventListener('click', () => {{
+                    const details = row.nextElementSibling;
+                    if (details && details.classList.contains('event-details')) {{
+                        details.classList.toggle('open');
+                        row.classList.toggle('expanded');
+                    }}
+                }});
+            }});
+        }});
     </script>
 
 </body>
