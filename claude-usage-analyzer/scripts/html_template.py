@@ -11,44 +11,47 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claude Code Usage Report: {period}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {{
-            /* Softer, more refined dark palette */
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-card: #21262d;
-            --bg-elevated: #30363d;
+            /* Surface */
+            --bg-primary: #0a0a0c;
+            --bg-secondary: #111114;
+            --bg-card: #18181b;
+            --bg-elevated: #222225;
 
-            /* Text with better contrast */
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #6e7681;
+            /* Text */
+            --text-primary: #ececef;
+            --text-secondary: #9898a0;
+            --text-muted: #5c5c66;
 
-            /* Cleaner accent colors */
-            --accent-primary: #58a6ff;
-            --accent-secondary: #79c0ff;
+            /* Accent */
+            --accent-primary: #d4a853;
+            --accent-secondary: #e8c47a;
 
-            /* Status colors (muted) */
-            --success: #3fb950;
-            --success-bg: rgba(63, 185, 80, 0.1);
-            --warning: #d29922;
-            --warning-bg: rgba(210, 153, 34, 0.1);
-            --error: #f85149;
-            --error-bg: rgba(248, 81, 73, 0.1);
+            /* Status */
+            --success: #4ade80;
+            --success-bg: rgba(74, 222, 128, 0.08);
+            --warning: #fbbf24;
+            --warning-bg: rgba(251, 191, 36, 0.08);
+            --error: #f87171;
+            --error-bg: rgba(248, 113, 113, 0.08);
 
             /* Borders */
-            --border-default: #30363d;
-            --border-muted: #21262d;
+            --border-default: rgba(255, 255, 255, 0.07);
+            --border-muted: rgba(255, 255, 255, 0.04);
 
             /* Chart colors */
-            --chart-1: #58a6ff;
-            --chart-2: #3fb950;
-            --chart-3: #a371f7;
-            --chart-4: #f778ba;
-            --chart-5: #d29922;
-            --chart-6: #2ea043;
-            --chart-7: #bf4b8a;
-            --chart-8: #79c0ff;
+            --chart-1: #60a5fa;
+            --chart-2: #4ade80;
+            --chart-3: #c084fc;
+            --chart-4: #f472b6;
+            --chart-5: #fbbf24;
+            --chart-6: #34d399;
+            --chart-7: #e879f9;
+            --chart-8: #38bdf8;
         }}
 
         * {{
@@ -58,10 +61,10 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                         'Noto Sans', Helvetica, Arial, sans-serif;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 14px;
             line-height: 1.5;
+            letter-spacing: 0.01em;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             background: var(--bg-primary);
@@ -90,6 +93,11 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         /* Tabular numbers for data */
         .value, .bar-value, td:nth-child(n+2) {{
             font-variant-numeric: tabular-nums;
+        }}
+
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(6px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
         }}
 
         /* Scroll progress bar */
@@ -199,6 +207,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             margin-bottom: 3rem;
             padding-bottom: 2rem;
             border-bottom: 1px solid var(--border-muted);
+            animation: fadeIn 0.4s ease-out both;
         }}
 
         .section:last-of-type {{
@@ -226,7 +235,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .stat-card {{
             background: var(--bg-card);
             border: 1px solid var(--border-default);
-            border-radius: 6px;
+            border-radius: 12px;
             padding: 1.25rem;
             transition: background 0.15s, border-color 0.15s;
         }}
@@ -273,7 +282,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .card {{
             background: var(--bg-card);
             border: 1px solid var(--border-default);
-            border-radius: 6px;
+            border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 1rem;
         }}
@@ -307,7 +316,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .comparison-item {{
             background: var(--bg-secondary);
             border: 1px solid var(--border-default);
-            border-radius: 6px;
+            border-radius: 10px;
             padding: 1rem;
         }}
 
@@ -353,7 +362,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         /* Tables */
         .table-container {{
             overflow-x: auto;
-            border-radius: 6px;
+            border-radius: 12px;
             border: 1px solid var(--border-default);
         }}
 
@@ -558,7 +567,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         /* Qualitative sections */
         .qualitative-content {{
             background: var(--bg-secondary);
-            border-radius: 6px;
+            border-radius: 10px;
             padding: 1.5rem;
             border: 1px solid var(--border-muted);
         }}
@@ -608,7 +617,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         /* Recommendation cards */
         .recommendation {{
             background: var(--bg-card);
-            border-radius: 6px;
+            border-radius: 10px;
             padding: 1rem 1.25rem;
             margin-bottom: 0.75rem;
             border-left: 3px solid var(--success);
@@ -671,7 +680,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
         /* Session links */
         .session-link {{
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
             font-size: 0.75rem;
             color: var(--accent-primary);
             text-decoration: none;
@@ -736,8 +745,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         .session-badge.neutral {{
-            background: rgba(139, 148, 158, 0.15);
-            color: #8b949e;
+            background: rgba(152, 152, 160, 0.12);
+            color: #9898a0;
         }}
 
         .session-badge.long-running {{
@@ -752,23 +761,23 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         .session-badge.abandoned {{
-            background: rgba(139, 148, 158, 0.15);
-            color: #8b949e;
+            background: rgba(152, 152, 160, 0.12);
+            color: #9898a0;
         }}
 
         .session-badge.blocked {{
-            background: rgba(163, 113, 247, 0.15);
-            color: #a371f7;
+            background: rgba(192, 132, 252, 0.12);
+            color: #c084fc;
         }}
 
         .session-badge.exploration {{
-            background: rgba(88, 166, 255, 0.15);
-            color: #58a6ff;
+            background: rgba(96, 165, 250, 0.12);
+            color: #60a5fa;
         }}
 
         .session-badge.partial {{
-            background: rgba(210, 153, 34, 0.15);
-            color: #d29922;
+            background: rgba(251, 191, 36, 0.12);
+            color: #fbbf24;
         }}
 
         .session-badge.completed {{
@@ -777,23 +786,23 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         .session-badge.completed_with_issues {{
-            background: rgba(210, 153, 34, 0.15);
-            color: #d29922;
+            background: rgba(251, 191, 36, 0.12);
+            color: #fbbf24;
         }}
 
         .session-badge.exploration_complete {{
-            background: rgba(88, 166, 255, 0.15);
-            color: #58a6ff;
+            background: rgba(96, 165, 250, 0.12);
+            color: #60a5fa;
         }}
 
         .session-badge.partially_completed {{
-            background: rgba(210, 153, 34, 0.15);
-            color: #d29922;
+            background: rgba(251, 191, 36, 0.12);
+            color: #fbbf24;
         }}
 
         .session-badge.unclear {{
-            background: rgba(139, 148, 158, 0.15);
-            color: #8b949e;
+            background: rgba(152, 152, 160, 0.12);
+            color: #9898a0;
         }}
 
         /* Confidence badges */
@@ -992,7 +1001,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             .stat-card.success .value,
             .stat-card.warning .value,
             .stat-card.error .value {{
-                color: #1f2328;
+                color: #18181b;
             }}
 
             .bar-fill {{
@@ -1259,21 +1268,21 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
 # Chart color palette (muted, refined)
 CHART_COLORS = [
-    '#58a6ff',  # Blue
-    '#3fb950',  # Green
-    '#a371f7',  # Purple
-    '#f778ba',  # Pink
-    '#d29922',  # Amber
-    '#2ea043',  # Dark Green
-    '#bf4b8a',  # Magenta
-    '#79c0ff',  # Light Blue
-    '#56d364',  # Light Green
-    '#db61a2',  # Rose
-    '#e3b341',  # Gold
-    '#388bfd',  # Royal Blue
-    '#8b949e',  # Gray
-    '#f78166',  # Coral
-    '#7ee787',  # Mint
+    '#60a5fa',  # Blue
+    '#4ade80',  # Green
+    '#c084fc',  # Purple
+    '#f472b6',  # Pink
+    '#fbbf24',  # Amber
+    '#34d399',  # Emerald
+    '#e879f9',  # Fuchsia
+    '#38bdf8',  # Sky
+    '#a3e635',  # Lime
+    '#fb7185',  # Rose
+    '#facc15',  # Yellow
+    '#818cf8',  # Indigo
+    '#9898a0',  # Gray
+    '#fb923c',  # Orange
+    '#6ee7b7',  # Mint
 ]
 
 

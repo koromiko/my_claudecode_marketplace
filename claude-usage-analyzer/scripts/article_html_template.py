@@ -10,22 +10,25 @@ ARTICLE_HTML_TEMPLATE = '''<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>How I Use Claude Code: {period}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {{
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-card: #21262d;
-            --bg-elevated: #30363d;
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #6e7681;
-            --accent-primary: #58a6ff;
-            --accent-secondary: #79c0ff;
-            --success: #3fb950;
-            --warning: #d29922;
-            --error: #f85149;
-            --border-default: #30363d;
-            --border-muted: #21262d;
+            --bg-primary: #0a0a0c;
+            --bg-secondary: #111114;
+            --bg-card: #18181b;
+            --bg-elevated: #222225;
+            --text-primary: #ececef;
+            --text-secondary: #9898a0;
+            --text-muted: #5c5c66;
+            --accent-primary: #d4a853;
+            --accent-secondary: #e8c47a;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #f87171;
+            --border-default: rgba(255, 255, 255, 0.07);
+            --border-muted: rgba(255, 255, 255, 0.04);
         }}
 
         * {{
@@ -35,20 +38,26 @@ ARTICLE_HTML_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                         'Noto Sans', Helvetica, Arial, sans-serif;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 16px;
             line-height: 1.75;
+            letter-spacing: 0.01em;
             -webkit-font-smoothing: antialiased;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
         }}
 
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(6px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+
         .article-container {{
             max-width: 720px;
             margin: 0 auto;
             padding: 3rem 1.5rem;
+            animation: fadeIn 0.4s ease-out;
         }}
 
         h1 {{
@@ -87,7 +96,7 @@ ARTICLE_HTML_TEMPLATE = '''<!DOCTYPE html>
             padding: 1rem 1.25rem;
             margin: 1.5rem 0;
             background: var(--bg-secondary);
-            border-radius: 0 6px 6px 0;
+            border-radius: 0 10px 10px 0;
             font-size: 1.0625rem;
             color: var(--text-primary);
         }}
@@ -105,10 +114,10 @@ ARTICLE_HTML_TEMPLATE = '''<!DOCTYPE html>
         .prompt-example {{
             background: var(--bg-card);
             border: 1px solid var(--border-default);
-            border-radius: 6px;
+            border-radius: 10px;
             padding: 1rem 1.25rem;
             margin: 1rem 0;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
             font-size: 0.875rem;
             line-height: 1.6;
             color: var(--text-primary);
@@ -117,7 +126,7 @@ ARTICLE_HTML_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         .prompt-label {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;

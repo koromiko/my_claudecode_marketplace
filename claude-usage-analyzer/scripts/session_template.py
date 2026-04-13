@@ -11,45 +11,48 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Session: {session_id_short} - {project_name}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {{
-            /* Softer, more refined dark palette */
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-card: #21262d;
-            --bg-elevated: #30363d;
+            /* Surface */
+            --bg-primary: #0a0a0c;
+            --bg-secondary: #111114;
+            --bg-card: #18181b;
+            --bg-elevated: #222225;
 
-            /* Text with better contrast */
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #6e7681;
+            /* Text */
+            --text-primary: #ececef;
+            --text-secondary: #9898a0;
+            --text-muted: #5c5c66;
 
-            /* Cleaner accent colors */
-            --accent-primary: #58a6ff;
-            --accent-secondary: #79c0ff;
+            /* Accent */
+            --accent-primary: #d4a853;
+            --accent-secondary: #e8c47a;
 
-            /* Status colors (muted) */
-            --success: #3fb950;
-            --success-bg: rgba(63, 185, 80, 0.1);
-            --warning: #d29922;
-            --warning-bg: rgba(210, 153, 34, 0.1);
-            --error: #f85149;
-            --error-bg: rgba(248, 81, 73, 0.1);
+            /* Status */
+            --success: #4ade80;
+            --success-bg: rgba(74, 222, 128, 0.08);
+            --warning: #fbbf24;
+            --warning-bg: rgba(251, 191, 36, 0.08);
+            --error: #f87171;
+            --error-bg: rgba(248, 113, 113, 0.08);
 
             /* Borders */
-            --border-default: #30363d;
-            --border-muted: #21262d;
+            --border-default: rgba(255, 255, 255, 0.07);
+            --border-muted: rgba(255, 255, 255, 0.04);
 
             /* Tool colors */
-            --tool-read: #58a6ff;
-            --tool-edit: #3fb950;
-            --tool-write: #a371f7;
-            --tool-bash: #d29922;
-            --tool-grep: #f778ba;
-            --tool-glob: #79c0ff;
-            --tool-task: #56d364;
-            --tool-web: #e3b341;
-            --tool-other: #8b949e;
+            --tool-read: #60a5fa;
+            --tool-edit: #4ade80;
+            --tool-write: #c084fc;
+            --tool-bash: #fbbf24;
+            --tool-grep: #f472b6;
+            --tool-glob: #38bdf8;
+            --tool-task: #34d399;
+            --tool-web: #facc15;
+            --tool-other: #9898a0;
         }}
 
         * {{
@@ -59,10 +62,10 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                         'Noto Sans', Helvetica, Arial, sans-serif;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 14px;
             line-height: 1.5;
+            letter-spacing: 0.01em;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             background: var(--bg-primary);
@@ -94,14 +97,21 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         code, pre {{
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+        }}
+
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(6px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
         }}
 
         /* Header - sticky */
         .header {{
             position: sticky;
             top: 0;
-            background: var(--bg-secondary);
+            background: rgba(17, 17, 20, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--border-default);
             padding: 1rem 2rem;
             z-index: 100;
@@ -181,6 +191,7 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
             max-width: 900px;
             margin: 0 auto;
             padding: 2rem;
+            animation: fadeIn 0.4s ease-out;
         }}
 
         /* Conversation turns */
@@ -193,7 +204,7 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
         .turn {{
             background: var(--bg-card);
             border: 1px solid var(--border-default);
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
         }}
 
@@ -256,7 +267,7 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
         .tool-call {{
             background: var(--bg-secondary);
             border: 1px solid var(--border-muted);
-            border-radius: 6px;
+            border-radius: 10px;
             overflow: hidden;
         }}
 
@@ -310,7 +321,7 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
 
         .tool-target {{
             color: var(--text-secondary);
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
             font-size: 0.75rem;
             max-width: 500px;
             overflow: hidden;
@@ -349,7 +360,7 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
             background: var(--bg-secondary);
             border-radius: 4px;
             padding: 0.75rem;
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
             font-size: 0.75rem;
             white-space: pre-wrap;
             word-break: break-word;
@@ -407,7 +418,7 @@ SESSION_TEMPLATE = '''<!DOCTYPE html>
         }}
 
         .footer .file-path {{
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
             font-size: 0.75rem;
             color: var(--text-secondary);
             margin-top: 0.5rem;
