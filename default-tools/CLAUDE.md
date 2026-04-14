@@ -74,6 +74,29 @@ OLLAMA_HOST=http://localhost:99999 echo '{"tool_name":"Agent","tool_input":{"pro
 echo '{"tool_name":"Write","tool_input":{"file_path":"/project/README.md","content":"hello"}}' | bash hooks/ollama-evaluate.sh
 ```
 
+## Auto-Approve Logging
+
+All tool use decisions are logged to `~/.claude/logs/auto-approve.log` in tab-separated format:
+
+```
+TIMESTAMP	DECISION	TOOL_NAME	INPUT_SUMMARY	REASON
+```
+
+Decisions: `ALLOW` (fast path), `PASS` (deferred to prompt), `ALLOW_LLM` (Ollama approved), `PASS_LLM` (Ollama denied/unavailable).
+
+Log files rotate at 1MB with 3 backups (`.1`, `.2`, `.3`). Logging utilities live in `hooks/log-utils.sh` (sourced by `auto-approve.sh`).
+
+```bash
+# Tail the log in real time
+tail -f ~/.claude/logs/auto-approve.log
+
+# View only LLM decisions
+grep 'LLM' ~/.claude/logs/auto-approve.log
+
+# View only fall-through (permission prompt) decisions
+grep 'PASS' ~/.claude/logs/auto-approve.log
+```
+
 ## Prerequisites
 
 macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Qwen3:0.6b (`ollama pull qwen3:0.6b`) for LLM-based tool evaluation.

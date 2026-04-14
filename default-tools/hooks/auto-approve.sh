@@ -12,9 +12,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/log-utils.sh"
+log_init
+
 INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""')
+LOG_SUMMARY=""
 
 # --- Helper: check if a file path looks sensitive ---
 is_sensitive_path() {
@@ -65,6 +70,7 @@ is_sensitive_path() {
 # --- Helper: output an allow decision ---
 allow() {
   local reason="${1:-Auto-approved}"
+  log_decision "ALLOW" "$TOOL_NAME" "$LOG_SUMMARY" "$reason"
   jq -n --arg reason "$reason" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
@@ -72,6 +78,29 @@ allow() {
       permissionDecisionReason: $reason
     }
   }'
+  exit 0
+}
+
+# --- Helper: log and fall through to permission prompt ---
+pass() {
+  local reason="${1:-Deferred to permission prompt}"
+  log_decision "PASS" "$TOOL_NAME" "$LOG_SUMMARY" "$reason"
+  exit 0
+}
+
+# --- Helper: delegate to Ollama LLM and log the result ---
+evaluate_with_ollama() {
+  local reason_context="${1:-LLM evaluation}"
+  local result
+  result=$(echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh")
+  if [[ -n "$result" ]]; then
+    local llm_reason
+    llm_reason=$(echo "$result" | jq -r '.hookSpecificOutput.permissionDecisionReason // "LLM-approved"' 2>/dev/null) || llm_reason="LLM-approved"
+    log_decision "ALLOW_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$llm_reason"
+    echo "$result"
+  else
+    log_decision "PASS_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$reason_context: LLM denied or unavailable"
+  fi
   exit 0
 }
 
@@ -288,13 +317,13 @@ is_readonly_bash_command() {
 
 # Resolve git root once for scope checks
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT="$PWD"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 case "$TOOL_NAME" in
   Read)
     FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
+    LOG_SUMMARY="$FILE_PATH"
     if is_sensitive_path "$FILE_PATH"; then
-      exit 0  # No decision — fall through to normal permission prompt
+      pass "Sensitive path deferred to prompt"
     fi
     allow "Auto-approved: reading non-sensitive file"
     ;;
@@ -302,22 +331,25 @@ case "$TOOL_NAME" in
   Glob)
     GLOB_PATH=$(echo "$INPUT" | jq -r '.tool_input.path // ""')
     GLOB_PATTERN=$(echo "$INPUT" | jq -r '.tool_input.pattern // ""')
+    LOG_SUMMARY="${GLOB_PATH}:${GLOB_PATTERN}"
     if is_sensitive_path "$GLOB_PATH" || is_sensitive_path "$GLOB_PATTERN"; then
-      exit 0
+      pass "Sensitive glob path deferred to prompt"
     fi
     allow "Auto-approved: glob search in non-sensitive location"
     ;;
 
   Grep)
     GREP_PATH=$(echo "$INPUT" | jq -r '.tool_input.path // ""')
+    LOG_SUMMARY="$GREP_PATH"
     if is_sensitive_path "$GREP_PATH"; then
-      exit 0
+      pass "Sensitive grep path deferred to prompt"
     fi
     allow "Auto-approved: grep search in non-sensitive location"
     ;;
 
   WebFetch)
     URL=$(echo "$INPUT" | jq -r '.tool_input.url // ""')
+    LOG_SUMMARY="$URL"
     URL_LOWER=$(printf '%s' "$URL" | tr '[:upper:]' '[:lower:]')
     # Block fetching URLs that might contain credentials in query params
     if [[ "$URL_LOWER" == *"token="* ]] || \
@@ -325,39 +357,39 @@ case "$TOOL_NAME" in
        [[ "$URL_LOWER" == *"secret="* ]] || \
        [[ "$URL_LOWER" == *"api_key="* ]] || \
        [[ "$URL_LOWER" == *"apikey="* ]]; then
-      exit 0
+      pass "URL contains credential parameters"
     fi
     allow "Auto-approved: web fetch from non-sensitive URL"
     ;;
 
   Bash)
     COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
+    LOG_SUMMARY="${COMMAND:0:200}"
     if is_readonly_bash_command "$COMMAND"; then
       allow "Auto-approved: read-only Bash command"
     fi
     # Non-readonly bash: delegate to LLM
-    echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh"
-    exit 0
+    evaluate_with_ollama "Non-readonly Bash command"
     ;;
 
   Edit|Write)
     FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
+    LOG_SUMMARY="$FILE_PATH"
     # Hard guard: sensitive paths never reach the LLM
     if is_sensitive_path "$FILE_PATH"; then
-      exit 0
+      pass "Sensitive path hard guard"
     fi
     # Hard guard: empty path or files outside project scope never reach the LLM
     if [[ -z "$FILE_PATH" ]] || [[ "$FILE_PATH" != "$GIT_ROOT/"* ]]; then
-      exit 0
+      pass "Out of project scope or empty path"
     fi
     # In-scope, non-sensitive: delegate to LLM
-    echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh"
-    exit 0
+    evaluate_with_ollama "In-scope file modification"
     ;;
 
   *)
     # All other tools: delegate to LLM for evaluation
-    echo "$INPUT" | "$SCRIPT_DIR/ollama-evaluate.sh"
-    exit 0
+    LOG_SUMMARY=$(echo "$INPUT" | jq -r '.tool_input | to_entries | map(.key + "=" + (.value | tostring | .[0:50])) | join(", ")' 2>/dev/null) || LOG_SUMMARY="(unparseable)"
+    evaluate_with_ollama "Unknown tool evaluation"
     ;;
 esac
