@@ -121,6 +121,13 @@ is_readonly_single_command() {
   # Reject mutating variants of otherwise read-only commands
   [[ "$cmd" == "sed -i"* ]] && return 1
 
+  # Normalize away "git -C <path>" prefix so read-only git subcommands match the allowlist
+  # e.g. "git -C /some/path status" → "git status"
+  local normalized_cmd="$cmd"
+  if [[ "$cmd" =~ ^git[[:space:]]+-C[[:space:]]+[^[:space:]]+[[:space:]]+(.*) ]]; then
+    normalized_cmd="git ${BASH_REMATCH[1]}"
+  fi
+
   # Read-only command prefixes — order matters (longest prefixes first where needed)
   local -a readonly_prefixes=(
     "git status"
@@ -227,10 +234,10 @@ is_readonly_single_command() {
     if [[ "$prefix" == *'$' ]]; then
       # Exact match (with trailing $)
       local exact="${prefix%'$'}"
-      [[ "$cmd" == "$exact" ]] && return 0
+      [[ "$cmd" == "$exact" || "$normalized_cmd" == "$exact" ]] && return 0
     else
-      # Prefix match
-      [[ "$cmd" == "$prefix"* ]] && return 0
+      # Prefix match (check both original and git -C normalized form)
+      [[ "$cmd" == "$prefix"* || "$normalized_cmd" == "$prefix"* ]] && return 0
     fi
   done
 
