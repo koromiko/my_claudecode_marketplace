@@ -62,6 +62,13 @@
       "version": "1.0.0",
       "source": "./ios-agentic-loop",
       "category": "ios"
+    },
+    {
+      "name": "obsidian-vault",
+      "description": "Capture knowledge from Claude Code conversations and store them as notes in an Obsidian vault",
+      "version": "0.1.0",
+      "source": "./obsidian-vault",
+      "category": "integration"
     }
   ]
 }
