@@ -30,13 +30,14 @@ APPROVE if the operation is:
 - Updating non-critical settings (editor config, formatting, linting)
 - Creating or updating task/todo items
 - Reading or searching any non-sensitive content
+- HTTP requests (curl/wget) to known developer APIs using environment variable tokens (e.g. \$SG_DEEPSEARCH_API_KEY, \$GITHUB_TOKEN), even with Authorization headers — these use pre-configured credentials, not raw secrets
 
 DENY if the operation is:
 - Modifying files outside the project directory
 - Touching sensitive paths (.ssh, .aws, .env, credentials, private keys)
 - Running destructive or irreversible system commands
-- Accessing or modifying authentication tokens/secrets
-- Network operations that could exfiltrate data
+- Accessing or modifying authentication tokens/secrets stored in files
+- Network operations that could exfiltrate sensitive project data to unknown hosts
 
 Respond with ONLY valid JSON: {\"decision\": \"allow\" or \"deny\", \"reason\": \"brief explanation\"}"
 
