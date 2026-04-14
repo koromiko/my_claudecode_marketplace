@@ -55,6 +55,13 @@
       "version": "0.1.0",
       "source": "./obsidian-vault",
       "category": "integration"
+    },
+    {
+      "name": "neo-writing-style",
+      "description": "Neo's personal writing style guide for composing zh-tw technical and editorial articles",
+      "version": "1.0.0",
+      "source": "./neo-writing-style",
+      "category": "writing"
     }
   ]
 }
