@@ -135,10 +135,6 @@ done < <(jq -c '.[]' "$FIXTURE_FILE")
 PASSED=$(grep -c '"status": "pass"' "$TEMP_RESULTS" 2>/dev/null || true)
 FAILED=$(grep -c '"status": "fail"' "$TEMP_RESULTS" 2>/dev/null || true)
 SKIPPED=$(grep -c '"status": "skip"' "$TEMP_RESULTS" 2>/dev/null || true)
-# Default to 0 if grep returned empty (no file or no matches)
-PASSED=${PASSED:-0}
-FAILED=${FAILED:-0}
-SKIPPED=${SKIPPED:-0}
 
 if [ $(( PASSED + FAILED )) -gt 0 ]; then
   ACCURACY=$(( (PASSED * 100) / (PASSED + FAILED) ))
