@@ -17,7 +17,6 @@ EVALUATOR="$SCRIPT_DIR/../hooks/ollama-evaluate.sh"
 
 MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
 HOST="${OLLAMA_HOST:-http://localhost:11434}"
-TIMEOUT="${OLLAMA_TIMEOUT:-4}"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%S)
 RESULTS_FILE="$RESULTS_DIR/run-${TIMESTAMP}.json"
 
@@ -132,9 +131,9 @@ while IFS= read -r test_case; do
 done < <(jq -c '.[]' "$FIXTURE_FILE")
 
 # --- Phase 3: Write results JSON ---
-PASSED=$(grep -c '"status": "pass"' "$TEMP_RESULTS" 2>/dev/null || true)
-FAILED=$(grep -c '"status": "fail"' "$TEMP_RESULTS" 2>/dev/null || true)
-SKIPPED=$(grep -c '"status": "skip"' "$TEMP_RESULTS" 2>/dev/null || true)
+PASSED=$(jq -s '[.[] | select(.status == "pass")] | length' "$TEMP_RESULTS" 2>/dev/null || echo 0)
+FAILED=$(jq -s '[.[] | select(.status == "fail")] | length' "$TEMP_RESULTS" 2>/dev/null || echo 0)
+SKIPPED=$(jq -s '[.[] | select(.status == "skip")] | length' "$TEMP_RESULTS" 2>/dev/null || echo 0)
 
 if [ $(( PASSED + FAILED )) -gt 0 ]; then
   ACCURACY=$(( (PASSED * 100) / (PASSED + FAILED) ))
