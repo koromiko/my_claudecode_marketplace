@@ -71,3 +71,58 @@ if [ "$OLLAMA_AVAILABLE" = "false" ]; then
   echo "Results written to: $RESULTS_FILE"
   exit 0
 fi
+
+# --- Phase 2: Execute each test case ---
+CURRENT_CATEGORY=""
+
+while IFS= read -r test_case; do
+  id=$(echo "$test_case" | jq -r '.id')
+  category=$(echo "$test_case" | jq -r '.category')
+  description=$(echo "$test_case" | jq -r '.description')
+  expected=$(echo "$test_case" | jq -r '.expected')
+  input_json=$(echo "$test_case" | jq -c '.input')
+
+  # Print category header when it changes
+  if [ "$category" != "$CURRENT_CATEGORY" ]; then
+    CURRENT_CATEGORY="$category"
+    echo "[$category]"
+  fi
+
+  # Run evaluator, capture output and latency
+  START_MS=$(ms_now)
+  STDOUT=$(echo "$input_json" | bash "$EVALUATOR" 2>/dev/null) || true
+  END_MS=$(ms_now)
+  LATENCY_MS=$(( END_MS - START_MS ))
+
+  # Parse decision: allow if output contains permissionDecision:"allow", else deny
+  if echo "$STDOUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' > /dev/null 2>&1; then
+    actual="allow"
+  else
+    actual="deny"
+  fi
+
+  # Grade
+  if [ "$actual" = "$expected" ]; then
+    status="pass"
+  else
+    status="fail"
+  fi
+
+  # Extract reason from evaluator output (empty string if not present)
+  reason=$(echo "$STDOUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null || true)
+
+  # Append result object to temp file
+  jq -n \
+    --arg id "$id" --arg cat "$category" --arg desc "$description" \
+    --arg exp "$expected" --arg actual "$actual" --arg status "$status" \
+    --argjson latency "$LATENCY_MS" --arg reason "$reason" \
+    '{id:$id,category:$cat,description:$desc,expected:$exp,actual:$actual,
+      status:$status,latency_ms:$latency,reason:$reason,error:null}' \
+    >> "$TEMP_RESULTS"
+
+  # Print result line
+  printf "  %-4s  %-22s  %-44s  %s → %s  (%dms)\n" \
+    "$(echo "$status" | tr '[:lower:]' '[:upper:]')" \
+    "$id" "$description" "$expected" "$actual" "$LATENCY_MS"
+
+done < <(jq -c '.[]' "$FIXTURE_FILE")
