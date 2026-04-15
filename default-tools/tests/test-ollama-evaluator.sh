@@ -94,15 +94,19 @@ while IFS= read -r test_case; do
   END_MS=$(ms_now)
   LATENCY_MS=$(( END_MS - START_MS ))
 
-  # Parse decision: allow if output contains permissionDecision:"allow", else deny
-  if echo "$STDOUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' > /dev/null 2>&1; then
+  # Parse decision: allow, deny, or error (empty = Ollama unavailable mid-run)
+  if [ -z "$STDOUT" ]; then
+    actual="error"
+  elif echo "$STDOUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' > /dev/null 2>&1; then
     actual="allow"
   else
     actual="deny"
   fi
 
-  # Grade
-  if [ "$actual" = "$expected" ]; then
+  # Grade: error means Ollama didn't respond — treat as skip (not a fail)
+  if [ "$actual" = "error" ]; then
+    status="skip"
+  elif [ "$actual" = "$expected" ]; then
     status="pass"
   else
     status="fail"
