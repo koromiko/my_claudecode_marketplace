@@ -130,3 +130,38 @@ while IFS= read -r test_case; do
     "$id" "$description" "$expected" "$actual" "$LATENCY_MS"
 
 done < <(jq -c '.[]' "$FIXTURE_FILE")
+
+# --- Phase 3: Write results JSON ---
+PASSED=$(grep -c '"status": "pass"' "$TEMP_RESULTS" 2>/dev/null || true)
+FAILED=$(grep -c '"status": "fail"' "$TEMP_RESULTS" 2>/dev/null || true)
+SKIPPED=$(grep -c '"status": "skip"' "$TEMP_RESULTS" 2>/dev/null || true)
+# Default to 0 if grep returned empty (no file or no matches)
+PASSED=${PASSED:-0}
+FAILED=${FAILED:-0}
+SKIPPED=${SKIPPED:-0}
+
+if [ $(( PASSED + FAILED )) -gt 0 ]; then
+  ACCURACY=$(( (PASSED * 100) / (PASSED + FAILED) ))
+else
+  ACCURACY=0
+fi
+
+jq -n \
+  --arg run_id "$TIMESTAMP" \
+  --arg model "$MODEL" \
+  --argjson total "$TOTAL" \
+  --argjson passed "$PASSED" \
+  --argjson failed "$FAILED" \
+  --argjson skipped "$SKIPPED" \
+  --slurpfile cases "$TEMP_RESULTS" \
+  '{run_id:$run_id,ollama_available:true,ollama_model:$model,
+    summary:{total:$total,passed:$passed,failed:$failed,skipped:$skipped},
+    cases:$cases}' > "$RESULTS_FILE"
+
+# --- Phase 4: Stdout summary ---
+echo ""
+echo "Summary: $PASSED passed / $FAILED failed / $SKIPPED skipped  (accuracy: ${ACCURACY}%)"
+echo "Results written to: $RESULTS_FILE"
+
+# Exit 1 if any failures
+[ "$FAILED" -eq 0 ]
