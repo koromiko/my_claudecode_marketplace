@@ -62,6 +62,13 @@
       "version": "1.0.0",
       "source": "./neo-writing-style",
       "category": "writing"
+    },
+    {
+      "name": "workflow",
+      "description": "Workflow utilities — session retrospective with CLAUDE.md, user instructions, and auto memory suggestions",
+      "version": "1.0.0",
+      "source": "./workflow",
+      "category": "workflow"
     }
   ]
 }

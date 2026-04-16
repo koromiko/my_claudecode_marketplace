@@ -1,0 +1,5 @@
+{
+  "name": "workflow",
+  "version": "1.0.0",
+  "description": "Workflow utilities for Claude Code — retrospective, rebase, and system design orchestration commands"
+}
