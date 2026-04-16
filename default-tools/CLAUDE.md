@@ -37,15 +37,30 @@ Exit conventions:
 - `*` catch-all — any tool not explicitly handled (Agent, NotebookEdit, etc.)
 
 **Configuration (environment variables):**
-- `OLLAMA_MODEL` — default `qwen3:0.6b`
+- `OLLAMA_MODEL` — default `gemma3:4b`
 - `OLLAMA_HOST` — default `http://localhost:11434`
-- `OLLAMA_TIMEOUT` — default `4` (seconds)
+- `OLLAMA_TIMEOUT` — default `15` (seconds)
+- `OLLAMA_TEST_MODE` — set to `1` by the test harness so deny decisions are emitted as JSON (never set in production)
 
 **Failure behavior:** If Ollama is unavailable, times out, or returns a deny/malformed response, the script exits silently and the tool falls through to the normal permission prompt.
 
 ### Notification Flow
 
 Both notification scripts derive a project name from the git root of `cwd`. They use `terminal-notifier` (activating iTerm2) and `say` for audio. The Stop hook guards against re-entry via `stop_hook_active` and only fires if the session marker exists.
+
+## Test Harness
+
+`tests/test-ollama-evaluator.sh` runs 23 fixture cases from `tests/fixtures/ollama-test-cases.json` against `ollama-evaluate.sh` and reports pass/fail/skip per case.
+
+```bash
+bash tests/test-ollama-evaluator.sh
+```
+
+Results are written to `tests/results/run-<ISO-timestamp>.json` (gitignored; directory kept via `.gitkeep`).
+
+The runner sets `OLLAMA_TEST_MODE=1` so deny decisions are emitted as JSON and counted as `pass`/`fail` rather than `skip`. If Ollama is unavailable, all cases are skipped and the runner exits 0.
+
+Fixture categories: `bash-git`, `bash-curl`, `bash-misc`, `edit`, `agent`, `mcp`, `meta`, `bash-destructive`, `bash-exfiltrate`.
 
 ## Testing Changes
 
@@ -99,4 +114,4 @@ grep 'PASS' ~/.claude/logs/auto-approve.log
 
 ## Prerequisites
 
-macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Qwen3:0.6b (`ollama pull qwen3:0.6b`) for LLM-based tool evaluation.
+macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Gemma3:4b (`ollama pull gemma3:4b`) for LLM-based tool evaluation.

@@ -15,8 +15,18 @@ Conditionally auto-approves tools that need path/content guards beyond simple al
 | `Grep` | Non-sensitive search path | Search path matches sensitive patterns |
 | `WebFetch` | URL has no credential params | URL contains `token=`, `password=`, `secret=`, `api_key=` |
 | `Bash` | Read-only command (git status, ls, etc.) with no shell metacharacters | Commands with `\|`, `;`, `&&`, `>`, `<` or non-allowlisted commands |
+| `Edit` / `Write` | File is inside the project directory and not a sensitive path | Outside project or sensitive path |
+| `Agent` / others | Deferred to Ollama LLM evaluator | LLM returns deny or is unavailable |
 
 Unconditional allows (WebSearch, ToolSearch, MCP tools) are handled by native `permissions.allow` in settings.json.
+
+#### Ollama LLM Evaluator
+
+For tool calls not resolved by the fast path, `ollama-evaluate.sh` sends the tool name and parameters to a local Ollama model for a binary allow/deny decision. Uses a DENY-first prompt so security rules take precedence.
+
+- Default model: `gemma3:4b` — average ~850ms per call
+- Falls through silently (no output) if Ollama is unavailable or returns deny
+- Override with `OLLAMA_MODEL`, `OLLAMA_HOST`, `OLLAMA_TIMEOUT`
 
 ### Permission Notification (`Notification`, matcher: `permission_prompt`)
 
@@ -32,9 +42,18 @@ When Claude finishes and a permission prompt occurred during the session:
 - Speaks the completion status
 - Cleans up the session marker file
 
+## Testing
+
+```bash
+bash tests/test-ollama-evaluator.sh
+```
+
+Runs 23 fixture cases (allow + deny) against the Ollama evaluator. Results written to `tests/results/`. Requires Ollama to be running; skips all cases if unavailable.
+
 ## Prerequisites
 
 - **macOS** (uses `say` for speech)
 - **jq** (JSON parsing in hook scripts)
 - **terminal-notifier** (`brew install terminal-notifier`) for macOS notifications
 - **iTerm2** (notifications activate iTerm2 window)
+- **Ollama** (`brew install ollama`) with `gemma3:4b` (`ollama pull gemma3:4b`) for LLM-based evaluation

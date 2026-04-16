@@ -6,15 +6,15 @@
 # silently (exit 0, no output) to fall through to the permission prompt.
 #
 # Configuration (environment variables):
-#   OLLAMA_MODEL   — default: qwen3:0.6b
+#   OLLAMA_MODEL   — default: gemma3:4b
 #   OLLAMA_HOST    — default: http://localhost:11434
-#   OLLAMA_TIMEOUT — default: 4 (seconds)
+#   OLLAMA_TIMEOUT — default: 15 (seconds)
 
 set -u
 
-MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
+MODEL="${OLLAMA_MODEL:-gemma3:4b}"
 HOST="${OLLAMA_HOST:-http://localhost:11434}"
-TIMEOUT="${OLLAMA_TIMEOUT:-4}"
+TIMEOUT="${OLLAMA_TIMEOUT:-15}"
 
 INPUT=$(cat)
 
@@ -24,20 +24,29 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_ROOT="$PWD"
 SYSTEM_PROMPT="You are a security evaluator for a code editor's tool use requests.
 Given a tool name and its parameters, decide if the operation should be auto-approved.
 
-APPROVE if the operation is:
-- Editing or writing files within the project directory: ${GIT_ROOT}
+IMPORTANT: DENY rules always take precedence over APPROVE rules. Check DENY rules first.
+
+DENY immediately if the operation matches ANY of:
+- File path is outside the project directory: ${GIT_ROOT} (e.g. /etc/, /usr/, ~/.ssh/, ~/Documents/)
+- File path contains any of: .env, secrets/, credentials, api-keys, private_key, .pem, .p12, .pfx
+- File path is inside: .ssh/, .aws/, .gnupg/, .kube/, .docker/
+- Bash command writes (> or >>) into a sensitive filename (.env, secrets, credentials)
+- Bash command is destructive: rm -rf, git reset --hard, git clean -fd on source directories
+- curl/wget sends file contents (-d @filename, --data @filename) to an external host
+
+APPROVE if (and no DENY rule matched):
+- Editing or writing non-sensitive files within the project: ${GIT_ROOT}
 - Web search or documentation lookup
 - Updating non-critical settings (editor config, formatting, linting)
 - Creating or updating task/todo items
 - Reading or searching any non-sensitive content
-- HTTP requests (curl/wget) to known developer APIs using environment variable tokens (e.g. \$SG_DEEPSEARCH_API_KEY, \$GITHUB_TOKEN), even with Authorization headers — these use pre-configured credentials, not raw secrets
-
-DENY if the operation is:
-- Modifying files outside the project directory
-- Touching sensitive paths (.ssh, .aws, .env, credentials, private keys)
-- Running destructive or irreversible system commands
-- Accessing or modifying authentication tokens/secrets stored in files
-- Network operations that could exfiltrate sensitive project data to unknown hosts
+- HTTP requests (curl/wget) to known developer APIs using environment variable tokens
+  (e.g. \$SG_DEEPSEARCH_API_KEY, \$GITHUB_TOKEN), even with Authorization headers —
+  these use pre-configured credentials, not raw secrets
+- Standard git workflow: rebase, merge, push, pull, fetch, stash, cherry-pick
+- Reading from system temp directories (/tmp, /var/tmp) — ephemeral, not sensitive
+- Workflow meta-tools (ExitPlanMode, EnterPlanMode, ToolSearch, Skill, TaskCreate,
+  TaskUpdate) — these control the editor, not the filesystem; always safe
 
 Respond with ONLY valid JSON: {\"decision\": \"allow\" or \"deny\", \"reason\": \"brief explanation\"}"
 
@@ -79,12 +88,23 @@ RESPONSE=$(curl -s --fail --max-time "$TIMEOUT" \
 MODEL_OUTPUT=$(echo "$RESPONSE" | jq -r '.response // ""' 2>/dev/null) || exit 0
 DECISION=$(echo "$MODEL_OUTPUT" | jq -r '.decision // ""' 2>/dev/null) || exit 0
 
+REASON=$(echo "$MODEL_OUTPUT" | jq -r '.reason // ""' 2>/dev/null)
+
 if [[ "$DECISION" == "allow" ]]; then
-  REASON=$(echo "$MODEL_OUTPUT" | jq -r '.reason // "LLM-approved"' 2>/dev/null)
-  jq -n --arg reason "Ollama ($MODEL): $REASON" '{
+  jq -n --arg reason "Ollama ($MODEL): ${REASON:-LLM-approved}" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "allow",
+      permissionDecisionReason: $reason
+    }
+  }'
+elif [[ "${OLLAMA_TEST_MODE:-}" == "1" ]]; then
+  # In test mode, emit a deny JSON so the test runner can distinguish a correct
+  # deny from a timeout/parse error.  Production callers never set this variable.
+  jq -n --arg reason "Ollama ($MODEL): ${REASON:-LLM-denied}" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
       permissionDecisionReason: $reason
     }
   }'

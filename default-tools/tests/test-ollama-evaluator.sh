@@ -15,7 +15,7 @@ FIXTURE_FILE="$SCRIPT_DIR/fixtures/ollama-test-cases.json"
 RESULTS_DIR="$SCRIPT_DIR/results"
 EVALUATOR="$SCRIPT_DIR/../hooks/ollama-evaluate.sh"
 
-MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
+MODEL="${OLLAMA_MODEL:-gemma3:4b}"
 HOST="${OLLAMA_HOST:-http://localhost:11434}"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%S)
 RESULTS_FILE="$RESULTS_DIR/run-${TIMESTAMP}.json"
@@ -87,19 +87,21 @@ while IFS= read -r test_case; do
     echo "[$category]"
   fi
 
-  # Run evaluator, capture output and latency
+  # Run evaluator in test mode so deny decisions are also emitted as JSON
   START_MS=$(ms_now)
-  STDOUT=$(echo "$input_json" | bash "$EVALUATOR" 2>/dev/null) || true
+  STDOUT=$(echo "$input_json" | OLLAMA_TEST_MODE=1 bash "$EVALUATOR" 2>/dev/null) || true
   END_MS=$(ms_now)
   LATENCY_MS=$(( END_MS - START_MS ))
 
-  # Parse decision: allow, deny, or error (empty = Ollama unavailable mid-run)
+  # Parse decision: allow, deny, or error (empty = Ollama unavailable or parse failure)
   if [ -z "$STDOUT" ]; then
     actual="error"
   elif echo "$STDOUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' > /dev/null 2>&1; then
     actual="allow"
-  else
+  elif echo "$STDOUT" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' > /dev/null 2>&1; then
     actual="deny"
+  else
+    actual="error"
   fi
 
   # Grade: error means Ollama didn't respond — treat as skip (not a fail)
