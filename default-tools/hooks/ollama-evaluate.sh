@@ -6,13 +6,13 @@
 # silently (exit 0, no output) to fall through to the permission prompt.
 #
 # Configuration (environment variables):
-#   OLLAMA_MODEL   — default: gemma3:4b
+#   OLLAMA_MODEL   — default: gemma4:latest
 #   OLLAMA_HOST    — default: http://localhost:11434
 #   OLLAMA_TIMEOUT — default: 15 (seconds)
 
 set -u
 
-MODEL="${OLLAMA_MODEL:-gemma3:4b}"
+MODEL="${OLLAMA_MODEL:-gemma4:latest}"
 HOST="${OLLAMA_HOST:-http://localhost:11434}"
 TIMEOUT="${OLLAMA_TIMEOUT:-15}"
 

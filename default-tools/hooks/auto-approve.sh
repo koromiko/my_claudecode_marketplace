@@ -16,6 +16,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/log-utils.sh"
 log_init
 
+START_MS=$(log_now_ms)
+
+# --- Helper: milliseconds since hook start ---
+elapsed_ms() {
+  local now
+  now=$(log_now_ms)
+  echo $(( now - START_MS ))
+}
+
 INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""')
@@ -70,7 +79,7 @@ is_sensitive_path() {
 # --- Helper: output an allow decision ---
 allow() {
   local reason="${1:-Auto-approved}"
-  log_decision "ALLOW" "$TOOL_NAME" "$LOG_SUMMARY" "$reason"
+  log_decision "ALLOW" "$TOOL_NAME" "$LOG_SUMMARY" "$reason" "$(elapsed_ms)"
   jq -n --arg reason "$reason" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
@@ -84,7 +93,7 @@ allow() {
 # --- Helper: log and fall through to permission prompt ---
 pass() {
   local reason="${1:-Deferred to permission prompt}"
-  log_decision "PASS" "$TOOL_NAME" "$LOG_SUMMARY" "$reason"
+  log_decision "PASS" "$TOOL_NAME" "$LOG_SUMMARY" "$reason" "$(elapsed_ms)"
   exit 0
 }
 
@@ -96,10 +105,10 @@ evaluate_with_ollama() {
   if [[ -n "$result" ]]; then
     local llm_reason
     llm_reason=$(echo "$result" | jq -r '.hookSpecificOutput.permissionDecisionReason // "LLM-approved"' 2>/dev/null) || llm_reason="LLM-approved"
-    log_decision "ALLOW_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$llm_reason"
+    log_decision "ALLOW_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$llm_reason" "$(elapsed_ms)"
     echo "$result"
   else
-    log_decision "PASS_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$reason_context: LLM denied or unavailable"
+    log_decision "PASS_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$reason_context: LLM denied or unavailable" "$(elapsed_ms)"
   fi
   exit 0
 }

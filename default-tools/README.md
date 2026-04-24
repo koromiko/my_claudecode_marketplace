@@ -24,7 +24,7 @@ Unconditional allows (WebSearch, ToolSearch, MCP tools) are handled by native `p
 
 For tool calls not resolved by the fast path, `ollama-evaluate.sh` sends the tool name and parameters to a local Ollama model for a binary allow/deny decision. Uses a DENY-first prompt so security rules take precedence.
 
-- Default model: `gemma3:4b` — average ~850ms per call
+- Default model: `gemma4:latest` (8B) — average ~1s per call, 100% on the test suite
 - Falls through silently (no output) if Ollama is unavailable or returns deny
 - Override with `OLLAMA_MODEL`, `OLLAMA_HOST`, `OLLAMA_TIMEOUT`
 
@@ -56,4 +56,4 @@ Runs 23 fixture cases (allow + deny) against the Ollama evaluator. Results writt
 - **jq** (JSON parsing in hook scripts)
 - **terminal-notifier** (`brew install terminal-notifier`) for macOS notifications
 - **iTerm2** (notifications activate iTerm2 window)
-- **Ollama** (`brew install ollama`) with `gemma3:4b` (`ollama pull gemma3:4b`) for LLM-based evaluation
+- **Ollama** (`brew install ollama`) with `gemma4:latest` (`ollama pull gemma4:latest`) for LLM-based evaluation

@@ -13,6 +13,12 @@ log_init() {
   [[ -d "$AUTO_APPROVE_LOG_DIR" ]] || mkdir -p "$AUTO_APPROVE_LOG_DIR"
 }
 
+# --- log_now_ms: epoch milliseconds (macOS bash 3.2 has no EPOCHREALTIME) ---
+log_now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%d\n", time()*1000' 2>/dev/null \
+    || echo $(( $(date +%s) * 1000 ))
+}
+
 # --- _log_rotate: rotate log file if it exceeds max size ---
 _log_rotate() {
   [[ -f "$AUTO_APPROVE_LOG_FILE" ]] || return 0
@@ -34,12 +40,13 @@ _log_rotate() {
 }
 
 # --- log_decision: write one log entry ---
-# Usage: log_decision DECISION TOOL_NAME INPUT_SUMMARY REASON
+# Usage: log_decision DECISION TOOL_NAME INPUT_SUMMARY REASON [DURATION_MS]
 log_decision() {
   local decision="$1"
   local tool_name="$2"
   local input_summary="$3"
   local reason="$4"
+  local duration_ms="${5:-}"
 
   _log_rotate
 
@@ -51,7 +58,7 @@ log_decision() {
   local ts
   ts=$(date '+%Y-%m-%dT%H:%M:%S')
 
-  printf '%s\t%s\t%s\t%s\t%s\n' \
-    "$ts" "$decision" "$tool_name" "$input_summary" "$reason" \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$ts" "$decision" "$tool_name" "$input_summary" "$reason" "$duration_ms" \
     >> "$AUTO_APPROVE_LOG_FILE" 2>/dev/null || true
 }

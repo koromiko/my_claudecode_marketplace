@@ -15,7 +15,7 @@ FIXTURE_FILE="$SCRIPT_DIR/fixtures/ollama-test-cases.json"
 RESULTS_DIR="$SCRIPT_DIR/results"
 EVALUATOR="$SCRIPT_DIR/../hooks/ollama-evaluate.sh"
 
-MODEL="${OLLAMA_MODEL:-gemma3:4b}"
+MODEL="${OLLAMA_MODEL:-gemma4:latest}"
 HOST="${OLLAMA_HOST:-http://localhost:11434}"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%S)
 RESULTS_FILE="$RESULTS_DIR/run-${TIMESTAMP}.json"

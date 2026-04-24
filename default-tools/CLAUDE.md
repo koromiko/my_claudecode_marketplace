@@ -37,7 +37,7 @@ Exit conventions:
 - `*` catch-all — any tool not explicitly handled (Agent, NotebookEdit, etc.)
 
 **Configuration (environment variables):**
-- `OLLAMA_MODEL` — default `gemma3:4b`
+- `OLLAMA_MODEL` — default `gemma4:latest`
 - `OLLAMA_HOST` — default `http://localhost:11434`
 - `OLLAMA_TIMEOUT` — default `15` (seconds)
 - `OLLAMA_TEST_MODE` — set to `1` by the test harness so deny decisions are emitted as JSON (never set in production)
@@ -94,10 +94,12 @@ echo '{"tool_name":"Write","tool_input":{"file_path":"/project/README.md","conte
 All tool use decisions are logged to `~/.claude/logs/auto-approve.log` in tab-separated format:
 
 ```
-TIMESTAMP	DECISION	TOOL_NAME	INPUT_SUMMARY	REASON
+TIMESTAMP	DECISION	TOOL_NAME	INPUT_SUMMARY	REASON	DURATION_MS
 ```
 
 Decisions: `ALLOW` (fast path), `PASS` (deferred to prompt), `ALLOW_LLM` (Ollama approved), `PASS_LLM` (Ollama denied/unavailable).
+
+`DURATION_MS` is the end-to-end turnaround time of the hook measured from the moment `auto-approve.sh` is invoked to the moment the decision is written. It captures the total permission-check overhead the tool call incurred, including Ollama round-trip time for LLM branches. Fast-path decisions typically run in <50ms; LLM-branch decisions track the local model's latency (~800–1200ms on `gemma4:latest`). Rows written before this column was added have an empty 6th field and are ignored by the report.
 
 Log files rotate at 1MB with 3 backups (`.1`, `.2`, `.3`). Logging utilities live in `hooks/log-utils.sh` (sourced by `auto-approve.sh`).
 
@@ -112,6 +114,30 @@ grep 'LLM' ~/.claude/logs/auto-approve.log
 grep 'PASS' ~/.claude/logs/auto-approve.log
 ```
 
+### Usage Report Script
+
+`scripts/usage-report.sh` aggregates the log into a human-readable summary with decision/tool breakdowns and a fast-path vs LLM split.
+
+```bash
+# All-time report
+bash scripts/usage-report.sh
+
+# Today only
+bash scripts/usage-report.sh --today
+
+# Last N days
+bash scripts/usage-report.sh --days 7
+
+# Since a specific date
+bash scripts/usage-report.sh --since 2026-04-01
+```
+
+Output sections:
+- **Decisions** — counts and bar charts for ALLOW, PASS, ALLOW_LLM, PASS_LLM
+- **Tool Calls** — per-tool breakdown sorted by volume
+- **Fast-path vs LLM** — aggregate split showing how often Ollama was invoked
+- **Turnaround time (ms)** — count, avg, p50, p95, max per decision type (skips pre-timing rows)
+
 ## Prerequisites
 
-macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Gemma3:4b (`ollama pull gemma3:4b`) for LLM-based tool evaluation.
+macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Gemma4 8B (`ollama pull gemma4:latest`) for LLM-based tool evaluation.
