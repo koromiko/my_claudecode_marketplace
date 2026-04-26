@@ -61,6 +61,8 @@ Fork the current Claude session into a new tmux pane or iTerm tab. Uses `fork-it
 ### /session-manager:run-in-pane
 Run a bash command in a new tmux pane or iTerm tab with automatic tracking. Returns a managed ID for subsequent operations.
 
+**Preferred path for interactive commands.** Any command that will prompt the user mid-execution — 2FA, OAuth device flows, cloud-CLI logins (`aws sso login`, `gcloud auth login`, `gh auth login`, `az login`, `vercel login`, `firebase login`), credential prompts (`npm login`, `docker login`), SSH/sudo passphrase, interactive installers (`create-next-app`, `terraform apply`) — must be routed through `run-in-pane`, not the main Bash tool. Inline Bash has no TTY, so these commands hang. The agent workflow is: launch pane → tell the user what to do in that pane → wait for the user → `capture` the final output. See `commands/run-in-pane.md` and `skills/pane-context/SKILL.md` for the full list of triggers and the step-by-step flow.
+
 ## Testing
 
 Test the session-manager script:
