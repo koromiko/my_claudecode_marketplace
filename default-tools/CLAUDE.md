@@ -8,7 +8,7 @@ A Claude Code plugin that provides three shell-based hooks: conditional tool aut
 
 ## Architecture
 
-All logic lives in `hooks/`. There are no skills, commands, or agents — only hook scripts registered in `hooks/hooks.json`.
+Logic lives primarily in `hooks/`. There are no skills or agents. The plugin also ships a `scripts/` directory with the auto-approve usage reports (terminal + HTML) and a `commands/` directory with the `/auto-approve-report` slash command that wraps the HTML report script.
 
 ### Hook Pipeline
 

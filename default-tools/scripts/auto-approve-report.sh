@@ -32,7 +32,6 @@ FILTER_SINCE=""
 FILTER_LABEL="last 7 days"
 OPEN_AFTER=0
 OUT_PATH=""
-EXPLICIT_WINDOW=0  # set when user passes --today/--days/--since/--all
 
 # Default: last 7 days. Computed here so --all can clear it.
 default_since() {
@@ -45,7 +44,6 @@ while [[ $# -gt 0 ]]; do
     --today)
       FILTER_SINCE=$(date '+%Y-%m-%d')
       FILTER_LABEL="today"
-      EXPLICIT_WINDOW=1
       shift ;;
     --days)
       [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --days requires a positive integer" >&2; exit 1; }
@@ -53,19 +51,16 @@ while [[ $# -gt 0 ]]; do
       FILTER_SINCE=$(date -v "-${2}d" '+%Y-%m-%d' 2>/dev/null \
         || date -d "${2} days ago" '+%Y-%m-%d')
       FILTER_LABEL="last ${2} days"
-      EXPLICIT_WINDOW=1
       shift 2 ;;
     --since)
       [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --since requires a date (YYYY-MM-DD)" >&2; exit 1; }
       [[ "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "Error: --since requires YYYY-MM-DD format (got: $2)" >&2; exit 1; }
       FILTER_SINCE="$2"
       FILTER_LABEL="since $2"
-      EXPLICIT_WINDOW=1
       shift 2 ;;
     --all)
       FILTER_SINCE=""
       FILTER_LABEL="all time"
-      EXPLICIT_WINDOW=1
       shift ;;
     --open)
       OPEN_AFTER=1
