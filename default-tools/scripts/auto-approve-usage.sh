@@ -2,7 +2,7 @@
 # Aggregate auto-approve hook usage from ~/.claude/logs/auto-approve.log
 #
 # Usage:
-#   ./usage-report.sh [--today] [--days N] [--since YYYY-MM-DD]
+#   ./auto-approve-usage.sh [--today] [--days N] [--since YYYY-MM-DD]
 #
 # Flags:
 #   --today         Show only today's entries

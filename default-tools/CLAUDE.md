@@ -114,22 +114,22 @@ grep 'LLM' ~/.claude/logs/auto-approve.log
 grep 'PASS' ~/.claude/logs/auto-approve.log
 ```
 
-### Usage Report Script
+### Auto-Approve Usage Report (terminal)
 
-`scripts/usage-report.sh` aggregates the log into a human-readable summary with decision/tool breakdowns and a fast-path vs LLM split.
+`scripts/auto-approve-usage.sh` aggregates the log into a human-readable summary with decision/tool breakdowns and a fast-path vs LLM split.
 
 ```bash
 # All-time report
-bash scripts/usage-report.sh
+bash scripts/auto-approve-usage.sh
 
 # Today only
-bash scripts/usage-report.sh --today
+bash scripts/auto-approve-usage.sh --today
 
 # Last N days
-bash scripts/usage-report.sh --days 7
+bash scripts/auto-approve-usage.sh --days 7
 
 # Since a specific date
-bash scripts/usage-report.sh --since 2026-04-01
+bash scripts/auto-approve-usage.sh --since 2026-04-01
 ```
 
 Output sections:

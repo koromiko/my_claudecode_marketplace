@@ -1,6 +1,6 @@
 #!/bin/bash
 # Logs auto-mode classifier denials to ~/.claude/logs/auto-approve.log so
-# usage-report.sh can aggregate them alongside ALLOW/PASS/ALLOW_LLM/PASS_LLM.
+# auto-approve-usage.sh can aggregate them alongside ALLOW/PASS/ALLOW_LLM/PASS_LLM.
 # Optional opt-in behaviors:
 #   DEFAULT_TOOLS_AUTO_RETRY_REGEX — if the denial reason matches this regex,
 #     emit a retry JSON so Claude Code tells the model to try again.
