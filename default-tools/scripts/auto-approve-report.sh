@@ -98,11 +98,119 @@ if [[ ${#log_files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# DEBUG: print resolved config (removed in Task 4)
+# --- Aggregate ---
+# Emit raw rows the same way auto-approve-usage.sh does, plus turnaround details
+# and denial reasons. Awk emits TSV; we shape into JSON below with jq.
+raw=$(awk -v since="$FILTER_SINCE" '
+BEGIN { FS = "\t" }
+NF < 3 { next }
+since != "" && substr($1, 1, 10) < since { next }
 {
-  echo "since=${FILTER_SINCE}"
-  echo "label=${FILTER_LABEL}"
-  echo "out=${OUT_PATH}"
-  echo "open=${OPEN_AFTER}"
-  echo "log_files=${log_files[*]}"
-} >&2
+  total++
+  decisions[$2]++
+  tools[$3]++
+  if (NF >= 6 && $6 ~ /^[0-9]+$/) {
+    d = $2
+    lat_count[d]++
+    lat_sum[d] += $6
+    key = d ":" lat_count[d]
+    lat_vals[key] = $6
+    all_durations[++all_n] = $6
+  }
+  if (NF >= 5 && $2 ~ /^DENIED_AUTO/) {
+    reason = $5
+    if (length(reason) > 100) reason = substr(reason, 1, 100) "..."
+    denial_reasons[reason]++
+  }
+}
+END {
+  print "TOTAL\t" (total+0)
+  for (d in decisions) print "DECISION\t" d "\t" decisions[d]
+  for (t in tools)     print "TOOL\t"     t "\t" tools[t]
+  for (r in denial_reasons) print "DENIAL\t" denial_reasons[r] "\t" r
+  for (d in lat_count) {
+    n = lat_count[d]
+    delete arr
+    for (i = 1; i <= n; i++) arr[i] = lat_vals[d ":" i]
+    for (i = 2; i <= n; i++) {
+      v = arr[i]; j = i - 1
+      while (j >= 1 && arr[j] > v) { arr[j+1] = arr[j]; j-- }
+      arr[j+1] = v
+    }
+    avg = lat_sum[d] / n
+    p50_idx = int((n + 1) * 0.5); if (p50_idx < 1) p50_idx = 1; if (p50_idx > n) p50_idx = n
+    p95_idx = int((n + 1) * 0.95); if (p95_idx < 1) p95_idx = 1; if (p95_idx > n) p95_idx = n
+    printf "TURN\t%s\t%d\t%d\t%d\t%d\t%d\n", d, n, avg, arr[p50_idx], arr[p95_idx], arr[n]
+  }
+  if (all_n > 0) {
+    n = all_n
+    for (i = 2; i <= n; i++) {
+      v = all_durations[i]; j = i - 1
+      while (j >= 1 && all_durations[j] > v) { all_durations[j+1] = all_durations[j]; j-- }
+      all_durations[j+1] = v
+    }
+    p95_idx = int((n + 1) * 0.95); if (p95_idx < 1) p95_idx = 1; if (p95_idx > n) p95_idx = n
+    printf "OVERALL_P95\t%d\n", all_durations[p95_idx]
+  } else {
+    print "OVERALL_P95\t0"
+  }
+}
+' "${log_files[@]}")
+
+total=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="TOTAL"{print $2}')
+
+# --- Build JSON with jq ---
+log_files_json=$(printf '%s\n' "${log_files[@]}" | jq -R . | jq -s .)
+generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+fast=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="DECISION" && $2 !~ /LLM/ && $2 !~ /DENIED_AUTO/{s+=$3} END{print s+0}')
+llm=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="DECISION" && $2 ~ /LLM/{s+=$3} END{print s+0}')
+classifier=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="DECISION" && $2 ~ /DENIED_AUTO/{s+=$3} END{print s+0}')
+overall_p95=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="OVERALL_P95"{print $2}')
+
+decisions_json=$(printf '%s\n' "$raw" \
+  | awk -F'\t' '$1=="DECISION"{printf "{\"name\":\"%s\",\"count\":%d}\n", $2, $3}' \
+  | jq -s 'sort_by(-.count)')
+tools_json=$(printf '%s\n' "$raw" \
+  | awk -F'\t' '$1=="TOOL"{printf "{\"name\":\"%s\",\"count\":%d}\n", $2, $3}' \
+  | jq -s 'sort_by(-.count)')
+turn_json=$(printf '%s\n' "$raw" \
+  | awk -F'\t' '$1=="TURN"{printf "{\"decision\":\"%s\",\"count\":%d,\"avg\":%d,\"p50\":%d,\"p95\":%d,\"max\":%d}\n", $2,$3,$4,$5,$6,$7}' \
+  | jq -s 'sort_by(-.count)')
+
+# Build denials with jq for safe string escaping (awk has no JSON escape).
+denials_json=$(printf '%s\n' "$raw" \
+  | awk -F'\t' '$1=="DENIAL"{print $2 "\t" $3}' \
+  | jq -R 'split("\t") | {count: (.[0]|tonumber), reason: .[1]}' \
+  | jq -s 'sort_by(-.count) | .[0:10]')
+
+data_json=$(jq -n \
+  --arg generated_at "$generated_at" \
+  --arg filter_since "$FILTER_SINCE" \
+  --arg filter_label "$FILTER_LABEL" \
+  --argjson log_files "$log_files_json" \
+  --argjson total "${total:-0}" \
+  --argjson decisions "$decisions_json" \
+  --argjson tools "$tools_json" \
+  --argjson turnaround "$turn_json" \
+  --argjson denials "$denials_json" \
+  --argjson fast "$fast" \
+  --argjson llm "$llm" \
+  --argjson classifier "$classifier" \
+  --argjson overall_p95 "${overall_p95:-0}" \
+  '{
+    generated_at: $generated_at,
+    filter_since: $filter_since,
+    filter_label: $filter_label,
+    log_files: $log_files,
+    total: $total,
+    decisions: $decisions,
+    tools: $tools,
+    source_split: { fast: $fast, llm: $llm, classifier: $classifier },
+    overall_p95_ms: $overall_p95,
+    turnaround: $turnaround,
+    denials: $denials
+  }')
+
+# DEBUG: emit JSON to stdout (replaced with HTML in Task 5)
+echo "$data_json"
