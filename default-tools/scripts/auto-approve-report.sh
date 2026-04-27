@@ -214,7 +214,7 @@ data_json=$(jq -n \
     overall_p95_ms: $overall_p95,
     turnaround: $turnaround,
     denials: $denials
-  }')
+  }' | jq -c .)
 
 # --- Render HTML ---
 if [[ ! -f "$CHART_JS" ]]; then
