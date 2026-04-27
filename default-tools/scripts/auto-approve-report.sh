@@ -48,14 +48,15 @@ while [[ $# -gt 0 ]]; do
       EXPLICIT_WINDOW=1
       shift ;;
     --days)
-      [[ -z "${2:-}" ]] && { echo "Error: --days requires a number" >&2; exit 1; }
+      [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --days requires a positive integer" >&2; exit 1; }
+      [[ "$2" =~ ^[0-9]+$ ]] || { echo "Error: --days requires a positive integer (got: $2)" >&2; exit 1; }
       FILTER_SINCE=$(date -v "-${2}d" '+%Y-%m-%d' 2>/dev/null \
         || date -d "${2} days ago" '+%Y-%m-%d')
       FILTER_LABEL="last ${2} days"
       EXPLICIT_WINDOW=1
       shift 2 ;;
     --since)
-      [[ -z "${2:-}" ]] && { echo "Error: --since requires a date (YYYY-MM-DD)" >&2; exit 1; }
+      [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --since requires a date (YYYY-MM-DD)" >&2; exit 1; }
       FILTER_SINCE="$2"
       FILTER_LABEL="since $2"
       EXPLICIT_WINDOW=1
@@ -69,7 +70,7 @@ while [[ $# -gt 0 ]]; do
       OPEN_AFTER=1
       shift ;;
     --out)
-      [[ -z "${2:-}" ]] && { echo "Error: --out requires a path" >&2; exit 1; }
+      [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --out requires a path" >&2; exit 1; }
       OUT_PATH="$2"
       shift 2 ;;
     --help|-h)
