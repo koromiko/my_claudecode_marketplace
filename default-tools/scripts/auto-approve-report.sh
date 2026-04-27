@@ -57,6 +57,7 @@ while [[ $# -gt 0 ]]; do
       shift 2 ;;
     --since)
       [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --since requires a date (YYYY-MM-DD)" >&2; exit 1; }
+      [[ "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "Error: --since requires YYYY-MM-DD format (got: $2)" >&2; exit 1; }
       FILTER_SINCE="$2"
       FILTER_LABEL="since $2"
       EXPLICIT_WINDOW=1
@@ -169,13 +170,16 @@ classifier=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="DECISION" && $2 ~ /DENIED_A
 overall_p95=$(printf '%s\n' "$raw" | awk -F'\t' '$1=="OVERALL_P95"{print $2}')
 
 decisions_json=$(printf '%s\n' "$raw" \
-  | awk -F'\t' '$1=="DECISION"{printf "{\"name\":\"%s\",\"count\":%d}\n", $2, $3}' \
+  | awk -F'\t' '$1=="DECISION"{print $2 "\t" $3}' \
+  | jq -R 'split("\t") | {name: .[0], count: (.[1]|tonumber)}' \
   | jq -s 'sort_by(-.count)')
 tools_json=$(printf '%s\n' "$raw" \
-  | awk -F'\t' '$1=="TOOL"{printf "{\"name\":\"%s\",\"count\":%d}\n", $2, $3}' \
+  | awk -F'\t' '$1=="TOOL"{print $2 "\t" $3}' \
+  | jq -R 'split("\t") | {name: .[0], count: (.[1]|tonumber)}' \
   | jq -s 'sort_by(-.count)')
 turn_json=$(printf '%s\n' "$raw" \
-  | awk -F'\t' '$1=="TURN"{printf "{\"decision\":\"%s\",\"count\":%d,\"avg\":%d,\"p50\":%d,\"p95\":%d,\"max\":%d}\n", $2,$3,$4,$5,$6,$7}' \
+  | awk -F'\t' '$1=="TURN"{print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7}' \
+  | jq -R 'split("\t") | {decision: .[0], count: (.[1]|tonumber), avg: (.[2]|tonumber), p50: (.[3]|tonumber), p95: (.[4]|tonumber), max: (.[5]|tonumber)}' \
   | jq -s 'sort_by(-.count)')
 
 # Build denials with jq for safe string escaping (awk has no JSON escape).
