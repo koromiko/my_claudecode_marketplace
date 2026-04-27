@@ -138,6 +138,31 @@ Output sections:
 - **Fast-path vs LLM** — aggregate split showing how often Ollama was invoked
 - **Turnaround time (ms)** — count, avg, p50, p95, max per decision type (skips pre-timing rows)
 
+### Auto-Approve Usage Report (HTML)
+
+`scripts/auto-approve-report.sh` generates a self-contained HTML dashboard with KPI cards, decision/tool bar charts, a fast-path vs LLM donut, and a turnaround table. The report works offline (Chart.js is vendored at `scripts/vendor/chart.umd.min.js`).
+
+```bash
+# Default: last 7 days, written to /tmp/auto-approve-report-<ISO>.html
+bash scripts/auto-approve-report.sh
+
+# Generate and open in the browser
+bash scripts/auto-approve-report.sh --open
+
+# Filter by time window (mirrors the terminal report's flags)
+bash scripts/auto-approve-report.sh --today
+bash scripts/auto-approve-report.sh --days 30
+bash scripts/auto-approve-report.sh --since 2026-04-01
+bash scripts/auto-approve-report.sh --all          # override default 7-day window
+
+# Custom output path
+bash scripts/auto-approve-report.sh --out ~/Desktop/auto-approve.html --open
+```
+
+Slash command: `/auto-approve-report [flags]` runs the script with `--open` and forwards any flags as arguments.
+
+The default time window is **last 7 days** (the terminal report defaults to all-time). Use `--all` to match the terminal report's default.
+
 ## Prerequisites
 
 macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Gemma4 8B (`ollama pull gemma4:latest`) for LLM-based tool evaluation.
