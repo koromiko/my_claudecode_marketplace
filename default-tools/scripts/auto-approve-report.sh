@@ -334,6 +334,7 @@ if (DATA.total === 0) {
     DENIED_AUTO: '#f87171', DENIED_AUTO_LLM: '#fb923c'
   };
   const colorFor = name => COLORS[name] || '#888';
+  const esc = s => String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   const baseOpts = {
     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
     plugins: { legend: { display: false } },
@@ -346,7 +347,7 @@ if (DATA.total === 0) {
   new Chart(document.getElementById('c-decisions'), {
     type: 'bar',
     data: {
-      labels: DATA.decisions.map(d => d.name),
+      labels: DATA.decisions.map(d => d.name + ' (' + d.count.toLocaleString() + ' · ' + Math.round(d.count * 100 / DATA.total) + '%)'),
       datasets: [{
         data: DATA.decisions.map(d => d.count),
         backgroundColor: DATA.decisions.map(d => colorFor(d.name))
@@ -360,7 +361,7 @@ if (DATA.total === 0) {
   new Chart(document.getElementById('c-tools'), {
     type: 'bar',
     data: {
-      labels: tools.map(t => t.name).concat(moreCount > 0 ? ['+' + moreCount + ' more'] : []),
+      labels: tools.map(t => t.name + ' (' + t.count.toLocaleString() + ')').concat(moreCount > 0 ? ['+' + moreCount + ' more'] : []),
       datasets: [{
         data: tools.map(t => t.count).concat(moreCount > 0 ? [DATA.tools.slice(20).reduce((a,b) => a + b.count, 0)] : []),
         backgroundColor: '#5fa8ff'
@@ -389,7 +390,7 @@ if (DATA.total === 0) {
     turnBody.innerHTML = '<tr><td colspan="6" class="empty">No timing data.</td></tr>';
   } else {
     turnBody.innerHTML = DATA.turnaround.map(r =>
-      '<tr><td>' + r.decision + '</td>' +
+      '<tr><td>' + esc(r.decision) + '</td>' +
       '<td class="num">' + r.count + '</td>' +
       '<td class="num">' + r.avg + '</td>' +
       '<td class="num">' + r.p50 + '</td>' +
@@ -400,7 +401,7 @@ if (DATA.total === 0) {
   if (DATA.denials.length > 0) {
     document.getElementById('denials-panel').style.display = 'block';
     document.querySelector('#t-denials tbody').innerHTML = DATA.denials.map(d =>
-      '<tr><td class="num">' + d.count + '</td><td>' + d.reason.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</td></tr>'
+      '<tr><td class="num">' + d.count + '</td><td>' + esc(d.reason) + '</td></tr>'
     ).join('');
   }
 }
