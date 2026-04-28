@@ -48,10 +48,12 @@ python3 claude-usage-analyzer/scripts/generate_report.py --period weekly
 python3 claude-usage-analyzer/scripts/generate_report.py --session <uuid>
 ```
 
-### Plugin Cache
+### Bump plugin version + clear cache
 ```bash
-./scripts/clear-cache.sh            # Clear all plugin caches
-./scripts/clear-cache.sh --dry-run  # Preview
+./scripts/bump-plugin.sh <plugin>          # patch bump (default) + clear cache
+./scripts/bump-plugin.sh <plugin> minor    # minor bump + clear cache
+./scripts/bump-plugin.sh <plugin> major    # major bump + clear cache
+./scripts/bump-plugin.sh <plugin> none     # clear cache only, no version change
 ```
 
 ### Validate Hook JSON
@@ -68,3 +70,4 @@ jq . <plugin>/hooks/hooks.json
 - **Per-plugin CLAUDE.md**: Each plugin has its own CLAUDE.md with detailed implementation guidance. Read the relevant one when working on a specific plugin.
 - **Skill creation/improvement**: Always use the `skill-creator:skill-creator` skill, not `plugin-dev:skill-development`.
 - **Agent teams + MCP tools**: Background agents cannot handle MCP permission prompts. If a team task requires MCP tools (Chrome DevTools, Slack, etc.), the coordinator must run those calls directly or spawn the agent in the foreground.
+- **Bump plugin version when finishing an implementation**: After completing a change to a plugin (feature, fix, or notable refactor), run `./scripts/bump-plugin.sh <plugin> [patch|minor|major]` (default: `patch`) to bump the `version` in that plugin's `.claude-plugin/plugin.json` and clear its cache. Use semver: patch for fixes, minor for features, major for breaking changes. Do this before committing.

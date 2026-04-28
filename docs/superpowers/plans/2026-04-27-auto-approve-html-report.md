@@ -782,9 +782,9 @@ If the script reports `No log files found`, tell the user the auto-approve hook 
 
 ```bash
 cd /Users/sthuang/Project/my_claudecode_marketplace
-./scripts/clear-cache.sh
+./scripts/bump-plugin.sh default-tools none
 ```
-Expected: cache cleared message. (If `bump-plugin.sh` is preferred per CLAUDE.md, use `./scripts/bump-plugin.sh default-tools` instead.)
+Expected: cache cleared message. (Use `./scripts/bump-plugin.sh default-tools` to also bump the patch version per CLAUDE.md.)
 
 - [ ] **Step 3: Verify the slash command is wired up**
 
