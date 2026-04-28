@@ -8,7 +8,7 @@ A Claude Code plugin that provides three shell-based hooks: conditional tool aut
 
 ## Architecture
 
-All logic lives in `hooks/`. There are no skills, commands, or agents — only hook scripts registered in `hooks/hooks.json`.
+Logic lives primarily in `hooks/`. There are no skills or agents. The plugin also ships a `scripts/` directory with the auto-approve usage reports (terminal + HTML) and a `commands/` directory with the `/auto-approve-report` slash command that wraps the HTML report script.
 
 ### Hook Pipeline
 
@@ -114,22 +114,22 @@ grep 'LLM' ~/.claude/logs/auto-approve.log
 grep 'PASS' ~/.claude/logs/auto-approve.log
 ```
 
-### Usage Report Script
+### Auto-Approve Usage Report (terminal)
 
-`scripts/usage-report.sh` aggregates the log into a human-readable summary with decision/tool breakdowns and a fast-path vs LLM split.
+`scripts/auto-approve-usage.sh` aggregates the log into a human-readable summary with decision/tool breakdowns and a fast-path vs LLM split.
 
 ```bash
 # All-time report
-bash scripts/usage-report.sh
+bash scripts/auto-approve-usage.sh
 
 # Today only
-bash scripts/usage-report.sh --today
+bash scripts/auto-approve-usage.sh --today
 
 # Last N days
-bash scripts/usage-report.sh --days 7
+bash scripts/auto-approve-usage.sh --days 7
 
 # Since a specific date
-bash scripts/usage-report.sh --since 2026-04-01
+bash scripts/auto-approve-usage.sh --since 2026-04-01
 ```
 
 Output sections:
@@ -137,6 +137,31 @@ Output sections:
 - **Tool Calls** — per-tool breakdown sorted by volume
 - **Fast-path vs LLM** — aggregate split showing how often Ollama was invoked
 - **Turnaround time (ms)** — count, avg, p50, p95, max per decision type (skips pre-timing rows)
+
+### Auto-Approve Usage Report (HTML)
+
+`scripts/auto-approve-report.sh` generates a self-contained HTML dashboard with KPI cards, decision/tool bar charts, a fast-path vs LLM donut, and a turnaround table. The report works offline (Chart.js is vendored at `scripts/vendor/chart.umd.min.js`).
+
+```bash
+# Default: last 7 days, written to /tmp/auto-approve-report-<ISO>.html
+bash scripts/auto-approve-report.sh
+
+# Generate and open in the browser
+bash scripts/auto-approve-report.sh --open
+
+# Filter by time window (mirrors the terminal report's flags)
+bash scripts/auto-approve-report.sh --today
+bash scripts/auto-approve-report.sh --days 30
+bash scripts/auto-approve-report.sh --since 2026-04-01
+bash scripts/auto-approve-report.sh --all          # override default 7-day window
+
+# Custom output path
+bash scripts/auto-approve-report.sh --out ~/Desktop/auto-approve.html --open
+```
+
+Slash command: `/auto-approve-report [flags]` runs the script with `--open` and forwards any flags as arguments.
+
+The default time window is **last 7 days** (the terminal report defaults to all-time). Use `--all` to match the terminal report's default.
 
 ## Prerequisites
 
