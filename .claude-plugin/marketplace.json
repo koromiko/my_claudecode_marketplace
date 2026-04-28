@@ -43,13 +43,6 @@
       "category": "workflow"
     },
     {
-      "name": "ios-agentic-loop",
-      "description": "Agentic iOS testing system combining idb-driven UI exploration with Maestro deterministic regression. Provides skills for accessibility auditing, Maestro flow authoring, and autonomous idb observe-reason-act-verify loops.",
-      "version": "1.0.0",
-      "source": "./ios-agentic-loop",
-      "category": "ios"
-    },
-    {
       "name": "obsidian-vault",
       "description": "Capture knowledge from Claude Code conversations and store them as notes in an Obsidian vault",
       "version": "0.1.0",

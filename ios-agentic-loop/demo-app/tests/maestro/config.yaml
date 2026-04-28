@@ -1,8 +1,0 @@
-appId: "com.agentic-loop.demo"
-
-tags:
-  - smoke
-  - regression
-
-flows:
-  - "flows/**/*.yaml"

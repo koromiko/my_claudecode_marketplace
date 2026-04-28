@@ -13,7 +13,6 @@ marketplace.json (registry)
   ├── session-manager/      → Terminal session forking (tmux/iTerm), pane tracking
   ├── claude-usage-analyzer/ → Python pipeline analyzing ~/.claude/ session data
   ├── default-tools/        → Hook-only plugin: auto-approve, macOS notifications
-  ├── ios-agentic-loop/     → iOS testing via idb + Maestro, includes TypeScript MCP server
   ├── agent-orchestration/  → Reusable subagent dispatch/retry/fallback protocol
   └── swift-project-tools/  → (symlink) Swift project setup skills
 ```
@@ -27,20 +26,12 @@ plugin-name/
 ├── skills/                      # Knowledge skills (SKILL.md + references/)
 ├── agents/                      # Agent definitions (Markdown files)
 ├── hooks/                       # hooks.json + handler scripts
-├── scripts/                     # Helper scripts (Bash/Python)
-└── mcp-server/                  # MCP server (only ios-agentic-loop)
+└── scripts/                     # Helper scripts (Bash/Python)
 ```
 
 Symlinked plugin (`swift-project-tools`) lives in an external repo and is gitignored.
 
 ## Commands
-
-### ios-agentic-loop MCP Server (TypeScript)
-```bash
-cd ios-agentic-loop/mcp-server
-npm install && npm run build    # Compile TypeScript
-npm test                        # Run vitest tests
-```
 
 ### claude-usage-analyzer (Python 3.8+, stdlib only)
 ```bash
@@ -65,7 +56,6 @@ jq . <plugin>/hooks/hooks.json
 
 - **Registering a plugin**: Add entry to `.claude-plugin/marketplace.json` with name, version, source path, and category.
 - **Hook types**: PreToolUse (auto-approve decisions), PostToolUse (file watchers), Notification (permission prompts), Stop (session end). Handler scripts read JSON from stdin and write JSON to stdout.
-- **MCP config**: Only `ios-agentic-loop` has an MCP server. Config is in `.mcp.json` using `${CLAUDE_PLUGIN_ROOT}` for portable paths.
 - **No external Python deps**: `claude-usage-analyzer` uses only Python 3.8+ stdlib. No pip install needed.
 - **Per-plugin CLAUDE.md**: Each plugin has its own CLAUDE.md with detailed implementation guidance. Read the relevant one when working on a specific plugin.
 - **Skill creation/improvement**: Always use the `skill-creator:skill-creator` skill, not `plugin-dev:skill-development`.
