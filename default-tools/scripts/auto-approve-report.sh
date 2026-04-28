@@ -188,6 +188,7 @@ data_json=$(jq -n \
   --arg filter_since "$FILTER_SINCE" \
   --arg filter_label "$FILTER_LABEL" \
   --argjson log_files "$log_files_json" \
+  --arg home "${HOME}" \
   --argjson total "${total:-0}" \
   --argjson decisions "$decisions_json" \
   --argjson tools "$tools_json" \
@@ -202,6 +203,7 @@ data_json=$(jq -n \
     filter_since: $filter_since,
     filter_label: $filter_label,
     log_files: $log_files,
+    home: $home,
     total: $total,
     decisions: $decisions,
     tools: $tools,
@@ -248,6 +250,8 @@ cat > "$OUT_PATH" <<HTML_EOF
            border-radius: 8px; padding: 16px; }
   .panel h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600;
               color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .chart-box { position: relative; height: 260px; }
+  .more-note { color: var(--muted); font-size: 11px; margin-top: 8px; text-align: right; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
@@ -282,12 +286,12 @@ cat > "$OUT_PATH" <<HTML_EOF
   <div id="empty-banner" class="empty" style="display:none">No entries in this window.</div>
 
   <section class="row" id="charts-row">
-    <div class="panel"><h2>Decisions</h2><canvas id="c-decisions" height="200"></canvas></div>
-    <div class="panel"><h2>Tool calls</h2><canvas id="c-tools" height="200"></canvas></div>
+    <div class="panel"><h2>Decisions</h2><div class="chart-box"><canvas id="c-decisions"></canvas></div></div>
+    <div class="panel"><h2>Tool calls</h2><div class="chart-box"><canvas id="c-tools"></canvas></div><div class="more-note" id="tools-more"></div></div>
   </section>
 
   <section class="row" id="donut-row">
-    <div class="panel"><h2>Decision source</h2><canvas id="c-source" height="200"></canvas></div>
+    <div class="panel"><h2>Decision source</h2><div class="chart-box"><canvas id="c-source"></canvas></div></div>
     <div class="panel"><h2>Turnaround time (ms)</h2>
       <table id="t-turn"><thead><tr><th>Decision</th><th class="num">count</th><th class="num">avg</th><th class="num">p50</th><th class="num">p95</th><th class="num">max</th></tr></thead><tbody></tbody></table>
     </div>
@@ -310,7 +314,10 @@ const DATA = ${data_json};
 
 document.getElementById('m-range').textContent = DATA.filter_label;
 document.getElementById('m-time').textContent = DATA.generated_at;
-document.getElementById('m-sources').textContent = DATA.log_files.join(', ');
+const HOME_PREFIX = (DATA.home || '') + '/';
+document.getElementById('m-sources').textContent = DATA.log_files
+  .map(p => HOME_PREFIX && p.indexOf(HOME_PREFIX) === 0 ? '~/' + p.slice(HOME_PREFIX.length) : p)
+  .join(', ');
 
 document.getElementById('k-total').textContent = DATA.total.toLocaleString();
 const pct = (n, d) => d > 0 ? Math.round(n * 100 / d) + '%' : '0%';
@@ -353,25 +360,36 @@ if (DATA.total === 0) {
 
   const tools = DATA.tools.slice(0, 20);
   const moreCount = DATA.tools.length - tools.length;
+  const moreSum = moreCount > 0 ? DATA.tools.slice(20).reduce((a,b) => a + b.count, 0) : 0;
+  if (moreCount > 0) {
+    document.getElementById('tools-more').textContent =
+      '+ ' + moreCount + ' more tool' + (moreCount === 1 ? '' : 's') +
+      ' (' + moreSum.toLocaleString() + ' calls)';
+  }
   new Chart(document.getElementById('c-tools'), {
     type: 'bar',
     data: {
-      labels: tools.map(t => t.name + ' (' + t.count.toLocaleString() + ')').concat(moreCount > 0 ? ['+' + moreCount + ' more'] : []),
+      labels: tools.map(t => t.name + ' (' + t.count.toLocaleString() + ')'),
       datasets: [{
-        data: tools.map(t => t.count).concat(moreCount > 0 ? [DATA.tools.slice(20).reduce((a,b) => a + b.count, 0)] : []),
+        data: tools.map(t => t.count),
         backgroundColor: '#5fa8ff'
       }]
     },
     options: baseOpts
   });
 
+  const sourceEntries = [
+    ['Fast-path', DATA.source_split.fast, '#4ade80'],
+    ['LLM', DATA.source_split.llm, '#5fa8ff'],
+    ['Classifier', DATA.source_split.classifier, '#f87171']
+  ].filter(e => e[1] > 0);
   new Chart(document.getElementById('c-source'), {
     type: 'doughnut',
     data: {
-      labels: ['Fast-path', 'LLM', 'Classifier'],
+      labels: sourceEntries.map(e => e[0]),
       datasets: [{
-        data: [DATA.source_split.fast, DATA.source_split.llm, DATA.source_split.classifier],
-        backgroundColor: ['#4ade80', '#5fa8ff', '#f87171']
+        data: sourceEntries.map(e => e[1]),
+        backgroundColor: sourceEntries.map(e => e[2])
       }]
     },
     options: {
