@@ -1,9 +1,15 @@
 {
   "name": "obsidian-vault",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Capture knowledge from Claude Code conversations and store them as notes in an Obsidian vault",
   "author": {
     "name": "sthuang"
   },
-  "keywords": ["obsidian", "notes", "knowledge-management", "vault", "markdown"]
+  "keywords": [
+    "obsidian",
+    "notes",
+    "knowledge-management",
+    "vault",
+    "markdown"
+  ]
 }
