@@ -99,18 +99,43 @@ init_registry
 # How long (seconds) to wait for the forked Claude session to come up.
 FORK_VERIFY_TIMEOUT="${FORK_VERIFY_TIMEOUT:-10}"
 
-# Failure markers that indicate the fork command was sent but Claude did not start.
-FORK_FAIL_RE='command not found|no such file or directory|no conversation found|could not (find|resume)|failed to (load|resume)|invalid session|permission denied'
-# Positive markers that the Claude Code TUI is up (used as a fallback / iTerm signal).
-FORK_OK_RE='Claude Code|/help for help|esc to interrupt|shortcuts'
+# True if NAME is a login/interactive shell (i.e. NOT a forked child process).
+# A leading "-" (login shell) and any directory prefix are stripped before matching.
+is_shell_name() {
+    local n="${1##*/}"
+    n="${n#-}"
+    case "$n" in
+        zsh | bash | sh | fish | dash | ksh | tcsh | csh | login | "") return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
-# Verify a forked session inside a tmux pane.
-# Echoes one of: verified | failed
-# Primary signal: the pane's foreground process is no longer the login shell
-# (claude has taken over). Failure markers in the pane buffer short-circuit to failed.
+# True if the given tty has a non-shell process in the FOREGROUND process group
+# (the "+" flag in ps stat). This is the content-independent signal that `claude`
+# (a node process) took over the terminal — we deliberately do NOT scan rendered
+# output, because a forked session displays the prior conversation verbatim and that
+# text can contain arbitrary "command not found" / "Claude Code" substrings.
+tty_has_nonshell_foreground() {
+    local tty="${1#/dev/}" stat comm
+    [ -n "$tty" ] || return 1
+    while read -r stat comm; do
+        case "$stat" in
+            *+*) ;;        # foreground process group
+            *) continue ;;
+        esac
+        if ! is_shell_name "$comm"; then
+            return 0
+        fi
+    done < <(ps -t "$tty" -o stat=,comm= 2>/dev/null)
+    return 1
+}
+
+# Verify a forked session inside a tmux pane. Echoes: verified | failed
+# Signal: the pane's foreground process is no longer the login shell (claude/node
+# took over). Pane disappearing => the shell and fork exited => failed.
 verify_fork_tmux() {
     local pane_id="$1"
-    local i=0 content cur
+    local i=0 cur
     while [ "$i" -lt "$FORK_VERIFY_TIMEOUT" ]; do
         sleep 1
         i=$((i + 1))
@@ -121,60 +146,55 @@ verify_fork_tmux() {
             return
         fi
 
-        content=$(tmux capture-pane -t "$pane_id" -p -S -200 2>/dev/null)
-        if printf '%s' "$content" | grep -qiE "$FORK_FAIL_RE"; then
-            echo failed
-            return
-        fi
-
         cur=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null)
-        case "$cur" in
-            zsh | -zsh | bash | -bash | sh | -sh | fish | login | "")
-                # Still sitting at the login shell — keep waiting.
-                ;;
-            *)
-                # Some process (node/claude) is in the foreground — fork took.
-                echo verified
-                return
-                ;;
-        esac
-    done
-
-    # Timed out still at the shell prompt: last-chance content check, else failed.
-    content=$(tmux capture-pane -t "$pane_id" -p -S -200 2>/dev/null)
-    if printf '%s' "$content" | grep -qiE "$FORK_OK_RE"; then
-        echo verified
-    else
-        echo failed
-    fi
-}
-
-# Verify a forked session inside an iTerm tab (best effort).
-# Echoes one of: verified | failed | unverified
-# iTerm has no reliable per-tab foreground-process introspection, so we scan the
-# current session's visible contents for failure / success markers.
-verify_fork_iterm() {
-    local i=0 content
-    while [ "$i" -lt "$FORK_VERIFY_TIMEOUT" ]; do
-        sleep 1
-        i=$((i + 1))
-
-        content=$(osascript 2>/dev/null <<'OSA'
-tell application "iTerm" to tell current window to tell current session to contents
-OSA
-)
-        if printf '%s' "$content" | grep -qiE "$FORK_FAIL_RE"; then
-            echo failed
-            return
-        fi
-        if printf '%s' "$content" | grep -qiE "$FORK_OK_RE"; then
+        if ! is_shell_name "$cur"; then
+            # Some process (node/claude) is in the foreground — fork took.
             echo verified
             return
         fi
     done
 
-    # Could not positively confirm and saw no failure marker.
-    echo unverified
+    # Timed out still sitting at the login shell — claude never took over.
+    echo failed
+}
+
+# Verify a forked session inside an iTerm tab. Echoes: verified | failed
+# Signal: read the *specific* session's tty (by its iTerm session id, so focus is
+# irrelevant) and check whether a non-shell process holds the foreground — the same
+# content-independent signal used for tmux. Session id gone => fork exited => failed.
+verify_fork_iterm() {
+    local session_id="$1"
+    local i=0 tty
+    while [ "$i" -lt "$FORK_VERIFY_TIMEOUT" ]; do
+        sleep 1
+        i=$((i + 1))
+
+        tty=$(osascript 2>/dev/null <<OSA
+tell application "iTerm"
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with s in sessions of t
+                if (id of s) is "$session_id" then return (tty of s)
+            end repeat
+        end repeat
+    end repeat
+    return "__SESSION_NOT_FOUND__"
+end tell
+OSA
+)
+        if [ "$tty" = "__SESSION_NOT_FOUND__" ] || [ -z "$tty" ]; then
+            # The forked tab/session no longer exists — the command exited.
+            echo failed
+            return
+        fi
+        if tty_has_nonshell_foreground "$tty"; then
+            echo verified
+            return
+        fi
+    done
+
+    # Timed out: the tab is alive but only a shell is in the foreground.
+    echo failed
 }
 
 # Detect session ID via debug symlink (primary method)
@@ -352,49 +372,38 @@ echo "Detected session: $SESSION_ID" >&2
 managed_id=$(generate_id)
 timestamp=$(get_timestamp)
 fork_cmd="claude -r $SESSION_ID --fork-session"
-# Generate a unique pane identifier for iTerm (since we can't get actual tab ID)
-pane_id="iterm-$(date +%s)"
 
-# Fork session in new iTerm tab using AppleScript
-# Use the user's default shell for the new session
-osascript <<EOF
+# Fork session in new iTerm tab using AppleScript, capturing the real iTerm session
+# id so the tab can be tracked and verified precisely (independent of focus).
+pane_id=$(osascript 2>/dev/null <<EOF
 tell application "iTerm"
     tell current window
         create tab with default profile
         tell current session
             write text "$DEFAULT_SHELL -c 'cd \"$WORKING_DIR\" && $fork_cmd'"
+            return id of it
         end tell
     end tell
 end tell
 EOF
+)
 
-if [ $? -ne 0 ]; then
+if [ $? -ne 0 ] || [ -z "$pane_id" ]; then
     echo "Error: Failed to create new iTerm tab." >&2
     exit 1
 fi
 
 # Verify the forked Claude session actually started before reporting success.
 echo "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..." >&2
-fork_status=$(verify_fork_iterm)
+fork_status=$(verify_fork_iterm "$pane_id")
 
-case "$fork_status" in
-    verified)
-        registry_add "$managed_id" "iterm" "$pane_id" "$WORKING_DIR" "$fork_cmd" "$timestamp"
-        echo "Session forked successfully into new iTerm tab (verified)." >&2
-        # Output only the managed ID on stdout for easy parsing
-        echo "$managed_id"
-        ;;
-    unverified)
-        # iTerm tab introspection is best-effort; the tab opened and the command
-        # was sent, but we could not positively confirm the Claude TUI came up.
-        registry_add "$managed_id" "iterm" "$pane_id" "$WORKING_DIR" "$fork_cmd" "$timestamp"
-        echo "Warning: iTerm tab created and fork command sent, but the Claude session could not be positively confirmed (iTerm tab introspection is best-effort). Please verify the new tab manually." >&2
-        # Still emit the managed ID so the (likely-running) session can be managed.
-        echo "$managed_id"
-        ;;
-    *)
-        echo "Error: Fork command was sent but the Claude session did not start in the new iTerm tab." >&2
-        echo "The tab was left open for inspection; it was NOT registered as a managed session." >&2
-        exit 1
-        ;;
-esac
+if [ "$fork_status" = "verified" ]; then
+    registry_add "$managed_id" "iterm" "$pane_id" "$WORKING_DIR" "$fork_cmd" "$timestamp"
+    echo "Session forked successfully into new iTerm tab (verified)." >&2
+    # Output only the managed ID on stdout for easy parsing
+    echo "$managed_id"
+else
+    echo "Error: Fork command was sent but the Claude session did not start in the new iTerm tab." >&2
+    echo "The tab was left open for inspection; it was NOT registered as a managed session." >&2
+    exit 1
+fi

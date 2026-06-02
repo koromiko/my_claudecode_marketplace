@@ -219,12 +219,35 @@ for sid in stale_ids:
 PYEOF
 }
 
-# Check if an iTerm session exists (best effort)
+# Check whether an iTerm session is still open, by its iTerm session id.
+# Legacy synthetic ids (pre-hardening "iterm-<timestamp>") can't be targeted, so
+# they fall back to the old best-effort check: "is iTerm running at all".
 iterm_session_exists() {
     local session_id="$1"
-    # iTerm sessions are harder to track - we do best effort
-    # For now, return true if iTerm is running
-    osascript -e 'tell application "System Events" to (name of processes) contains "iTerm2"' 2>/dev/null | grep -q "true"
+    case "$session_id" in
+        iterm-* | "")
+            if osascript -e 'tell application "System Events" to (name of processes) contains "iTerm2"' 2>/dev/null | grep -q "true"; then
+                return 0
+            else
+                return 1
+            fi
+            ;;
+    esac
+    local found
+    found=$(osascript 2>/dev/null <<OSA
+tell application "iTerm"
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with s in sessions of t
+                if (id of s) is "$session_id" then return "yes"
+            end repeat
+        end repeat
+    end repeat
+    return "no"
+end tell
+OSA
+)
+    [ "$found" = "yes" ]
 }
 
 # =============================================================================
@@ -281,22 +304,22 @@ cmd_run() {
         sleep 0.1  # Brief delay to ensure shell is ready
         tmux send-keys -t "$pane_id" "$cmd" Enter
     else
-        # iTerm: Create new tab
-        # Generate a unique marker for this session
-        pane_id="iterm-$(date +%s)"
-
-        # iTerm uses the user's default shell from their macOS profile
-        osascript << EOF
+        # iTerm: Create new tab and capture its real iTerm session id so the tab can
+        # be tracked/captured/sent-to precisely (independent of which tab is focused).
+        # iTerm uses the user's default shell from their macOS profile.
+        pane_id=$(osascript 2>/dev/null << EOF
 tell application "iTerm"
     tell current window
         create tab with default profile
         tell current session
             write text "cd '$working_dir' && $cmd"
+            return id of it
         end tell
     end tell
 end tell
 EOF
-        if [ $? -ne 0 ]; then
+) || true
+        if [ -z "$pane_id" ]; then
             echo "Error: Failed to create iTerm tab"
             exit 1
         fi
@@ -369,17 +392,34 @@ cmd_capture() {
         fi
         tmux capture-pane -t "$pane_id" -p -S -"$lines"
     else
-        # iTerm: Capture is more limited
-        echo "Note: iTerm output capture is limited. Showing recent history."
-        osascript << EOF
+        # iTerm
+        case "$pane_id" in
+            iterm-* | "")
+                # Legacy synthetic id — cannot target a specific tab; show the focused one.
+                echo "Note: legacy iTerm entry — capturing the focused tab (cannot target by id)."
+                osascript 2>/dev/null << 'EOF'
+tell application "iTerm" to tell current window to tell current session to contents
+EOF
+                ;;
+            *)
+                if ! iterm_session_exists "$pane_id"; then
+                    echo "Error: iTerm session '$pane_id' no longer exists"
+                    echo "Run 'session-manager.sh cleanup' to remove stale entries"
+                    exit 1
+                fi
+                osascript 2>/dev/null << EOF
 tell application "iTerm"
-    tell current window
-        tell current session
-            contents
-        end tell
-    end tell
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with s in sessions of t
+                if (id of s) is "$pane_id" then return (contents of s)
+            end repeat
+        end repeat
+    end repeat
 end tell
 EOF
+                ;;
+        esac
     fi
 }
 
@@ -439,16 +479,34 @@ cmd_send() {
         tmux send-keys -t "$pane_id" "$cmd" Enter
         echo "Command sent to tmux pane $managed_id"
     else
-        osascript << EOF
+        case "$pane_id" in
+            iterm-* | "")
+                # Legacy synthetic id — cannot target a specific tab; send to the focused one.
+                osascript 2>/dev/null << EOF
+tell application "iTerm" to tell current window to tell current session to write text "$cmd"
+EOF
+                echo "Command sent to iTerm tab $managed_id (focused tab; legacy entry)"
+                ;;
+            *)
+                if ! iterm_session_exists "$pane_id"; then
+                    echo "Error: iTerm session '$pane_id' no longer exists"
+                    echo "Run 'session-manager.sh cleanup' to remove stale entries"
+                    exit 1
+                fi
+                osascript 2>/dev/null << EOF
 tell application "iTerm"
-    tell current window
-        tell current session
-            write text "$cmd"
-        end tell
-    end tell
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with s in sessions of t
+                if (id of s) is "$pane_id" then tell s to write text "$cmd"
+            end repeat
+        end repeat
+    end repeat
 end tell
 EOF
-        echo "Command sent to iTerm tab $managed_id"
+                echo "Command sent to iTerm tab $managed_id"
+                ;;
+        esac
     fi
 }
 

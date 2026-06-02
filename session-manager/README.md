@@ -41,9 +41,11 @@ This will:
 2. Auto-detect your current session from Claude's session files
 3. Open a new tmux pane or iTerm tab
 4. Start a forked Claude session with all the context from the original
-5. Verify the forked session actually started in the target pane/tab before reporting success — it only returns a managed ID once the fork is confirmed up, and exits non-zero (printing the captured output) if `claude` never launched
+5. Verify the forked session actually started in the target pane/tab before reporting success — it only returns a managed ID once the fork is confirmed up, and exits non-zero if `claude` never launched
 
-> Verification waits up to ~10s (override with `FORK_VERIFY_TIMEOUT`). For tmux it watches the target pane's foreground process; for iTerm it scans the new tab's contents (best-effort, so it may report a warning rather than a hard failure).
+> Verification waits up to ~10s (override with `FORK_VERIFY_TIMEOUT`) using a content-independent signal: it checks that a non-shell process (`claude`/node) has taken over the target's foreground. For tmux it reads the pane's foreground command; for iTerm it reads the specific session's tty and inspects its foreground process group. (It deliberately does not scan rendered output, since a forked session displays the prior conversation verbatim — which can contain arbitrary marker text.)
+>
+> iTerm tabs are tracked by their real iTerm **session id** (not a synthetic placeholder), so `capture`, `send`, and `status` target the exact tab regardless of which tab is focused, and `cleanup` correctly detects closed iTerm tabs as stale.
 
 ### /session-manager:run-in-pane
 
