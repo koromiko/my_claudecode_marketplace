@@ -24,7 +24,7 @@
     {
       "name": "session-manager",
       "description": "Terminal session management - fork sessions, run commands in panes/tabs, capture output",
-      "version": "2.1.0",
+      "version": "2.5.0",
       "source": "./session-manager",
       "category": "development"
     },

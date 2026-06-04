@@ -58,6 +58,31 @@ Panes are tracked in `~/.claude/session-manager/registry.json`:
 ### /session-manager:fork
 Fork the current Claude session into a new tmux pane or iTerm tab. Uses `fork-iterm.sh` to detect the current session, open a forked session, and **return a managed ID** for tracking via session-manager.sh commands.
 
+#### Session resolution (forking works even when the working dir drifts)
+
+`claude -r <id>` is **strictly cwd-scoped**: it resolves a session only from the directory that owns it (`~/.claude/projects/<cwd-encoded>/<id>.jsonl` for the *current* cwd). Resuming from any other directory fails with "No conversation found" (verified empirically against Claude Code 2.1.x). The working directory can also drift during a session. So the script does not trust the caller's pwd:
+
+1. **Authoritative session id from the environment**: `SESSION_ID="${CLAUDE_CODE_SESSION_ID:-...}"`. Falls back to `detect_session_id` (project files / debug symlink) only when the env var is absent (older CLI / out-of-session).
+2. **Owner discovery** (`find_session_owner_file`): glob `~/.claude/projects/*/<id>.jsonl` to find the project that actually owns the record (the encoded dir name is lossy, so resolve by id, not by re-encoding a path).
+3. **Launch cwd from the record** (`session_launch_cwd`): read the canonical `cwd` from inside the transcript and fork from there (**Approach A**, default). The fork continues in the project the conversation is about, so historical paths / git state still match.
+
+When the caller's directory differs from the session's owning directory, `/fork` offers a choice (via `--resolve` → `MATCH=no` → `AskUserQuestion`):
+- **A — original directory** (default, recommended): launch from `OWNER_CWD`.
+- **B — relocate to current directory** (`--relocate`): copy (never move) the record into the current dir's project and fork there. Used only for a deliberate move to a different checkout/worktree; the conversation's historical paths still refer to the original location.
+
+Script flags: `[current_dir] [--fork-dir <dir>] [--relocate] [--resolve]`. `--resolve` prints `SESSION_ID` / `OWNER_CWD` / `CURRENT_DIR` / `MATCH` and exits without forking.
+
+#### Fork verification (only report success when the fork actually works)
+
+`fork-iterm.sh` only prints a managed ID / exits 0 once the fork is confirmed:
+
+1. **Pre-flight resumability** (`session_resumable_in`): confirm `<project-dir>/<session-id>.jsonl` exists for the chosen fork directory before spawning. By construction Approach A forks from the owning dir (always resumable) and `--relocate` copies the record first; an explicit `--fork-dir` that doesn't own the session errors with a hint to use `--relocate`.
+2. **Stabilized liveness** (`verify_fork_tmux` / `verify_fork_iterm`): poll the pane/tab and require `claude`/`node` to hold the foreground for `FORK_STABILIZE_CHECKS` consecutive 1s checks (default 3, within `FORK_VERIFY_TIMEOUT`, default 20s). A command that fails to launch (`claude` not on PATH, immediate crash) falls back to the shell prompt, so the streak never accrues → reported failed. A vanished pane/tab → failed.
+
+Two signals were tried and **rejected** because the terminal observation is ambiguous: (a) watching for the forked transcript `.jsonl` — an *interactive* fork doesn't write it until the first prompt (only `--print` flushes it at startup); (b) "a non-shell process took over the terminal" alone — a *failed* resume keeps `node` in the foreground showing an error rather than exiting. Hence resolve resumability up front, then confirm the process launched and survived.
+
+Tunables (env vars): `FORK_VERIFY_TIMEOUT`, `FORK_STABILIZE_CHECKS`. Helper functions can be unit-tested by sourcing with `FORK_LIB_ONLY=1` (see `tests/test-fork-verify.sh`).
+
 ### /session-manager:run-in-pane
 Run a bash command in a new tmux pane or iTerm tab with automatic tracking. Returns a managed ID for subsequent operations.
 
@@ -87,6 +112,12 @@ cd plugins/session-manager
 
 # Test cleanup
 ./scripts/session-manager.sh cleanup
+```
+
+Unit-test the fork-verification helpers (no terminal needed):
+```bash
+bash session-manager/tests/test-fork-verify.sh
+# Sources fork-iterm.sh with FORK_LIB_ONLY=1 and exercises session_resumable_in
 ```
 
 Test the fork script (now returns managed ID):

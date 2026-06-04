@@ -10,8 +10,33 @@ if [ "$(uname)" != "Darwin" ]; then
     exit 1
 fi
 
-# Get the working directory (passed as argument or use current)
-WORKING_DIR="${1:-$(pwd)}"
+# --- Arguments ------------------------------------------------------------
+# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--relocate] [--resolve]
+#   current_dir   The directory the caller is in (default: pwd). Used only to
+#                 detect drift from the session's own directory and as the
+#                 --relocate target default.
+#   --fork-dir D  Launch the fork from D instead of the session's own cwd.
+#   --relocate    Copy the session record into the fork dir's project before
+#                 forking, so `claude -r` resolves there (Approach B). Without
+#                 this, the fork dir must already own the session.
+#   --resolve     Print resolution info (SESSION_ID, OWNER_CWD, CURRENT_DIR,
+#                 MATCH) and exit 0, without forking. Lets the /fork command
+#                 decide whether to prompt the user for A vs B.
+CURRENT_DIR=""
+FORK_DIR_OPT=""
+RELOCATE=0
+RESOLVE_ONLY=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --fork-dir) FORK_DIR_OPT="$2"; shift 2 ;;
+        --relocate) RELOCATE=1; shift ;;
+        --resolve)  RESOLVE_ONLY=1; shift ;;
+        --) shift; break ;;
+        -*) echo "Error: unknown option: $1" >&2; exit 2 ;;
+        *)  [ -z "$CURRENT_DIR" ] && CURRENT_DIR="$1"; shift ;;
+    esac
+done
+CURRENT_DIR="${CURRENT_DIR:-$(pwd)}"
 
 # Detect the user's default shell
 # Priority: $SHELL env var -> dscl lookup -> fallback to /bin/zsh
@@ -49,6 +74,60 @@ generate_id() {
 # Get current timestamp in ISO format
 get_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+# --- Session resolution / resume pre-flight helpers -----------------------
+# `claude -r <id>` resolves a session ONLY from the directory that owns it: it
+# looks up ~/.claude/projects/<cwd-encoded>/<id>.jsonl for the *current* cwd
+# (verified empirically — resuming from any other directory fails with "No
+# conversation found", even though the record exists elsewhere). The working
+# directory can also drift during a session. So we don't trust the caller's pwd:
+# we resolve the session by id, find the project that actually owns its record,
+# and launch the fork from that record's real cwd (Approach A). Optionally we can
+# copy the record into another directory's project and fork there (--relocate,
+# Approach B) — at the cost of the conversation's historical paths no longer
+# matching the new cwd.
+#
+# (Why not verify success by watching for a new transcript file? Empirically, an
+# interactive fork loads the conversation into the TUI but does NOT write its new
+# session .jsonl until the first prompt is submitted — only `--print` mode flushes
+# it immediately — so there is no startup file to watch. And a *failed* resume
+# keeps node/claude in the foreground showing an error rather than exiting, so
+# "a process took over the terminal" cannot distinguish success from failure.
+# Hence: validate resumability up front, then confirm the process launched and
+# stayed up.)
+
+# Map a working directory to Claude's encoded project session directory.
+# Mirrors detect_session_id_project_files' encoding.
+project_sessions_dir() {
+    local working_dir="$1"
+    local encoded_path
+    encoded_path=$(echo "$working_dir" | sed 's|/|-|g' | sed 's|_|-|g')
+    echo "$HOME/.claude/projects/$encoded_path"
+}
+
+# True if SESSION_ID has a resumable transcript under the given dir's project dir.
+session_resumable_in() {
+    local session_id="$1" working_dir="$2"
+    local dir
+    dir=$(project_sessions_dir "$working_dir")
+    [ -f "$dir/$session_id.jsonl" ]
+}
+
+# Echo the transcript file that owns SESSION_ID, searching ALL projects. The
+# encoded project-dir name is lossy (both / and _ map to -), so we find the
+# record by id rather than by re-encoding a path. Empty output => not found.
+find_session_owner_file() {
+    local session_id="$1"
+    ls "$HOME/.claude/projects"/*/"$session_id.jsonl" 2>/dev/null | head -1
+}
+
+# Echo the real launch cwd recorded inside a transcript (its "cwd" field). This
+# is the canonical directory the session is resumable from. Empty if not present.
+session_launch_cwd() {
+    local owner_file="$1"
+    [ -n "$owner_file" ] && [ -f "$owner_file" ] || return 0
+    grep -m1 -o '"cwd":"[^"]*"' "$owner_file" | sed 's/.*"cwd":"//; s/"$//'
 }
 
 # Add a pane to the registry
@@ -97,7 +176,12 @@ PYEOF
 init_registry
 
 # How long (seconds) to wait for the forked Claude session to come up.
-FORK_VERIFY_TIMEOUT="${FORK_VERIFY_TIMEOUT:-10}"
+FORK_VERIFY_TIMEOUT="${FORK_VERIFY_TIMEOUT:-20}"
+# Consecutive 1s checks the forked process must hold the foreground before we call
+# it verified. This stabilization window rejects a command that briefly launches
+# then exits/crashes (e.g. `claude` not on PATH, or an immediate launch error,
+# which fall back to the shell prompt).
+FORK_STABILIZE_CHECKS="${FORK_STABILIZE_CHECKS:-3}"
 
 # True if NAME is a login/interactive shell (i.e. NOT a forked child process).
 # A leading "-" (login shell) and any directory prefix are stripped before matching.
@@ -131,11 +215,14 @@ tty_has_nonshell_foreground() {
 }
 
 # Verify a forked session inside a tmux pane. Echoes: verified | failed
-# Signal: the pane's foreground process is no longer the login shell (claude/node
-# took over). Pane disappearing => the shell and fork exited => failed.
+# Signal: claude/node replaces the login shell in the pane foreground AND holds it
+# for FORK_STABILIZE_CHECKS consecutive checks. A command that fails to launch
+# (claude not on PATH, immediate crash) falls back to the shell prompt — the streak
+# never accrues, so it is reported failed. Pane disappearing => the process exited
+# => failed. (Resume *validity* is pre-checked via session_resumable_in.)
 verify_fork_tmux() {
     local pane_id="$1"
-    local i=0 cur
+    local i=0 cur streak=0
     while [ "$i" -lt "$FORK_VERIFY_TIMEOUT" ]; do
         sleep 1
         i=$((i + 1))
@@ -147,29 +234,26 @@ verify_fork_tmux() {
         fi
 
         cur=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null)
-        if ! is_shell_name "$cur"; then
-            # Some process (node/claude) is in the foreground — fork took.
-            echo verified
-            return
+        if is_shell_name "$cur"; then
+            streak=0   # still (or back) at the login shell — claude not up / exited
+        else
+            streak=$((streak + 1))
+            if [ "$streak" -ge "$FORK_STABILIZE_CHECKS" ]; then
+                echo verified
+                return
+            fi
         fi
     done
 
-    # Timed out still sitting at the login shell — claude never took over.
+    # Timed out: claude never held the foreground long enough.
     echo failed
 }
 
-# Verify a forked session inside an iTerm tab. Echoes: verified | failed
-# Signal: read the *specific* session's tty (by its iTerm session id, so focus is
-# irrelevant) and check whether a non-shell process holds the foreground — the same
-# content-independent signal used for tmux. Session id gone => fork exited => failed.
-verify_fork_iterm() {
+# Echo the tty path of the iTerm session with the given id, or "__SESSION_NOT_FOUND__".
+# Looks the session up by its iTerm session id, so the result is focus-independent.
+iterm_session_tty() {
     local session_id="$1"
-    local i=0 tty
-    while [ "$i" -lt "$FORK_VERIFY_TIMEOUT" ]; do
-        sleep 1
-        i=$((i + 1))
-
-        tty=$(osascript 2>/dev/null <<OSA
+    osascript 2>/dev/null <<OSA
 tell application "iTerm"
     repeat with w in windows
         repeat with t in tabs of w
@@ -181,19 +265,39 @@ tell application "iTerm"
     return "__SESSION_NOT_FOUND__"
 end tell
 OSA
-)
+}
+
+# Verify a forked session inside an iTerm tab. Echoes: verified | failed
+# Same contract as verify_fork_tmux: the tab's tty must hold a non-shell (claude)
+# foreground process for FORK_STABILIZE_CHECKS consecutive checks. The tab is
+# located by its iTerm session id (focus-independent). Session id gone => the
+# command exited => failed. (Resume *validity* is pre-checked via session_resumable_in.)
+verify_fork_iterm() {
+    local session_id="$1"
+    local i=0 tty streak=0
+    while [ "$i" -lt "$FORK_VERIFY_TIMEOUT" ]; do
+        sleep 1
+        i=$((i + 1))
+
+        tty=$(iterm_session_tty "$session_id")
         if [ "$tty" = "__SESSION_NOT_FOUND__" ] || [ -z "$tty" ]; then
             # The forked tab/session no longer exists — the command exited.
             echo failed
             return
         fi
+
         if tty_has_nonshell_foreground "$tty"; then
-            echo verified
-            return
+            streak=$((streak + 1))
+            if [ "$streak" -ge "$FORK_STABILIZE_CHECKS" ]; then
+                echo verified
+                return
+            fi
+        else
+            streak=0   # still (or back) at the login shell — claude not up / exited
         fi
     done
 
-    # Timed out: the tab is alive but only a shell is in the foreground.
+    # Timed out: claude never held the foreground long enough.
     echo failed
 }
 
@@ -283,28 +387,90 @@ detect_session_id() {
     fi
 }
 
-# Check if running inside tmux
-if [ -n "$TMUX" ]; then
-    SESSION_ID=$(detect_session_id "$WORKING_DIR")
+# Allow tests to source this file for its helper/verify functions without running
+# the fork flow: `FORK_LIB_ONLY=1 source fork-iterm.sh`.
+if [ "${FORK_LIB_ONLY:-}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
-    # Check if detect_session_id returned an error (starts with "Error:")
+# --- Resolve the session and the directory to fork from -------------------
+# The authoritative current session id is in the environment when run inside
+# Claude; fall back to the project/symlink heuristics for older CLIs or
+# out-of-session use.
+SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
+if [ -z "$SESSION_ID" ]; then
+    SESSION_ID=$(detect_session_id "$CURRENT_DIR")
     if [[ "$SESSION_ID" == Error:* ]]; then
         echo "$SESSION_ID" >&2
         exit 1
     fi
+fi
 
-    echo "Detected session: $SESSION_ID" >&2
+# Find the project that actually owns the record, and its real launch cwd.
+OWNER_FILE=$(find_session_owner_file "$SESSION_ID")
+if [ -z "$OWNER_FILE" ]; then
+    echo "Error: no transcript found for session $SESSION_ID in any project." >&2
+    echo "  (searched ~/.claude/projects/*/$SESSION_ID.jsonl)" >&2
+    exit 1
+fi
+OWNER_CWD=$(session_launch_cwd "$OWNER_FILE")
+[ -n "$OWNER_CWD" ] || OWNER_CWD="$CURRENT_DIR"
 
-    # Generate managed ID and timestamp
-    managed_id=$(generate_id)
-    timestamp=$(get_timestamp)
-    fork_cmd="claude -r $SESSION_ID --fork-session"
+# Where to fork from: explicit --fork-dir wins, else the session's own cwd.
+FORK_DIR="${FORK_DIR_OPT:-$OWNER_CWD}"
 
+# --resolve: report and exit (lets /fork decide whether to prompt for A vs B).
+if [ "$RESOLVE_ONLY" = "1" ]; then
+    if [ "$OWNER_CWD" = "$CURRENT_DIR" ]; then match=yes; else match=no; fi
+    echo "SESSION_ID=$SESSION_ID"
+    echo "OWNER_CWD=$OWNER_CWD"
+    echo "CURRENT_DIR=$CURRENT_DIR"
+    echo "MATCH=$match"
+    exit 0
+fi
+
+# Approach B: copy the record into the fork dir's project so `claude -r` resolves
+# there. Copy (never move) — the source session is live when forking it.
+if [ "$RELOCATE" = "1" ] && [ "$FORK_DIR" != "$OWNER_CWD" ]; then
+    relocate_dst=$(project_sessions_dir "$FORK_DIR")
+    mkdir -p "$relocate_dst"
+    if ! cp "$OWNER_FILE" "$relocate_dst/$SESSION_ID.jsonl"; then
+        echo "Error: failed to copy session record into $relocate_dst for relocate." >&2
+        exit 1
+    fi
+    echo "Relocated: copied session $SESSION_ID record into $FORK_DIR's project." >&2
+    echo "Note: the conversation's historical paths still refer to $OWNER_CWD." >&2
+fi
+
+# The fork directory must exist and must own the record by now.
+if [ ! -d "$FORK_DIR" ]; then
+    echo "Error: fork directory does not exist: $FORK_DIR" >&2
+    [ "$FORK_DIR" = "$OWNER_CWD" ] && echo "  (the session's original directory may have been moved or deleted.)" >&2
+    exit 1
+fi
+if ! session_resumable_in "$SESSION_ID" "$FORK_DIR"; then
+    echo "Error: session $SESSION_ID is not resumable from $FORK_DIR" >&2
+    echo "  (no transcript at $(project_sessions_dir "$FORK_DIR")/$SESSION_ID.jsonl)" >&2
+    if [ -n "$FORK_DIR_OPT" ] && [ "$RELOCATE" != "1" ]; then
+        echo "  re-run with --relocate to copy the session record there first." >&2
+    fi
+    exit 1
+fi
+
+echo "Forking session $SESSION_ID from $FORK_DIR" >&2
+
+# Common managed id / timestamp / fork command (used by both tmux and iTerm paths).
+managed_id=$(generate_id)
+timestamp=$(get_timestamp)
+fork_cmd="claude -r $SESSION_ID --fork-session"
+
+# Check if running inside tmux
+if [ -n "$TMUX" ]; then
     # Fork session in new tmux pane (horizontal split) and capture pane ID
     # Open an interactive shell first, then send the fork command via send-keys.
     # This ensures: (1) .zshrc is sourced so `claude` is in PATH,
     # (2) the pane stays open if the command exits unexpectedly.
-    pane_id=$(tmux split-window -h -P -F '#{pane_id}' -c "$WORKING_DIR" "$DEFAULT_SHELL")
+    pane_id=$(tmux split-window -h -P -F '#{pane_id}' -c "$FORK_DIR" "$DEFAULT_SHELL")
 
     if [ $? -eq 0 ] && [ -n "$pane_id" ]; then
         # Brief delay to ensure shell is ready, then send the fork command
@@ -317,7 +483,7 @@ if [ -n "$TMUX" ]; then
 
         if [ "$fork_status" = "verified" ]; then
             # Register the forked session only after it is confirmed up.
-            registry_add "$managed_id" "tmux" "$pane_id" "$WORKING_DIR" "$fork_cmd" "$timestamp"
+            registry_add "$managed_id" "tmux" "$pane_id" "$FORK_DIR" "$fork_cmd" "$timestamp"
             echo "Session forked successfully into new tmux pane (verified)." >&2
             # Output only the managed ID on stdout for easy parsing
             echo "$managed_id"
@@ -357,22 +523,6 @@ if ! osascript -e 'tell application "System Events" to (name of processes) conta
     exit 1
 fi
 
-# Detect session ID using shared function
-SESSION_ID=$(detect_session_id "$WORKING_DIR")
-
-# Check if detect_session_id returned an error (starts with "Error:")
-if [[ "$SESSION_ID" == Error:* ]]; then
-    echo "$SESSION_ID" >&2
-    exit 1
-fi
-
-echo "Detected session: $SESSION_ID" >&2
-
-# Generate managed ID and timestamp
-managed_id=$(generate_id)
-timestamp=$(get_timestamp)
-fork_cmd="claude -r $SESSION_ID --fork-session"
-
 # Fork session in new iTerm tab using AppleScript, capturing the real iTerm session
 # id so the tab can be tracked and verified precisely (independent of focus).
 pane_id=$(osascript 2>/dev/null <<EOF
@@ -380,7 +530,7 @@ tell application "iTerm"
     tell current window
         create tab with default profile
         tell current session
-            write text "$DEFAULT_SHELL -c 'cd \"$WORKING_DIR\" && $fork_cmd'"
+            write text "$DEFAULT_SHELL -c 'cd \"$FORK_DIR\" && $fork_cmd'"
             return id of it
         end tell
     end tell
@@ -398,7 +548,7 @@ echo "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..." >&2
 fork_status=$(verify_fork_iterm "$pane_id")
 
 if [ "$fork_status" = "verified" ]; then
-    registry_add "$managed_id" "iterm" "$pane_id" "$WORKING_DIR" "$fork_cmd" "$timestamp"
+    registry_add "$managed_id" "iterm" "$pane_id" "$FORK_DIR" "$fork_cmd" "$timestamp"
     echo "Session forked successfully into new iTerm tab (verified)." >&2
     # Output only the managed ID on stdout for easy parsing
     echo "$managed_id"
