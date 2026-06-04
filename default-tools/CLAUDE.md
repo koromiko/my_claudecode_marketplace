@@ -287,8 +287,9 @@ pre-implementation contexts where a concrete plan is about to be built.
 The skill conducts a **relay loop** with a separate read-only **grill agent**
 (`agents/grill.md` — the first agent in this marketplace):
 
-1. The main agent spawns the grill agent once (`subagent_type: "grill"`,
-   `name: "grill"`), passing the plan and code pointers.
+1. The main agent spawns the grill agent once (`subagent_type: "grill"`), then
+   addresses it across rounds by the `agentId` the Agent tool returns on spawn,
+   passing the plan and code pointers.
 2. The grill agent returns ONE question per turn (`QUESTION / WHY / RECOMMENDED`).
 3. The main agent answers it autonomously from the codebase/conventions, and
    escalates to the human via `AskUserQuestion` only for costly-to-reverse
@@ -302,6 +303,8 @@ The grill agent's `tools` are restricted to `Read, Grep, Glob` so it is
 strictly read-only and never trips a permission prompt mid-loop (background
 agents cannot handle permission prompts — see the marketplace CLAUDE.md).
 
-This relay-loop use of `SendMessage` (continuing one named agent across rounds)
-is intentional and unique in this repo; elsewhere `SendMessage` is used only for
-TeamCreate swarm coordination.
+The loop continues the same grill agent across rounds by capturing the `agentId`
+the Agent tool returns on spawn and passing it to `SendMessage(to: "<agentId>", …)`
+— the documented way to resume a previously-spawned agent with its context
+intact. (This differs from the `agent-orchestration` plugin, where `SendMessage`
+coordinates teammates inside a `TeamCreate` swarm.)

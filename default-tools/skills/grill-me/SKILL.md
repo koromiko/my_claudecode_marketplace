@@ -20,9 +20,9 @@ This loop is the whole skill. Run it.
 
 1. **Spawn the grill agent once.** Use the Agent tool with:
    - `subagent_type: "grill"`
-   - `name: "grill"` — fixed, because you will continue THIS agent every round.
    - prompt: the plan/design under review verbatim, plus pointers to the relevant files/dirs, ending with "Ask your first question."
    - Leave permission mode at default — the grill agent is read-only and needs no edit permissions.
+   - **Capture the `agentId` from the spawn result** (format `a…`; the result reads "use SendMessage with to: '<agentId>'"). You address the grill agent by this `agentId` for every subsequent round — a fresh `Agent` call would start over with no memory.
 
 2. **Receive one question** — a `QUESTION / WHY / RECOMMENDED` block — or `DONE`. **If the response is `DONE`, skip straight to "On completion" below** — do not log it as a round and do not send another answer.
 
@@ -37,12 +37,12 @@ This loop is the whole skill. Run it.
 
    `Source` is one of: `codebase`, `convention`, `git`, `default`, `HUMAN`.
 
-5. **Continue the grill agent** with the answer:
-   - `SendMessage({ to: "grill", message: "ANSWER <n>: <your answer>" })`
+5. **Continue the grill agent** with the answer, addressing it by the captured `agentId`:
+   - `SendMessage({ to: "<agentId>", message: "ANSWER <n>: <your answer>" })`
    - `<n>` is the round number from the `QUESTION <n>` you just received.
    - It returns the next question, or `DONE`.
 
-6. **Stop when** the grill agent emits `DONE` (handled at step 2). Independently, if you reach the safety cap of **15 rounds** (use a different number only if the user named one), pause and tell the user the cap was reached. If they say "keep going", raise the cap by another 15 and continue the loop — the grill agent is still active and needs no re-spawn. Otherwise, send `SendMessage({ to: "grill", message: "CAP REACHED — summarize unresolved threads and emit DONE" })` and use its summary.
+6. **Stop when** the grill agent emits `DONE` (handled at step 2). Independently, if you reach the safety cap of **15 rounds** (use a different number only if the user named one), pause and tell the user the cap was reached. If they say "keep going", raise the cap by another 15 and continue the loop — the grill agent is still active and needs no re-spawn. Otherwise, send `SendMessage({ to: "<agentId>", message: "CAP REACHED — summarize unresolved threads and emit DONE" })` and use its summary.
 
 ## On completion
 
