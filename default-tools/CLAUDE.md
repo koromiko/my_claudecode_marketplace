@@ -8,7 +8,7 @@ A Claude Code plugin that provides shell-based hooks: conditional tool auto-appr
 
 ## Architecture
 
-Logic lives primarily in `hooks/`. There are no skills or agents. The plugin also ships a `scripts/` directory with the auto-approve usage reports (terminal + HTML) and a `commands/` directory with the `/auto-approve-report` slash command that wraps the HTML report script.
+Logic lives primarily in `hooks/`. The plugin also ships one skill (`skills/grill-me/`) and one agent (`agents/grill.md`) — see **grill-me Skill** below — a `scripts/` directory with the auto-approve usage reports (terminal + HTML), and a `commands/` directory with the `/auto-approve-report` slash command that wraps the HTML report script.
 
 ### Hook Pipeline
 
@@ -276,3 +276,35 @@ The default time window is **last 7 days** (the terminal report defaults to all-
 ## Prerequisites
 
 macOS with `jq`, `terminal-notifier` (`brew install terminal-notifier`), and iTerm2 for notifications. The `say` command is used for audio alerts. Ollama (`brew install ollama`) with Gemma4 8B (`ollama pull gemma4:latest`) for LLM-based tool evaluation.
+
+## grill-me Skill
+
+`skills/grill-me/SKILL.md` is an auto-triggering skill that stress-tests a plan
+or design before implementation. It triggers on explicit grill intent ("grill
+me", "stress-test this plan", "poke holes in this design") and on
+pre-implementation contexts where a concrete plan is about to be built.
+
+The skill conducts a **relay loop** with a separate read-only **grill agent**
+(`agents/grill.md` — the first agent in this marketplace):
+
+1. The main agent spawns the grill agent once (`subagent_type: "grill"`), then
+   addresses it across rounds by the `agentId` the Agent tool returns on spawn,
+   passing the plan and code pointers.
+2. The grill agent returns ONE question per turn (`QUESTION / WHY / RECOMMENDED`).
+3. The main agent answers it autonomously from the codebase/conventions, and
+   escalates to the human via `AskUserQuestion` only for costly-to-reverse
+   decisions (schema/contract, public API, data migration, security boundary).
+4. The answer is fed back via `SendMessage(to: "<agentId>", ...)`; repeat until
+   the grill agent emits `DONE` or a 15-round safety cap is hit.
+5. On completion the main agent prints the decision log and revises the plan to
+   fold in the resolved decisions.
+
+The grill agent's `tools` are restricted to `Read, Grep, Glob` so it is
+strictly read-only and never trips a permission prompt mid-loop (background
+agents cannot handle permission prompts — see the marketplace CLAUDE.md).
+
+The loop continues the same grill agent across rounds by capturing the `agentId`
+the Agent tool returns on spawn and passing it to `SendMessage(to: "<agentId>", …)`
+— the documented way to resume a previously-spawned agent with its context
+intact. (This differs from the `agent-orchestration` plugin, where `SendMessage`
+coordinates teammates inside a `TeamCreate` swarm.)

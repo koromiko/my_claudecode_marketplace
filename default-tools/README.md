@@ -2,6 +2,19 @@
 
 Default tool auto-approval with sensitive-path guards and macOS permission/stop notification hooks.
 
+## grill-me Skill
+
+`skills/grill-me/` auto-triggers when you want a plan or design stress-tested
+before building it — say "grill me", "stress-test this plan", or "poke holes in
+this design", or it fires when a concrete plan is on the table pre-implementation.
+
+It spawns a separate **read-only grill agent** (`agents/grill.md`) that
+interrogates the plan one question at a time. The main agent answers each
+question from the codebase and only escalates costly-to-reverse decisions
+(schema/contract, public API, data migration, security boundary) to you. The
+loop runs via `SendMessage` until the agent is satisfied or a 15-round safety
+cap is reached, then the plan is revised with the resolved decisions.
+
 ## Hooks
 
 ### Auto-Approve (`PreToolUse`)
