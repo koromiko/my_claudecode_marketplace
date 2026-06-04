@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A Claude Code plugin that provides three shell-based hooks: conditional tool auto-approval with sensitive-path guards, macOS permission-prompt notifications, and session-completion notifications.
+A Claude Code plugin that provides shell-based hooks: conditional tool auto-approval with sensitive-path guards, macOS permission-prompt notifications, session-completion notifications, and an opt-in Stop-hook code review with three pluggable reviewer modes (local LLM, generic CLI, in-session subagent).
 
 ## Architecture
 
@@ -15,6 +15,7 @@ Logic lives primarily in `hooks/`. There are no skills or agents. The plugin als
 1. **`auto-approve.sh`** (PreToolUse, no matcher — runs on every tool call): Decides whether to auto-approve or fall through to the normal permission prompt. Reads tool input JSON from stdin, outputs a JSON permission decision to stdout.
 2. **`permission-notification.sh`** (Notification, matcher: `permission_prompt`): Fires only when Claude actually shows a permission prompt. Writes a session marker file to `/tmp/claude-hook-session-{session_id}` so the Stop hook knows a prompt occurred.
 3. **`stop-notification.sh`** (Stop, no matcher): Fires when Claude finishes. Only sends a notification if the session marker file exists (i.e., a permission prompt was shown). Cleans up the marker.
+4. **`stop-review.sh`** (Stop, no matcher — sibling of `stop-notification.sh`): Opt-in code-review gate. Disabled by default. When enabled via `/review-config`, runs a second-pass review of the previous Claude turn before allowing the session to stop. See **Stop-hook Code Review** below.
 
 ### Auto-Approve Decision Logic
 
@@ -47,6 +48,101 @@ Exit conventions:
 ### Notification Flow
 
 Both notification scripts derive a project name from the git root of `cwd`. They use `terminal-notifier` (activating iTerm2) and `say` for audio. The Stop hook guards against re-entry via `stop_hook_active` and only fires if the session marker exists.
+
+## Stop-hook Code Review
+
+`stop-review.sh` runs a second-pass review of the previous Claude turn at Stop time. Disabled by default (`reviewHook.enabled=false`); enabled per-project via `/review-config enable`.
+
+### Reviewer types
+
+| Type | What it does | When to use |
+|---|---|---|
+| `ollama` | POST the assembled prompt to `http://localhost:11434/api/generate`, parse `.response`, look for `ALLOW:` / `BLOCK:` on the first line. Reuses the curl pattern from `ollama-evaluate.sh`. | You want a private, free, local-only second pass. |
+| `cli` | Spawn an external CLI (`codex task --json`, `gemini ...`) with the prompt as the final positional argument. Optionally extract a JSON field via `outputField`. Same ALLOW/BLOCK first-line contract. | You want to delegate review to a different cloud LLM you already have a CLI for. |
+| `subagent` | Block-and-instruct: the hook emits `decision:block` with a reason telling Claude to dispatch a named in-session subagent. Claude does the review with full session context; no fresh process. | You want the reviewer to see the original conversation, tool history, and skills. |
+
+### Loop guard
+
+- **`stop_hook_active=true`** (Claude Code re-fires Stop after our previous block) → exit 0, clear any session marker.
+- **Marker file** `/tmp/claude-review-${session_id}` (subagent mode) — touched on the first block emitted; presence on subsequent stops in the same session means the review was already requested.
+- **Iteration counter file** `/tmp/claude-review-iter-${session_id}` (ollama/cli modes) — incremented per `BLOCK` emitted, cleared on `ALLOW`. When `iter > maxIterations`, emit one final "manual review needed" block and bump the counter past the cap so subsequent stops are silent.
+
+### Skip conditions (exit 0 silently)
+
+- `reviewHook.enabled=false` (default)
+- `stop_hook_active=true` (re-entry)
+- `cwd` is sensitive (`.ssh/`, `.aws/`, `.gnupg/`, `.kube/`, `.docker/`) — never send those to a third-party reviewer
+- `last_assistant_message` is empty
+- `skipIfNoChanges=true` (default) and `git status --porcelain` is empty
+- Iteration counter past cap
+
+### Fail-open principle
+
+Every infrastructure failure path logs `PASS_REVIEW <cause>` and exits 0 — never blocks. Causes: missing CLI, missing jq, ollama unreachable, reviewer timeout, malformed reviewer output. The gate only blocks on a literal `BLOCK:` first line from the reviewer.
+
+## Configuration via `/review-config`
+
+The `/review-config` slash command reads/writes `${git-root}/.claude/settings.local.json` under the `reviewHook` key. Schema:
+
+```json
+{
+  "reviewHook": {
+    "enabled": false,
+    "reviewer": {
+      "type": "ollama",
+      "ollama":   { "model": "gemma4:latest", "host": "http://localhost:11434", "timeout": 60 },
+      "cli":      { "command": "codex", "args": ["task","--json"], "timeout": 900, "outputField": "rawOutput" },
+      "subagent": { "name": "code-reviewer" }
+    },
+    "maxIterations": 3,
+    "skipIfNoChanges": true,
+    "redactSecrets": true,
+    "promptOverride": null
+  }
+}
+```
+
+Common workflows:
+
+```
+/review-config enable
+/review-config type ollama
+/review-config model qwen2.5-coder:7b
+
+/review-config type cli
+/review-config command codex
+/review-config args ["task","--json"]
+/review-config field rawOutput
+
+/review-config type subagent
+/review-config agent code-review-engineer
+
+/review-config disable
+```
+
+`promptOverride` is an optional absolute path to a custom prompt template. The bundled template lives at `hooks/stop-review-prompt.md` and follows the same ALLOW/BLOCK first-line contract used in `openai/codex-plugin-cc`'s `stop-review-gate.md`.
+
+`redactSecrets` (default on) strips AWS access key IDs (`AKIA…`), OpenAI-style keys (`sk-…`), GitHub tokens (`ghp_…`), and `key=value` pairs where the key looks like `api_key`/`secret`/`token`/`bearer`/`password` from `last_assistant_message` before sending it to a third-party reviewer.
+
+## Code-review Logging
+
+`stop-review.sh` writes its own log at `~/.claude/logs/code-review.log` (separate from `auto-approve.log`) in tab-separated format:
+
+```
+TIMESTAMP	DECISION	REVIEWER	SESSION_ID	ITER	REASON	DURATION_MS
+```
+
+Decisions: `ALLOW_OLLAMA`, `ALLOW_CLI`, `ALLOW_CLEAN` (clean working tree, skipped), `BLOCK_OLLAMA`, `BLOCK_CLI`, `BLOCK_SUBAGENT`, `BLOCK_FINAL` (manual review threshold hit), `PASS_REVIEW` (fail-open: missing CLI, timeout, malformed output, etc.), `SKIP_REVIEW` (counter past cap).
+
+Same 1MB rotation + 3 backups as the auto-approve log. Log helpers live in `hooks/review-lib.sh`.
+
+```bash
+# Tail the review log
+tail -f ~/.claude/logs/code-review.log
+
+# All BLOCK decisions
+grep $'\tBLOCK' ~/.claude/logs/code-review.log
+```
 
 ## Test Harness
 
@@ -87,6 +183,20 @@ OLLAMA_HOST=http://localhost:99999 echo '{"tool_name":"Agent","tool_input":{"pro
 
 # Test ollama-evaluate.sh directly
 echo '{"tool_name":"Write","tool_input":{"file_path":"/project/README.md","content":"hello"}}' | bash hooks/ollama-evaluate.sh
+
+# Test stop-review.sh — disabled by default, expect no output
+echo '{"session_id":"smoke","cwd":"'$PWD'","last_assistant_message":"I refactored auth.","stop_hook_active":false}' | bash hooks/stop-review.sh
+
+# Test stop-review.sh — subagent mode (write a config first), expect decision:block JSON
+mkdir -p .claude && cat > .claude/settings.local.json <<'JSON'
+{"reviewHook":{"enabled":true,"reviewer":{"type":"subagent","subagent":{"name":"code-reviewer"}},"skipIfNoChanges":false}}
+JSON
+echo '{"session_id":"smoke","cwd":"'$PWD'","last_assistant_message":"I refactored auth.","stop_hook_active":false}' | bash hooks/stop-review.sh
+
+# Test stop-review.sh — ollama mode with mocked output (no real LLM call)
+STOP_REVIEW_TEST_OUTPUT="ALLOW: looks fine" \
+  echo '{"session_id":"smoke","cwd":"'$PWD'","last_assistant_message":"x","stop_hook_active":false}' \
+  | STOP_REVIEW_TEST_OUTPUT="ALLOW: looks fine" bash hooks/stop-review.sh
 ```
 
 ## Auto-Approve Logging

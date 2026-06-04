@@ -33,6 +33,15 @@
             "timeout": 10000
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop-review.sh",
+            "timeout": 900
+          }
+        ]
       }
     ],
     "PermissionDenied": [
