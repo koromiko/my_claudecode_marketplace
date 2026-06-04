@@ -294,8 +294,8 @@ The skill conducts a **relay loop** with a separate read-only **grill agent**
 3. The main agent answers it autonomously from the codebase/conventions, and
    escalates to the human via `AskUserQuestion` only for costly-to-reverse
    decisions (schema/contract, public API, data migration, security boundary).
-4. The answer is fed back via `SendMessage(to: "grill", ...)`; repeat until the
-   grill agent emits `DONE` or a 15-round safety cap is hit.
+4. The answer is fed back via `SendMessage(to: "<agentId>", ...)`; repeat until
+   the grill agent emits `DONE` or a 15-round safety cap is hit.
 5. On completion the main agent prints the decision log and revises the plan to
    fold in the resolved decisions.
 
