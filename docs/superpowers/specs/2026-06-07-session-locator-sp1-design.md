@@ -159,7 +159,7 @@ All within the single `locator.py`. Parsing/resolution are **pure functions** th
 accept injected command output (for testability); only thin wrappers call `ps` /
 `tmux` / `lsof`.
 
-- **`scan_processes()`** — parse `ps -E -ww -o pid=,ppid=,tty=,command=`, extract
+- **`parse_processes()`** — parse `ps -E -ww -o pid=,ppid=,tty=,command=`, extract
   format-validated markers (session uuid, `TMUX_PANE`, `TMUX` socket,
   `ITERM_SESSION_ID`, `TERM_SESSION_ID`, `TERM_PROGRAM`). Builds the per-process raw
   records. Strict marker regexes reject the scanner's own `ps`/`grep` command lines.
@@ -230,7 +230,7 @@ a read-only introspector and partial data is more useful than an exception.
 
 ## Testing
 
-- **Pure-function design for testability.** `scan_processes`, `resolve_roles`,
+- **Pure-function design for testability.** `parse_processes`, `resolve_roles`,
   `tmux_pane_index` parsing, and `build_sessions` accept injected command output
   (raw `ps`/`tmux`/`lsof` text) rather than shelling out themselves. The thin shell
   wrappers are the only impure code.

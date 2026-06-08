@@ -842,7 +842,7 @@ git commit -m "docs(session-manager): document locator tool and bump version"
 
 **Spec coverage** (each spec section → task):
 - Record schema → Task 5 (assembly) + Task 1 (markers). All 10 fields produced. ✓
-- `scan_processes` → Task 1. ✓
+- `parse_processes` → Task 1. ✓
 - `build_ppid_map` → Task 2. ✓
 - `tmux_pane_index` (multi-socket) → Task 3 (parse) + Task 6 (enumeration). ✓
 - `resolve_roles` ancestry (interactive vs child) → Task 4. ✓
