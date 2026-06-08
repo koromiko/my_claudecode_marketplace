@@ -40,6 +40,42 @@ Unified script with subcommands for pane management:
 | `sync` | `sync [--auto-remove]` | Validate registry against actual tmux panes |
 | `cleanup` | `cleanup` | Remove stale registry entries |
 
+### locator.py (session ↔ pane indexer/resolver)
+
+Read-only, pull-based tool (macOS) that maps running Claude Code sessions to
+terminal panes by scanning process environments. No daemon, no state — every
+query re-scans, so results are never stale. Foundation for the larger
+session-locator system (focus adapters / daemon / hooks, SP2–SP5); other tools
+consume its JSON contract.
+
+CLI:
+- `locator.py list` — JSON array, one record per live Claude session.
+- `locator.py resolve --pane tmux:<socket>:%N | %N | iterm:<guid> | term:<guid>` — the interactive session in that pane.
+- `locator.py resolve --tty <tty>` — the interactive session on that tty.
+- `locator.py resolve --session <uuid>` — that specific session (role-agnostic).
+
+Record schema (the contract): `session_id`, `role` (interactive|child),
+`parent_session_id`, `pane` (socket-qualified), `host`, `tty`, `cwd`,
+`leader_pid`, `pane_live`, `tmux`. `resolve --pane/--tty` return only the
+`interactive` record; `list` shows children too.
+
+How it works: a running Claude process carries `CLAUDE_CODE_SESSION_ID` plus its
+host pane id (`TMUX_PANE` / `ITERM_SESSION_ID`) in one environment, so the
+session↔pane mapping is recoverable without UI scraping. Roles are resolved by
+process ancestry — a session whose leader descends from another Claude session is
+a `child` (subagent / headless invocation). Pane ids are socket-qualified because
+they are not unique across tmux servers. See
+`docs/superpowers/specs/2026-06-07-session-locator-sp1-design.md`.
+
+Resolve return contract (important for SP2 consumers): `resolve` prints a single
+JSON object when exactly one session matches, a JSON array when several do, and
+`[]` with exit code 1 when none do. **The array case is the ambiguity signal** —
+e.g. two independent interactive sessions sharing one pane. SP1 does not break
+that tie; choosing the foreground session is focus work, deferred to SP2.
+Consumers must handle the array case (test for a list / `len > 1`).
+
+Tests: `python3 session-manager/tests/test_locator.py -v`.
+
 ### Registry System
 
 Panes are tracked in `~/.claude/session-manager/registry.json`:
