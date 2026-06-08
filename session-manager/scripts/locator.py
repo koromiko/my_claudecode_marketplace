@@ -123,3 +123,40 @@ def parse_tmux_panes(socket_name, list_panes_output):
             "active": active == "1",
         }
     return panes
+
+
+def resolve_roles(procs, ppid_map):
+    """Assign each session a role (interactive|child) and its leader pid.
+
+    Leader of a session = its topmost process (whose parent is not in the same
+    session group). A session is `child` if its leader's ancestry reaches another
+    claude session before the top; otherwise `interactive`.
+    """
+    by_session = {}
+    for p in procs:
+        by_session.setdefault(p["session_id"], []).append(p)
+    session_of_pid = {p["pid"]: p["session_id"] for p in procs}
+
+    roles = {}
+    for sid, members in by_session.items():
+        pids = {p["pid"] for p in members}
+        leaders = [p for p in members if p["ppid"] not in pids]
+        leader = min(leaders or members, key=lambda p: p["pid"])
+
+        parent_session = None
+        cur = leader["ppid"]
+        seen = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            anc_sid = session_of_pid.get(cur)
+            if anc_sid and anc_sid != sid:
+                parent_session = anc_sid
+                break
+            cur = ppid_map.get(cur)
+
+        roles[sid] = {
+            "leader_pid": leader["pid"],
+            "role": "child" if parent_session else "interactive",
+            "parent_session_id": parent_session,
+        }
+    return roles

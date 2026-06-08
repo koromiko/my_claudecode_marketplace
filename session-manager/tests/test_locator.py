@@ -94,5 +94,35 @@ class TestParseTmuxPanes(unittest.TestCase):
         self.assertEqual(len(merged), 2)
 
 
+class TestResolveRoles(unittest.TestCase):
+    def test_child_session_demoted_to_child_of_interactive(self):
+        # Case (b): two sessions in one pane. B (pid 2002) is spawned by A (pid 2001).
+        procs = [
+            {"pid": 2001, "ppid": 1900, "session_id": UUID_A, "tmux_pane": "%86"},
+            {"pid": 2002, "ppid": 2001, "session_id": UUID_B, "tmux_pane": "%86"},
+        ]
+        ppid_map = {2001: 1900, 2002: 2001, 1900: 1800}
+        roles = locator.resolve_roles(procs, ppid_map)
+        self.assertEqual(roles[UUID_A]["role"], "interactive")
+        self.assertIsNone(roles[UUID_A]["parent_session_id"])
+        self.assertEqual(roles[UUID_A]["leader_pid"], 2001)
+        self.assertEqual(roles[UUID_B]["role"], "child")
+        self.assertEqual(roles[UUID_B]["parent_session_id"], UUID_A)
+        self.assertEqual(roles[UUID_B]["leader_pid"], 2002)
+
+    def test_one_session_two_panes_leader_is_topmost(self):
+        # Case (a): session A appears in procs tagged %5 (leader) and %6 (re-parented
+        # child member of the SAME session). Leader is the topmost member.
+        procs = [
+            {"pid": 1001, "ppid": 900, "session_id": UUID_C, "tmux_pane": "%5"},
+            {"pid": 1002, "ppid": 1001, "session_id": UUID_C, "tmux_pane": "%6"},
+        ]
+        ppid_map = {1001: 900, 1002: 1001, 900: 800}
+        roles = locator.resolve_roles(procs, ppid_map)
+        self.assertEqual(roles[UUID_C]["leader_pid"], 1001)  # the %5 one
+        self.assertEqual(roles[UUID_C]["role"], "interactive")
+        self.assertIsNone(roles[UUID_C]["parent_session_id"])
+
+
 if __name__ == "__main__":
     unittest.main()
