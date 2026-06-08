@@ -235,3 +235,91 @@ def build_sessions(procs, ppid_map, tmux_index, cwd_fn=cwd_of):
         )
     sessions.sort(key=lambda s: (s["pane"] or "~", s["session_id"]))
     return sessions
+
+
+def match_selector(s, args):
+    """True if session record s matches the resolve selector in args.
+
+    --session is role-agnostic (addresses a specific session). --pane / --tty
+    return only the interactive session for that pane.
+    """
+    if args.session:
+        return s["session_id"] == args.session
+    if args.tty:
+        want = args.tty.replace("/dev/", "")
+        return s["tty"] == want and s["role"] == "interactive"
+    if args.pane:
+        if s["role"] != "interactive":
+            return False
+        p = args.pane
+        if p.startswith(("tmux:", "iterm:", "term:")):
+            return s["pane"] == p
+        if p.startswith("%"):  # bare pane id: match across all sockets
+            return s["host"] == "tmux" and bool(s["pane"]) and s["pane"].endswith(
+                ":" + p
+            )
+        return False
+    return False
+
+
+def list_tmux_sockets():
+    """All tmux socket basenames for this user (plus the one from $TMUX)."""
+    sockets = set()
+    for path in glob.glob(f"/private/tmp/tmux-{os.getuid()}/*"):
+        sockets.add(os.path.basename(path))
+    env_tmux = os.environ.get("TMUX")
+    if env_tmux:
+        sockets.add(os.path.basename(env_tmux.split(",")[0]))
+    return sorted(sockets)
+
+
+def tmux_pane_index():
+    """(socket, pane_id) -> pane meta across ALL tmux sockets. {} if none."""
+    index = {}
+    for socket in list_tmux_sockets():
+        out = _run(["tmux", "-L", socket, "list-panes", "-a", "-F", TMUX_FMT])
+        index.update(parse_tmux_panes(socket, out))
+    return index
+
+
+def gather_sessions():
+    """Live scan -> assembled session records (the impure top-level)."""
+    ps_output = _run(["ps", "-E", "-ww", "-o", "pid=,ppid=,tty=,command=", "-ax"])
+    procs = parse_processes(ps_output, self_pid=os.getpid())
+    ppid_map = build_ppid_map(ps_output)
+    tmux_index = tmux_pane_index()
+    return build_sessions(procs, ppid_map, tmux_index)
+
+
+def cmd_list(_args):
+    print(json.dumps(gather_sessions(), indent=2))
+
+
+def cmd_resolve(args):
+    sessions = gather_sessions()
+    hits = [s for s in sessions if match_selector(s, args)]
+    if not hits:
+        print(json.dumps([], indent=2))
+        sys.exit(1)
+    print(json.dumps(hits[0] if len(hits) == 1 else hits, indent=2))
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Claude Code session locator.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list", help="list all live Claude sessions with pane/tty/cwd")
+    rp = sub.add_parser("resolve", help="resolve a session by pane / tty / session id")
+    g = rp.add_mutually_exclusive_group(required=True)
+    g.add_argument("--pane", help="tmux:<socket>:%%N | %%N | iterm:<guid> | term:<guid>")
+    g.add_argument("--tty", help="e.g. /dev/ttys016 or ttys016")
+    g.add_argument("--session", help="Claude session id (uuid)")
+
+    args = ap.parse_args()
+    if args.cmd == "list":
+        cmd_list(args)
+    elif args.cmd == "resolve":
+        cmd_resolve(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -216,5 +216,38 @@ class TestBuildSessions(unittest.TestCase):
         )
 
 
+class TestSelector(unittest.TestCase):
+    SESSIONS = [
+        {"session_id": UUID_A, "role": "interactive", "pane": "tmux:default:%86",
+         "host": "tmux", "tty": "ttys016"},
+        {"session_id": UUID_B, "role": "child", "pane": "tmux:default:%86",
+         "host": "tmux", "tty": "ttys016"},
+        {"session_id": UUID_D, "role": "interactive", "pane": "iterm:w0t6p0:GUID",
+         "host": "iterm", "tty": "ttys030"},
+    ]
+
+    def _filter(self, **kw):
+        ns = locator.argparse.Namespace(pane=None, tty=None, session=None)
+        for k, v in kw.items():
+            setattr(ns, k, v)
+        return [s for s in self.SESSIONS if locator.match_selector(s, ns)]
+
+    def test_pane_full_address_returns_interactive_only(self):
+        hits = self._filter(pane="tmux:default:%86")
+        self.assertEqual([h["session_id"] for h in hits], [UUID_A])
+
+    def test_pane_bare_id_matches_across_sockets_interactive_only(self):
+        hits = self._filter(pane="%86")
+        self.assertEqual([h["session_id"] for h in hits], [UUID_A])
+
+    def test_tty_returns_interactive_only(self):
+        hits = self._filter(tty="/dev/ttys016")  # accepts /dev/ prefix too
+        self.assertEqual([h["session_id"] for h in hits], [UUID_A])
+
+    def test_session_selector_returns_child_too(self):
+        hits = self._filter(session=UUID_B)  # addresses a specific session, role-agnostic
+        self.assertEqual([h["session_id"] for h in hits], [UUID_B])
+
+
 if __name__ == "__main__":
     unittest.main()
