@@ -76,3 +76,22 @@ def parse_processes(ps_output, self_pid=None):
             }
         )
     return procs
+
+
+def build_ppid_map(ps_output):
+    """pid -> ppid for ALL processes in the ps output (not just claude-tagged).
+
+    Ancestry walks must traverse non-claude processes (shells, node wrappers), so
+    this covers every line, unlike parse_processes.
+    """
+    m = {}
+    for line in ps_output.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        m[pid] = ppid
+    return m

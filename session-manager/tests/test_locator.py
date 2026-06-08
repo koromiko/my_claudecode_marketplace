@@ -59,5 +59,18 @@ class TestParseProcesses(unittest.TestCase):
         self.assertEqual(locator.parse_processes(out, self_pid=4242), [])
 
 
+class TestBuildPpidMap(unittest.TestCase):
+    def test_maps_all_processes_not_just_claude(self):
+        out = "\n".join([
+            "1900 1800 ttys016 -zsh",                 # plain shell, no session
+            pline(2001, 1900, "??", CLAUDE_CODE_SESSION_ID=UUID_A),
+            "garbage line",                             # ignored
+        ])
+        m = locator.build_ppid_map(out)
+        self.assertEqual(m[1900], 1800)   # non-claude proc present (ancestry needs it)
+        self.assertEqual(m[2001], 1900)
+        self.assertNotIn("garbage", m)
+
+
 if __name__ == "__main__":
     unittest.main()
