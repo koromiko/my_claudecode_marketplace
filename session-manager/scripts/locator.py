@@ -160,3 +160,78 @@ def resolve_roles(procs, ppid_map):
             "parent_session_id": parent_session,
         }
     return roles
+
+
+def _run(cmd):
+    """Run a command, return stdout str or '' on any failure. Never raises."""
+    try:
+        return subprocess.run(
+            cmd, capture_output=True, text=True, timeout=10, check=False
+        ).stdout
+    except Exception:
+        return ""
+
+
+def cwd_of(pid):
+    """Working directory of pid via lsof (robust against spaces). None on failure."""
+    out = _run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"])
+    for line in out.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return None
+
+
+def build_sessions(procs, ppid_map, tmux_index, cwd_fn=cwd_of):
+    """Assemble one record per session (see spec for schema)."""
+    roles = resolve_roles(procs, ppid_map)
+    by_pid = {p["pid"]: p for p in procs}
+
+    sessions = []
+    for sid, role in roles.items():
+        rep = by_pid[role["leader_pid"]]
+        pane = host = tty = tmux_meta = None
+        pane_live = True
+
+        if rep.get("tmux_pane") and rep.get("tmux_socket"):
+            socket = rep["tmux_socket"]
+            pane = f"tmux:{socket}:{rep['tmux_pane']}"
+            host = "tmux"
+            pinfo = tmux_index.get((socket, rep["tmux_pane"]))
+            if pinfo:
+                tty = pinfo["tty"]
+                tmux_meta = {
+                    "socket": socket,
+                    "session": pinfo["tmux_session"],
+                    "window": pinfo["tmux_window"],
+                    "active": pinfo["active"],
+                }
+            else:
+                tty = rep.get("tty")
+                pane_live = False  # detached straggler: pane gone
+        elif rep.get("iterm_session_id"):
+            pane = f"iterm:{rep['iterm_session_id']}"
+            host = "iterm"
+            tty = rep.get("tty")
+        elif rep.get("term_session_id"):
+            pane = f"term:{rep['term_session_id']}"
+            host = "apple-terminal"
+            tty = rep.get("tty")
+        else:
+            tty = rep.get("tty")
+
+        sessions.append(
+            {
+                "session_id": sid,
+                "role": role["role"],
+                "parent_session_id": role["parent_session_id"],
+                "pane": pane,
+                "host": host,
+                "tty": tty,
+                "cwd": cwd_fn(role["leader_pid"]),
+                "leader_pid": role["leader_pid"],
+                "pane_live": pane_live,
+                "tmux": tmux_meta,
+            }
+        )
+    sessions.sort(key=lambda s: (s["pane"] or "~", s["session_id"]))
+    return sessions

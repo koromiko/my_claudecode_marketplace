@@ -124,5 +124,97 @@ class TestResolveRoles(unittest.TestCase):
         self.assertIsNone(roles[UUID_C]["parent_session_id"])
 
 
+class TestBuildSessions(unittest.TestCase):
+    def _full_proc(self, pid, ppid, sid, pane, socket="default", tty=None,
+                   iterm=None, term=None):
+        return {"pid": pid, "ppid": ppid, "session_id": sid, "tmux_pane": pane,
+                "tmux_socket": socket if pane else None, "tty": tty,
+                "iterm_session_id": iterm, "term_session_id": term}
+
+    def test_tmux_record_enriched_and_pane_live(self):
+        procs = [self._full_proc(2001, 1900, UUID_A, "%86")]
+        ppid_map = {2001: 1900, 1900: 1800}
+        tmux_index = {("default", "%86"): {
+            "tty": "ttys016", "pane_pid": 1900, "tmux_session": "work",
+            "tmux_window": "3", "active": True}}
+        out = locator.build_sessions(procs, ppid_map, tmux_index,
+                                     cwd_fn=lambda pid: "/tmp/x")
+        self.assertEqual(len(out), 1)
+        r = out[0]
+        self.assertEqual(r["pane"], "tmux:default:%86")
+        self.assertEqual(r["host"], "tmux")
+        self.assertEqual(r["tty"], "ttys016")       # authoritative from tmux
+        self.assertEqual(r["cwd"], "/tmp/x")
+        self.assertTrue(r["pane_live"])
+        self.assertEqual(r["tmux"]["session"], "work")
+        self.assertEqual(r["role"], "interactive")
+
+    def test_detached_straggler_flagged_not_live(self):
+        procs = [self._full_proc(2001, 1900, UUID_A, "%99", tty="ttys016")]
+        out = locator.build_sessions(procs, {2001: 1900}, {},  # empty index
+                                     cwd_fn=lambda pid: None)
+        r = out[0]
+        self.assertEqual(r["pane"], "tmux:default:%99")
+        self.assertFalse(r["pane_live"])     # pane not in index
+        self.assertEqual(r["tty"], "ttys016")  # falls back to process tty
+
+    def test_iterm_host_when_no_tmux(self):
+        procs = [self._full_proc(3001, 2900, UUID_A, None, tty="ttys030",
+                                 iterm="w0t6p0:GUID")]
+        out = locator.build_sessions(procs, {3001: 2900}, {},
+                                     cwd_fn=lambda pid: "/tmp/y")
+        r = out[0]
+        self.assertEqual(r["pane"], "iterm:w0t6p0:GUID")
+        self.assertEqual(r["host"], "iterm")
+        self.assertTrue(r["pane_live"])  # non-tmux -> always live (leader alive)
+
+    def test_record_has_exactly_the_schema_keys(self):
+        # Guards the contract SP2-SP5 join against: the record shape must not drift.
+        procs = [self._full_proc(2001, 1900, UUID_A, "%86")]
+        out = locator.build_sessions(procs, {2001: 1900}, {}, cwd_fn=lambda pid: None)
+        self.assertEqual(
+            set(out[0].keys()),
+            {"session_id", "role", "parent_session_id", "pane", "host", "tty",
+             "cwd", "leader_pid", "pane_live", "tmux"},
+        )
+
+    def test_apple_terminal_host(self):
+        procs = [self._full_proc(3001, 2900, UUID_A, None, tty="ttys040",
+                                 term="w0t0p0:TGUID")]
+        out = locator.build_sessions(procs, {3001: 2900}, {},
+                                     cwd_fn=lambda pid: "/tmp/z")
+        r = out[0]
+        self.assertEqual(r["pane"], "term:w0t0p0:TGUID")
+        self.assertEqual(r["host"], "apple-terminal")
+        self.assertEqual(r["tty"], "ttys040")
+
+    def test_parent_and_child_both_get_records_in_one_pane(self):
+        # A parent (A) and the child (B) it spawned, both in pane %86.
+        procs = [
+            self._full_proc(2001, 1900, UUID_A, "%86"),
+            self._full_proc(2002, 2001, UUID_B, "%86"),
+        ]
+        ppid_map = {2001: 1900, 2002: 2001, 1900: 1800}
+        out = locator.build_sessions(procs, ppid_map, {}, cwd_fn=lambda pid: None)
+        by_sid = {r["session_id"]: r for r in out}
+        self.assertEqual(by_sid[UUID_A]["role"], "interactive")
+        self.assertIsNone(by_sid[UUID_A]["parent_session_id"])
+        self.assertEqual(by_sid[UUID_B]["role"], "child")
+        self.assertEqual(by_sid[UUID_B]["parent_session_id"], UUID_A)
+
+    def test_sessions_sorted_by_pane_with_none_last(self):
+        procs = [
+            self._full_proc(3001, 2900, UUID_D, None),               # no host -> pane None
+            self._full_proc(2001, 1900, UUID_A, "%86"),              # tmux:default:%86
+            self._full_proc(2501, 1900, UUID_C, "%10", socket="alt"),  # tmux:alt:%10
+        ]
+        ppid_map = {2001: 1900, 2501: 1900, 3001: 2900, 1900: 1800, 2900: 2800}
+        out = locator.build_sessions(procs, ppid_map, {}, cwd_fn=lambda pid: None)
+        self.assertEqual(
+            [r["pane"] for r in out],
+            ["tmux:alt:%10", "tmux:default:%86", None],  # None sorts last via "~"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
