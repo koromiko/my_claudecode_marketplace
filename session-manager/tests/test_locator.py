@@ -72,5 +72,27 @@ class TestBuildPpidMap(unittest.TestCase):
         self.assertNotIn("garbage", m)
 
 
+class TestParseTmuxPanes(unittest.TestCase):
+    SAMPLE = "%86\t/dev/ttys016\t1900\twork\t3\t1\n%0\t/dev/ttys020\t1700\tmisc\t0\t0"
+
+    def test_parses_and_keys_by_socket_and_pane(self):
+        idx = locator.parse_tmux_panes("default", self.SAMPLE)
+        self.assertEqual(
+            idx[("default", "%86")],
+            {"tty": "ttys016", "pane_pid": 1900, "tmux_session": "work",
+             "tmux_window": "3", "active": True},
+        )
+        self.assertFalse(idx[("default", "%0")]["active"])
+
+    def test_same_pane_id_on_two_sockets_is_distinct(self):
+        # The multi-socket fix: %0 on two sockets must not collide.
+        a = locator.parse_tmux_panes("default", "%0\t/dev/ttys020\t1\ts\t0\t1")
+        b = locator.parse_tmux_panes("sm_e2e", "%0\t/dev/ttys099\t2\ts\t0\t1")
+        merged = {**a, **b}
+        self.assertEqual(merged[("default", "%0")]["tty"], "ttys020")
+        self.assertEqual(merged[("sm_e2e", "%0")]["tty"], "ttys099")
+        self.assertEqual(len(merged), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

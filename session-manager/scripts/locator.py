@@ -95,3 +95,31 @@ def build_ppid_map(ps_output):
             continue
         m[pid] = ppid
     return m
+
+
+TMUX_FMT = (
+    "#{pane_id}\t#{pane_tty}\t#{pane_pid}\t#{session_name}\t"
+    "#{window_index}\t#{pane_active}"
+)
+
+
+def parse_tmux_panes(socket_name, list_panes_output):
+    """Parse `tmux list-panes -a -F TMUX_FMT` output, keyed by (socket, pane_id)."""
+    panes = {}
+    for line in list_panes_output.splitlines():
+        cols = line.split("\t")
+        if len(cols) != 6:
+            continue
+        pane_id, tty, pane_pid, sess, win, active = cols
+        try:
+            pane_pid_int = int(pane_pid)
+        except ValueError:
+            pane_pid_int = None
+        panes[(socket_name, pane_id)] = {
+            "tty": tty.replace("/dev/", ""),
+            "pane_pid": pane_pid_int,
+            "tmux_session": sess,
+            "tmux_window": win,
+            "active": active == "1",
+        }
+    return panes
