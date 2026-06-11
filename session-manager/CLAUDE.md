@@ -71,10 +71,50 @@ Resolve return contract (important for SP2 consumers): `resolve` prints a single
 JSON object when exactly one session matches, a JSON array when several do, and
 `[]` with exit code 1 when none do. **The array case is the ambiguity signal** —
 e.g. two independent interactive sessions sharing one pane. SP1 does not break
-that tie; choosing the foreground session is focus work, deferred to SP2.
-Consumers must handle the array case (test for a list / `len > 1`).
+that tie at the SP1 layer; SP2 added a foreground tiebreak in `cmd_resolve`, so
+`resolve --pane`/`--tty` now return a single object whenever the pane foreground
+is determinable, and the array only when two interactive sessions are genuinely
+indistinguishable. Consumers must still handle the array case (test for a list /
+`len > 1`).
 
 Tests: `python3 session-manager/tests/test_locator.py -v`.
+
+### fork-active-pane.sh (fork the focused pane — tmux key-binding)
+
+The fork hotkey: press a tmux key on any pane and the Claude session running in
+*that* pane is forked into a new split beside it. It is the SP2 layer over the
+SP1 locator.
+
+How it works (`scripts/fork-active-pane.sh '<pane-id>'`):
+
+1. A tmux `run-shell` key-binding passes the active pane's `#{pane_id}`. (The
+   command runs detached, so it cannot read the pane's `CLAUDE_CODE_SESSION_ID`
+   from the environment — it must resolve from the pane id.)
+2. The socket basename comes from `$TMUX`; the script builds the SP1 address
+   `tmux:<socket>:<pane-id>` and calls `locator.py resolve --pane`.
+3. The resolved `session_id` is forked via
+   `fork-iterm.sh --session-id <id> --target-pane <pane-id> --quiet`, which splits
+   beside the focused pane and verifies launch (existing behavior).
+4. The outcome is shown on the tmux status line via `tmux display-message`
+   (a key-binding has no user-visible stdout): the managed id on success, or
+   "No Claude session in this pane" / "can't disambiguate" / "Fork failed".
+
+Install the key-binding in `~/.tmux.conf` (adjust the path to your checkout):
+
+```tmux
+# Prefix + F: fork the Claude session in the focused pane into a split beside it.
+bind-key F run-shell "$HOME/Project/my_claudecode_marketplace/session-manager/scripts/fork-active-pane.sh '#{pane_id}'"
+```
+
+Then reload: `tmux source-file ~/.tmux.conf`.
+
+Related `fork-iterm.sh` flags added for this path:
+- `--session-id <id>` — fork an explicitly-supplied session, bypassing
+  environment/symlink detection (the wrapper supplies the pane's resolved id).
+- `--target-pane <pane>` — split beside a specific pane (`split-window -h -t`).
+  Valid only inside tmux; supplying it elsewhere errors with exit 2.
+
+Tests: `bash session-manager/tests/test-fork-active-pane.sh`.
 
 ### Registry System
 
