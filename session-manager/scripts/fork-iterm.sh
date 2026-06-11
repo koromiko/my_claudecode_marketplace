@@ -17,6 +17,7 @@ fi
 #                 --relocate target default.
 #   --fork-dir D  Launch the fork from D instead of the session's own cwd.
 #   --session-id S  Explicit session ID to fork (wins over CLAUDE_CODE_SESSION_ID and detection).
+#   --target-pane P  Split the new tmux pane beside pane P (tmux only; errors elsewhere).
 #   --relocate    Copy the session record into the fork dir's project before
 #                 forking, so `claude -r` resolves there (Approach B). Without
 #                 this, the fork dir must already own the session.
