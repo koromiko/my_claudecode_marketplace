@@ -293,6 +293,8 @@ def pick_foreground_winner(hits, ps_output):
     so the foreground session is the hit whose leader_pid is a foreground pgid.
     Returns None when zero or more than one hit matches, so the caller falls back
     to the ambiguity array — correctness is never sacrificed to force an answer.
+    Intended for the len(hits) >= 2 ambiguity case; empty or single-element input
+    also yields None by design (such input should not reach this function).
     """
     fg = foreground_pgids(parse_pgid_stat(ps_output))
     matches = [h for h in hits if h.get("leader_pid") in fg]
