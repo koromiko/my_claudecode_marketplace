@@ -262,6 +262,43 @@ def match_selector(s, args):
     return False
 
 
+def parse_pgid_stat(ps_output):
+    """Parse `ps -t <tty> -o pid=,pgid=,stat=` into [(pid, pgid, stat), ...].
+
+    Lines that don't start with two integers are skipped (best-effort).
+    """
+    rows = []
+    for line in ps_output.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid, pgid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        rows.append((pid, pgid, parts[2]))
+    return rows
+
+
+def foreground_pgids(ps_rows):
+    """Process-group ids holding the tty foreground (ps stat contains '+')."""
+    return {pgid for _pid, pgid, stat in ps_rows if "+" in stat}
+
+
+def pick_foreground_winner(hits, ps_output):
+    """Of several interactive sessions sharing one tty, return the one whose
+    leader holds the pane's foreground process group; None if undeterminable.
+
+    A Claude session's leader is its own process-group leader (pgid == leader_pid),
+    so the foreground session is the hit whose leader_pid is a foreground pgid.
+    Returns None when zero or more than one hit matches, so the caller falls back
+    to the ambiguity array — correctness is never sacrificed to force an answer.
+    """
+    fg = foreground_pgids(parse_pgid_stat(ps_output))
+    matches = [h for h in hits if h.get("leader_pid") in fg]
+    return matches[0] if len(matches) == 1 else None
+
+
 def list_tmux_sockets():
     """All tmux socket basenames for this user (plus the one from $TMUX)."""
     sockets = set()

@@ -249,5 +249,61 @@ class TestSelector(unittest.TestCase):
         self.assertEqual([h["session_id"] for h in hits], [UUID_B])
 
 
+class TestForegroundTiebreak(unittest.TestCase):
+    # `ps -t <tty> -o pid=,pgid=,stat=` rows. The "+" in stat marks a process in
+    # the tty's FOREGROUND process group. A Claude leader is its own group leader
+    # (pgid == leader_pid), so the foreground session's leader_pid appears as a
+    # foreground pgid.
+    PS_B_FOREGROUND = (
+        "2001 2001 S\n"     # session A leader: running, background
+        "2002 2002 S+\n"    # session B leader: foreground (+)
+        "2050 2002 S+\n"    # a child of B, also foreground group
+    )
+
+    def test_parse_pgid_stat(self):
+        rows = locator.parse_pgid_stat(self.PS_B_FOREGROUND)
+        self.assertEqual(rows[0], (2001, 2001, "S"))
+        self.assertEqual(rows[1], (2002, 2002, "S+"))
+        self.assertEqual(len(rows), 3)
+
+    def test_parse_pgid_stat_ignores_garbage(self):
+        rows = locator.parse_pgid_stat("not a row\n\n1 2 R+\n")
+        self.assertEqual(rows, [(1, 2, "R+")])
+
+    def test_foreground_pgids(self):
+        rows = locator.parse_pgid_stat(self.PS_B_FOREGROUND)
+        self.assertEqual(locator.foreground_pgids(rows), {2002})
+
+    def test_picks_the_foreground_session(self):
+        hits = [
+            {"session_id": UUID_A, "leader_pid": 2001, "tty": "ttys016"},
+            {"session_id": UUID_B, "leader_pid": 2002, "tty": "ttys016"},
+        ]
+        winner = locator.pick_foreground_winner(hits, self.PS_B_FOREGROUND)
+        self.assertIsNotNone(winner)
+        self.assertEqual(winner["session_id"], UUID_B)
+
+    def test_returns_none_when_no_hit_in_foreground(self):
+        # Foreground pgid 9999 matches neither leader -> undeterminable -> None.
+        hits = [
+            {"session_id": UUID_A, "leader_pid": 2001, "tty": "ttys016"},
+            {"session_id": UUID_B, "leader_pid": 2002, "tty": "ttys016"},
+        ]
+        self.assertIsNone(locator.pick_foreground_winner(hits, "9999 9999 S+\n"))
+
+    def test_returns_none_when_two_hits_in_foreground(self):
+        # Ambiguous: both leaders appear as foreground groups -> None (array fallback).
+        hits = [
+            {"session_id": UUID_A, "leader_pid": 2001, "tty": "ttys016"},
+            {"session_id": UUID_B, "leader_pid": 2002, "tty": "ttys016"},
+        ]
+        ps = "2001 2001 S+\n2002 2002 S+\n"
+        self.assertIsNone(locator.pick_foreground_winner(hits, ps))
+
+    def test_returns_none_on_empty_ps(self):
+        hits = [{"session_id": UUID_A, "leader_pid": 2001, "tty": "ttys016"}]
+        self.assertIsNone(locator.pick_foreground_winner(hits, ""))
+
+
 if __name__ == "__main__":
     unittest.main()
