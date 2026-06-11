@@ -11,11 +11,12 @@ if [ "$(uname)" != "Darwin" ]; then
 fi
 
 # --- Arguments ------------------------------------------------------------
-# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--relocate] [--resolve] [--quiet]
+# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--session-id <id>] [--relocate] [--resolve] [--quiet]
 #   current_dir   The directory the caller is in (default: pwd). Used only to
 #                 detect drift from the session's own directory and as the
 #                 --relocate target default.
 #   --fork-dir D  Launch the fork from D instead of the session's own cwd.
+#   --session-id S  Explicit session ID to fork (wins over CLAUDE_CODE_SESSION_ID and detection).
 #   --relocate    Copy the session record into the fork dir's project before
 #                 forking, so `claude -r` resolves there (Approach B). Without
 #                 this, the fork dir must already own the session.
@@ -27,12 +28,14 @@ fi
 #                 id. Errors are unaffected. Keeps the forked transcript clean.
 CURRENT_DIR=""
 FORK_DIR_OPT=""
+SESSION_ID_OPT=""
 RELOCATE=0
 RESOLVE_ONLY=0
 QUIET=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --fork-dir) FORK_DIR_OPT="$2"; shift 2 ;;
+        --session-id) SESSION_ID_OPT="$2"; shift 2 ;;
         --relocate) RELOCATE=1; shift ;;
         --resolve)  RESOLVE_ONLY=1; shift ;;
         --quiet)    QUIET=1; shift ;;
@@ -404,15 +407,19 @@ if [ "${FORK_LIB_ONLY:-}" = "1" ]; then
 fi
 
 # --- Resolve the session and the directory to fork from -------------------
-# The authoritative current session id is in the environment when run inside
-# Claude; fall back to the project/symlink heuristics for older CLIs or
-# out-of-session use.
-SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
-if [ -z "$SESSION_ID" ]; then
-    SESSION_ID=$(detect_session_id "$CURRENT_DIR")
-    if [[ "$SESSION_ID" == Error:* ]]; then
-        echo "$SESSION_ID" >&2
-        exit 1
+# Explicit --session-id wins over everything. Otherwise, the authoritative
+# current session id is in the environment when run inside Claude; fall back
+# to the project/symlink heuristics for older CLIs or out-of-session use.
+if [ -n "$SESSION_ID_OPT" ]; then
+    SESSION_ID="$SESSION_ID_OPT"
+else
+    SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
+    if [ -z "$SESSION_ID" ]; then
+        SESSION_ID=$(detect_session_id "$CURRENT_DIR")
+        if [[ "$SESSION_ID" == Error:* ]]; then
+            echo "$SESSION_ID" >&2
+            exit 1
+        fi
     fi
 fi
 

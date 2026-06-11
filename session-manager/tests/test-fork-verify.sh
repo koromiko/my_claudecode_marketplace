@@ -81,6 +81,13 @@ ok "$(find_session_owner_file "nope")" "" "find_session_owner_file: empty when n
 ok "$(session_launch_cwd "$SESS/dddd.jsonl")" "$REAL_CWD" "session_launch_cwd: reads the real launch cwd from the record"
 ok "$(session_launch_cwd "$SESS/aaaa.jsonl")" "" "session_launch_cwd: empty when no cwd recorded"
 
+# --- new SP2 flags: --session-id is captured into SESSION_ID_OPT ---
+(
+  FORK_LIB_ONLY=1 source "$SCRIPT_DIR/../scripts/fork-iterm.sh" --session-id "feed-beef"
+  [ "$SESSION_ID_OPT" = "feed-beef" ]
+) && r=yes || r=no
+ok "$r" "yes" "--session-id is parsed into SESSION_ID_OPT"
+
 echo "----"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]
