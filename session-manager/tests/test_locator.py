@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import sys
 import unittest
@@ -303,6 +304,47 @@ class TestForegroundTiebreak(unittest.TestCase):
     def test_returns_none_on_empty_ps(self):
         hits = [{"session_id": UUID_A, "leader_pid": 2001, "tty": "ttys016"}]
         self.assertIsNone(locator.pick_foreground_winner(hits, ""))
+
+
+class TestResolveTiebreakWiring(unittest.TestCase):
+    """cmd_resolve must collapse a two-interactive-session pane to the foreground
+    one, and keep returning the array when the foreground is undeterminable."""
+
+    def setUp(self):
+        self._gather = locator.gather_sessions
+        self._ps = locator.pane_foreground_ps
+        self.two = [
+            {"session_id": UUID_A, "role": "interactive", "pane": "tmux:default:%86",
+             "host": "tmux", "tty": "ttys016", "leader_pid": 2001},
+            {"session_id": UUID_B, "role": "interactive", "pane": "tmux:default:%86",
+             "host": "tmux", "tty": "ttys016", "leader_pid": 2002},
+        ]
+        locator.gather_sessions = lambda: self.two
+
+    def tearDown(self):
+        locator.gather_sessions = self._gather
+        locator.pane_foreground_ps = self._ps
+
+    def _resolve_pane(self):
+        import contextlib
+        import io
+        ns = locator.argparse.Namespace(pane="tmux:default:%86", tty=None, session=None)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            locator.cmd_resolve(ns)
+        return json.loads(buf.getvalue())
+
+    def test_breaks_tie_via_foreground(self):
+        locator.pane_foreground_ps = lambda tty: "2001 2001 S\n2002 2002 S+\n"
+        out = self._resolve_pane()
+        self.assertIsInstance(out, dict)
+        self.assertEqual(out["session_id"], UUID_B)
+
+    def test_returns_array_when_undeterminable(self):
+        locator.pane_foreground_ps = lambda tty: ""   # no foreground signal
+        out = self._resolve_pane()
+        self.assertIsInstance(out, list)
+        self.assertEqual({r["session_id"] for r in out}, {UUID_A, UUID_B})
 
 
 if __name__ == "__main__":

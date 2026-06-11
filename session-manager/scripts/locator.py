@@ -181,6 +181,13 @@ def cwd_of(pid):
     return None
 
 
+def pane_foreground_ps(tty):
+    """Best-effort `ps -t <tty> -o pid=,pgid=,stat=` output ('' on failure)."""
+    if not tty:
+        return ""
+    return _run(["ps", "-t", tty, "-o", "pid=,pgid=,stat="])
+
+
 def build_sessions(procs, ppid_map, tmux_index, cwd_fn=cwd_of):
     """Assemble one record per session (see spec for schema)."""
     roles = resolve_roles(procs, ppid_map)
@@ -340,6 +347,10 @@ def cmd_resolve(args):
     if not hits:
         print(json.dumps([], indent=2))
         sys.exit(1)
+    if len(hits) > 1:
+        winner = pick_foreground_winner(hits, pane_foreground_ps(hits[0].get("tty")))
+        if winner is not None:
+            hits = [winner]
     print(json.dumps(hits[0] if len(hits) == 1 else hits, indent=2))
 
 
