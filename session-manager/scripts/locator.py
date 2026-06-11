@@ -351,6 +351,8 @@ def cmd_resolve(args):
         print(json.dumps([], indent=2))
         sys.exit(1)
     if len(hits) > 1:
+        # Multiple hits only arise from a --pane/--tty selector, so they all
+        # share one tty; hits[0]'s tty is the pane's tty.
         winner = pick_foreground_winner(hits, pane_foreground_ps(hits[0].get("tty")))
         if winner is not None:
             hits = [winner]

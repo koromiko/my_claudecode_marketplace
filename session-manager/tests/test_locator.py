@@ -252,9 +252,11 @@ class TestSelector(unittest.TestCase):
 
 class TestForegroundTiebreak(unittest.TestCase):
     # `ps -t <tty> -o pid=,pgid=,stat=` rows. The "+" in stat marks a process in
-    # the tty's FOREGROUND process group. A Claude leader is its own group leader
-    # (pgid == leader_pid), so the foreground session's leader_pid appears as a
-    # foreground pgid.
+    # the tty's FOREGROUND process group. A session wins if its leader's pgid
+    # (looked up from these rows) is a foreground pgid. In THIS fixture the leaders
+    # happen to be their own group leaders (pgid == pid); the
+    # test_picks_leader_that_is_a_member_of_foreground_group case covers the
+    # general case where the leader is only a member of the foreground group.
     PS_B_FOREGROUND = (
         "2001 2001 S\n"     # session A leader: running, background
         "2002 2002 S+\n"    # session B leader: foreground (+)
