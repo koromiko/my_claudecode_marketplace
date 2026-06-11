@@ -88,6 +88,21 @@ ok "$(session_launch_cwd "$SESS/aaaa.jsonl")" "" "session_launch_cwd: empty when
 ) && r=yes || r=no
 ok "$r" "yes" "--session-id is parsed into SESSION_ID_OPT"
 
+# --- --target-pane is captured into TARGET_PANE ---
+# Dummy TMUX so the "target-pane requires tmux" early guard (added in this task)
+# does not exit during lib-only sourcing on hosts where $TMUX is unset (e.g. CI).
+(
+  TMUX="dummy,1,1" FORK_LIB_ONLY=1 source "$SCRIPT_DIR/../scripts/fork-iterm.sh" --target-pane "%7"
+  [ "$TARGET_PANE" = "%7" ]
+) && r=yes || r=no
+ok "$r" "yes" "--target-pane is parsed into TARGET_PANE"
+
+# --- --target-pane outside tmux is rejected with exit 2 (full-script run) ---
+# Run the real script (NOT lib-only) with TMUX unset; the early guard must fire
+# before any session resolution.
+env -u TMUX bash "$SCRIPT_DIR/../scripts/fork-iterm.sh" --session-id x --target-pane "%7" >/dev/null 2>&1
+ok "$?" "2" "--target-pane errors (exit 2) when not inside tmux"
+
 echo "----"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]

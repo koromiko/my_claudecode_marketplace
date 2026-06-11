@@ -11,7 +11,7 @@ if [ "$(uname)" != "Darwin" ]; then
 fi
 
 # --- Arguments ------------------------------------------------------------
-# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--session-id <id>] [--relocate] [--resolve] [--quiet]
+# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--session-id <id>] [--target-pane <pane>] [--relocate] [--resolve] [--quiet]
 #   current_dir   The directory the caller is in (default: pwd). Used only to
 #                 detect drift from the session's own directory and as the
 #                 --relocate target default.
@@ -29,6 +29,7 @@ fi
 CURRENT_DIR=""
 FORK_DIR_OPT=""
 SESSION_ID_OPT=""
+TARGET_PANE=""
 RELOCATE=0
 RESOLVE_ONLY=0
 QUIET=0
@@ -36,6 +37,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --fork-dir) FORK_DIR_OPT="$2"; shift 2 ;;
         --session-id) SESSION_ID_OPT="$2"; shift 2 ;;
+        --target-pane) TARGET_PANE="$2"; shift 2 ;;
         --relocate) RELOCATE=1; shift ;;
         --resolve)  RESOLVE_ONLY=1; shift ;;
         --quiet)    QUIET=1; shift ;;
@@ -45,6 +47,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 CURRENT_DIR="${CURRENT_DIR:-$(pwd)}"
+
+# --target-pane only makes sense for the tmux split path.
+if [ -n "$TARGET_PANE" ] && [ -z "${TMUX:-}" ]; then
+    echo "Error: --target-pane is only valid inside tmux." >&2
+    exit 2
+fi
 
 # progress: success-path status chatter, written to stderr. Suppressed under
 # --quiet so the fork leaves a minimal footprint in the (forked) transcript.
@@ -497,7 +505,11 @@ if [ -n "$TMUX" ]; then
     # Open an interactive shell first, then send the fork command via send-keys.
     # This ensures: (1) .zshrc is sourced so `claude` is in PATH,
     # (2) the pane stays open if the command exits unexpectedly.
-    pane_id=$(tmux split-window -h -P -F '#{pane_id}' -c "$FORK_DIR" "$DEFAULT_SHELL")
+    if [ -n "$TARGET_PANE" ]; then
+        pane_id=$(tmux split-window -h -t "$TARGET_PANE" -P -F '#{pane_id}' -c "$FORK_DIR" "$DEFAULT_SHELL")
+    else
+        pane_id=$(tmux split-window -h -P -F '#{pane_id}' -c "$FORK_DIR" "$DEFAULT_SHELL")
+    fi
 
     if [ $? -eq 0 ] && [ -n "$pane_id" ]; then
         # Brief delay to ensure shell is ready, then send the fork command
