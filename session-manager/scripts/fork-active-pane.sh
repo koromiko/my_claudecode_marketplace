@@ -40,8 +40,9 @@ RESOLVE_OUT="$(python3 "$LOCATOR" resolve --pane "$ADDR" 2>/dev/null)"
 RESOLVE_RC=$?
 
 # Classify the three SP1 return shapes: object -> session_id ; array -> AMBIGUOUS ;
-# [] / parse failure -> NONE.
-SESSION_ID="$(printf '%s' "$RESOLVE_OUT" | python3 -c '
+# [] / parse failure / locator error -> NONE.
+if [ "$RESOLVE_RC" -eq 0 ]; then
+    SESSION_ID="$(printf '%s' "$RESOLVE_OUT" | python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -54,8 +55,11 @@ elif isinstance(data, dict) and data.get("session_id"):
 else:
     print("NONE")
 ')"
+else
+    SESSION_ID="NONE"
+fi
 
-if [ "$RESOLVE_RC" -ne 0 ] || [ "$SESSION_ID" = "NONE" ]; then
+if [ "$SESSION_ID" = "NONE" ]; then
     notify "No Claude session in this pane to fork."
     exit 0
 fi

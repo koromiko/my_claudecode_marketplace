@@ -30,7 +30,7 @@ cat > "$FAKE_FORK" <<'SH'
 argf="${FORK_ARGS_OUT:-}"
 [ -n "$argf" ] && echo "$@" > "$argf"
 if [ "${FORK_RC:-0}" -ne 0 ]; then echo "boom" >&2; exit "${FORK_RC}"; fi
-echo "${FORK_ID:-sm-test01}"
+echo "${FORK_ID-sm-test01}"
 SH
 chmod +x "$FAKE_FORK"
 
@@ -71,6 +71,11 @@ ok "$?" "2" "missing pane arg: exit 2"
 out=$(TMUX="/private/tmp/tmux-501/default,1,1" LOC_OUT='{"session_id":"abc","tty":"t"}' LOC_RC=0 \
       FORK_RC=1 run "%5"); rc=$?
 ok "$rc" "1" "fork failure: exit 1"
+
+# Case 7: fork exits 0 but emits no managed id -> treated as failure, exit 1.
+out=$(TMUX="/private/tmp/tmux-501/default,1,1" LOC_OUT='{"session_id":"abc","tty":"t"}' LOC_RC=0 \
+      FORK_RC=0 FORK_ID="" run "%5"); rc=$?
+ok "$rc" "1" "fork rc0 but empty managed id: exit 1"
 
 echo "----"
 echo "PASS=$pass FAIL=$fail"
