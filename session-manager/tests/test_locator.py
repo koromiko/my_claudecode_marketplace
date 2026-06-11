@@ -305,6 +305,19 @@ class TestForegroundTiebreak(unittest.TestCase):
         hits = [{"session_id": UUID_A, "leader_pid": 2001, "tty": "ttys016"}]
         self.assertIsNone(locator.pick_foreground_winner(hits, ""))
 
+    def test_picks_leader_that_is_a_member_of_foreground_group(self):
+        # Real-world (spike): the claude leader is a *member* of the foreground
+        # process group (pid != pgid). Leader 14830 is in foreground pgid 14632;
+        # the other session's leader (53492) is not on the tty -> single winner.
+        ps = "14526 14526 Ss\n14632 14632 S+\n14830 14632 S+\n"
+        hits = [
+            {"session_id": UUID_A, "leader_pid": 14830, "tty": "ttys016"},
+            {"session_id": UUID_B, "leader_pid": 53492, "tty": "ttys016"},
+        ]
+        winner = locator.pick_foreground_winner(hits, ps)
+        self.assertIsNotNone(winner)
+        self.assertEqual(winner["session_id"], UUID_A)
+
 
 class TestResolveTiebreakWiring(unittest.TestCase):
     """cmd_resolve must collapse a two-interactive-session pane to the foreground

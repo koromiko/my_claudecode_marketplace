@@ -294,17 +294,20 @@ def foreground_pgids(ps_rows):
 
 def pick_foreground_winner(hits, ps_output):
     """Of several interactive sessions sharing one tty, return the one whose
-    leader holds the pane's foreground process group; None if undeterminable.
+    leader belongs to the pane's foreground process group; None if undeterminable.
 
-    A Claude session's leader is its own process-group leader (pgid == leader_pid),
-    so the foreground session is the hit whose leader_pid is a foreground pgid.
-    Returns None when zero or more than one hit matches, so the caller falls back
-    to the ambiguity array — correctness is never sacrificed to force an answer.
-    Intended for the len(hits) >= 2 ambiguity case; empty or single-element input
-    also yields None by design (such input should not reach this function).
+    The pane's foreground process group is the pgid flagged '+' in `ps -t <tty>`.
+    A session wins if its leader_pid's process group (looked up from the same ps
+    rows) is that foreground group — note the leader is often a *member* of the
+    group, not the group leader, so we map leader_pid -> pgid rather than assuming
+    pgid == leader_pid. Returns None when zero or more than one hit matches (or the
+    leader isn't on the tty), so the caller falls back to the ambiguity array —
+    correctness is never sacrificed to force an answer.
     """
-    fg = foreground_pgids(parse_pgid_stat(ps_output))
-    matches = [h for h in hits if h.get("leader_pid") in fg]
+    rows = parse_pgid_stat(ps_output)
+    fg = foreground_pgids(rows)
+    pgid_of = {pid: pgid for pid, pgid, _stat in rows}
+    matches = [h for h in hits if pgid_of.get(h.get("leader_pid")) in fg]
     return matches[0] if len(matches) == 1 else None
 
 
