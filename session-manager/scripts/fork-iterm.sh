@@ -11,7 +11,7 @@ if [ "$(uname)" != "Darwin" ]; then
 fi
 
 # --- Arguments ------------------------------------------------------------
-# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--relocate] [--resolve]
+# Usage: fork-iterm.sh [current_dir] [--fork-dir <dir>] [--relocate] [--resolve] [--quiet]
 #   current_dir   The directory the caller is in (default: pwd). Used only to
 #                 detect drift from the session's own directory and as the
 #                 --relocate target default.
@@ -22,21 +22,31 @@ fi
 #   --resolve     Print resolution info (SESSION_ID, OWNER_CWD, CURRENT_DIR,
 #                 MATCH) and exit 0, without forking. Lets the /fork command
 #                 decide whether to prompt the user for A vs B.
+#   --quiet       Suppress success-path progress chatter (Forking…/Verifying…/
+#                 Session forked successfully…). stdout is then just the managed
+#                 id. Errors are unaffected. Keeps the forked transcript clean.
 CURRENT_DIR=""
 FORK_DIR_OPT=""
 RELOCATE=0
 RESOLVE_ONLY=0
+QUIET=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --fork-dir) FORK_DIR_OPT="$2"; shift 2 ;;
         --relocate) RELOCATE=1; shift ;;
         --resolve)  RESOLVE_ONLY=1; shift ;;
+        --quiet)    QUIET=1; shift ;;
         --) shift; break ;;
         -*) echo "Error: unknown option: $1" >&2; exit 2 ;;
         *)  [ -z "$CURRENT_DIR" ] && CURRENT_DIR="$1"; shift ;;
     esac
 done
 CURRENT_DIR="${CURRENT_DIR:-$(pwd)}"
+
+# progress: success-path status chatter, written to stderr. Suppressed under
+# --quiet so the fork leaves a minimal footprint in the (forked) transcript.
+# Errors never route through this — they always print.
+progress() { [ "$QUIET" -eq 1 ] || echo "$@" >&2; }
 
 # Detect the user's default shell
 # Priority: $SHELL env var -> dscl lookup -> fallback to /bin/zsh
@@ -457,12 +467,22 @@ if ! session_resumable_in "$SESSION_ID" "$FORK_DIR"; then
     exit 1
 fi
 
-echo "Forking session $SESSION_ID from $FORK_DIR" >&2
+progress "Forking session $SESSION_ID from $FORK_DIR"
 
 # Common managed id / timestamp / fork command (used by both tmux and iTerm paths).
 managed_id=$(generate_id)
 timestamp=$(get_timestamp)
 fork_cmd="claude -r $SESSION_ID --fork-session"
+
+# Orientation note appended to the forked session's system prompt so the child
+# knows it IS the completed fork. Without it, the child resumes a copy of the
+# parent transcript captured mid-fork (parent's last line is the in-progress
+# fork command, no managed id yet) and mistakes the fork for unfinished —
+# offering to "finish" a fork that already succeeded. Appended at each dispatch
+# site (not baked into fork_cmd) so the quotes can be escaped per transport:
+# raw for tmux send-keys, AppleScript-escaped for the iTerm -c block. Keep it
+# one plain-ASCII line with no quotes/backslashes/$ so it survives both.
+fork_note="Forked session (session-manager id: $managed_id); fork complete."
 
 # Check if running inside tmux
 if [ -n "$TMUX" ]; then
@@ -475,16 +495,16 @@ if [ -n "$TMUX" ]; then
     if [ $? -eq 0 ] && [ -n "$pane_id" ]; then
         # Brief delay to ensure shell is ready, then send the fork command
         sleep 0.3
-        tmux send-keys -t "$pane_id" "$fork_cmd" Enter
+        tmux send-keys -t "$pane_id" "$fork_cmd --append-system-prompt \"$fork_note\"" Enter
 
         # Verify the forked Claude session actually started before reporting success.
-        echo "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..." >&2
+        progress "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..."
         fork_status=$(verify_fork_tmux "$pane_id")
 
         if [ "$fork_status" = "verified" ]; then
             # Register the forked session only after it is confirmed up.
             registry_add "$managed_id" "tmux" "$pane_id" "$FORK_DIR" "$fork_cmd" "$timestamp"
-            echo "Session forked successfully into new tmux pane (verified)." >&2
+            progress "Session forked successfully into new tmux pane (verified)."
             # Output only the managed ID on stdout for easy parsing
             echo "$managed_id"
             exit 0
@@ -530,7 +550,7 @@ tell application "iTerm"
     tell current window
         create tab with default profile
         tell current session
-            write text "$DEFAULT_SHELL -c 'cd \"$FORK_DIR\" && $fork_cmd'"
+            write text "$DEFAULT_SHELL -c 'cd \"$FORK_DIR\" && $fork_cmd --append-system-prompt \"$fork_note\"'"
             return id of it
         end tell
     end tell
@@ -544,12 +564,12 @@ if [ $? -ne 0 ] || [ -z "$pane_id" ]; then
 fi
 
 # Verify the forked Claude session actually started before reporting success.
-echo "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..." >&2
+progress "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..."
 fork_status=$(verify_fork_iterm "$pane_id")
 
 if [ "$fork_status" = "verified" ]; then
     registry_add "$managed_id" "iterm" "$pane_id" "$FORK_DIR" "$fork_cmd" "$timestamp"
-    echo "Session forked successfully into new iTerm tab (verified)." >&2
+    progress "Session forked successfully into new iTerm tab (verified)."
     # Output only the managed ID on stdout for easy parsing
     echo "$managed_id"
 else
