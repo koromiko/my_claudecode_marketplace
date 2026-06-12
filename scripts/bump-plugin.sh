@@ -2,6 +2,10 @@
 
 # bump-plugin.sh - Clear plugin cache and optionally bump version
 #
+# Bumps the version in the plugin's .claude-plugin/plugin.json AND keeps the
+# matching entry in .claude-plugin/marketplace.json in lockstep, so the registry
+# never drifts from the plugin manifest.
+#
 # Usage: ./scripts/bump-plugin.sh <plugin-name> [bump-strategy]
 #
 # Arguments:
@@ -52,6 +56,45 @@ resolve_marketplace_name() {
         exit 1
     fi
     jq -r '.name' "$MARKETPLACE_JSON"
+}
+
+# Keep the marketplace.json registry entry for a plugin in lockstep with the
+# version just written to its plugin.json.
+sync_marketplace_version() {
+    local plugin_name="$1" new_version="$2"
+    local result
+    result=$(python3 - "$MARKETPLACE_JSON" "$plugin_name" "$new_version" <<'EOF'
+import json, sys
+
+path, name, new_version = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(path) as f:
+    data = json.load(f)
+
+for plugin in data.get('plugins', []):
+    if plugin.get('name') == name:
+        old = plugin.get('version')
+        if old == new_version:
+            print(f"OK {new_version}")
+        else:
+            plugin['version'] = new_version
+            with open(path, 'w') as f:
+                # ensure_ascii=False preserves literal UTF-8 (e.g. em-dashes in
+                # descriptions) instead of rewriting them as \uXXXX escapes.
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.write('\n')
+            print(f"SYNCED {old} -> {new_version}")
+        break
+else:
+    print("NOTFOUND")
+EOF
+)
+    case "$result" in
+        SYNCED*) echo -e "${GREEN}✓ marketplace.json synced ($result)${NC}" ;;
+        OK*)     echo -e "${GREEN}✓ marketplace.json already in sync ($new_version)${NC}" ;;
+        NOTFOUND) echo -e "${YELLOW}  (no marketplace.json entry named '$plugin_name' — skipped)${NC}" ;;
+        *)       echo -e "${YELLOW}  marketplace.json sync returned: $result${NC}" ;;
+    esac
 }
 
 # Bump a single plugin by name
@@ -132,6 +175,9 @@ EOF
 )
 
         echo -e "${GREEN}✓ Version bumped to $VERSION_INFO${NC}"
+
+        # Keep the registry entry in lockstep with the manifest.
+        sync_marketplace_version "$plugin_name" "$VERSION_INFO"
     fi
 
     echo ""
