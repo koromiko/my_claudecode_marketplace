@@ -24,14 +24,14 @@
     {
       "name": "session-manager",
       "description": "Terminal session management - fork sessions, run commands in panes/tabs, capture output",
-      "version": "2.5.0",
+      "version": "2.7.1",
       "source": "./session-manager",
       "category": "development"
     },
     {
       "name": "claude-usage-analyzer",
       "description": "Analyze Claude Code session usage data and generate comprehensive reports",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "source": "./claude-usage-analyzer",
       "category": "analytics"
     },
@@ -45,7 +45,7 @@
     {
       "name": "obsidian-vault",
       "description": "Capture knowledge from Claude Code conversations and store them as notes in an Obsidian vault",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./obsidian-vault",
       "category": "integration"
     },
