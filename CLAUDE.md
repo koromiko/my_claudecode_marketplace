@@ -10,7 +10,7 @@ A local marketplace of Claude Code plugins. Each plugin is a self-contained dire
 
 ```
 marketplace.json (registry)
-  ├── session-manager/      → Terminal session forking (tmux/iTerm), pane tracking
+  ├── session-manager/      → Terminal session forking (tmux/iTerm), pane tracking, session↔pane locator + fork-focused-pane tmux hotkey
   ├── claude-usage-analyzer/ → Python pipeline analyzing ~/.claude/ session data
   ├── default-tools/        → Hook-only plugin: auto-approve, macOS notifications
   ├── agent-orchestration/  → Reusable subagent dispatch/retry/fallback protocol

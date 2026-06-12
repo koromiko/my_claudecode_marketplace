@@ -30,8 +30,10 @@ A local marketplace for Claude Code plugins, providing custom tools, skills, and
 Terminal session management - fork sessions, run commands in panes/tabs, capture output.
 
 - **Commands**: `/fork` - Fork current Claude Code session, `/run-in-pane` - Run command in new pane/tab, `/list-sessions` - List managed sessions
+- **Fork hotkey**: A tmux key-binding (`fork-active-pane.sh`) that forks the session in the *focused* pane into a split beside it — see the plugin README for the `bind-key` snippet
+- **Tools**: `locator.py` - read-only resolver mapping running Claude sessions to their terminal panes (`list` / `resolve --pane|--tty|--session`)
 - **Skills**: Pane context capture and interaction
-- **Keywords**: tmux, iterm, terminal, session, fork, pane
+- **Keywords**: tmux, iterm, terminal, session, fork, pane, locator, hotkey
 
 ### claude-usage-analyzer
 

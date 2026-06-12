@@ -7,6 +7,7 @@ Manage Claude Code sessions across tmux panes and iTerm tabs - fork sessions, ru
 This plugin provides comprehensive terminal session management for Claude Code:
 
 - **Fork Sessions**: Branch your current Claude session into a new pane/tab for parallel work
+- **Fork the Focused Pane**: A tmux key-binding that forks the Claude session in whichever pane you're *looking at* — not just the one you're driving
 - **Run Commands**: Execute commands in new tracked panes/tabs with unique IDs
 - **Capture Output**: Retrieve output from managed panes
 - **Send Commands**: Send commands to existing managed panes
@@ -59,6 +60,41 @@ This will:
 1. Create a new tmux pane or iTerm tab
 2. Execute the command
 3. Return a managed ID (e.g., `sm-abc123`) for tracking
+
+## Fork the Focused Pane (tmux key-binding)
+
+`/session-manager:fork` forks the session you're *currently in*. The fork hotkey instead forks the Claude session running in whichever tmux pane is **focused** — useful when you're driving one pane and want to branch a session running in another, without switching to it first.
+
+Add this to your `~/.tmux.conf` (adjust the path to your checkout):
+
+```tmux
+# Prefix + F: fork the Claude session in the focused pane into a split beside it.
+bind-key F run-shell "$HOME/Project/my_claudecode_marketplace/session-manager/scripts/fork-active-pane.sh '#{pane_id}'"
+```
+
+Reload tmux (`tmux source-file ~/.tmux.conf`), then press your prefix followed by `F` on any pane:
+
+- If a Claude session is running there, it forks into a new split beside that pane, and the tmux status line reports the managed ID (e.g. `Forked → sm-abc123`).
+- If no Claude session is in the pane — or two are running and the focused one can't be determined — the status line says so and nothing is forked.
+
+A tmux `run-shell` binding runs detached from the pane, so it can't read that pane's session from the environment. Instead the hotkey resolves the pane's session with the locator (below), then forks it through the same verified `fork-iterm.sh` path the `/fork` command uses.
+
+### locator.py — session ↔ pane resolver
+
+`scripts/locator.py` maps running Claude Code sessions to terminal panes by scanning process environments. It is read-only, macOS-only, and re-scans on every query (so results are never stale). Useful on its own:
+
+```bash
+# List every live Claude session with its pane, tty, cwd, and role
+python3 scripts/locator.py list
+
+# Resolve the session in a specific pane / tty / by id
+python3 scripts/locator.py resolve --pane tmux:default:%5
+python3 scripts/locator.py resolve --pane %5          # bare pane id (any socket)
+python3 scripts/locator.py resolve --tty ttys016      # by tty
+python3 scripts/locator.py resolve --session <uuid>   # by session id
+```
+
+`resolve --pane` / `--tty` return the single interactive session in that pane (a JSON object), or a JSON array on the rare occasion two interactive sessions share a pane and the focused one can't be told apart, or `[]` with exit code 1 when none match.
 
 ## Interacting with Managed Panes
 
