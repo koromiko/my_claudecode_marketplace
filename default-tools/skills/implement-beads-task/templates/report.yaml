@@ -1,0 +1,59 @@
+# Final report contract for `implement-beads-task`.
+# Dev fills this at .agents/reports/<bead-id>/report.yaml before declaring done.
+# Lines marked GATE are hard gates: orchestrator REFUSES to declare success if any fail.
+
+bead: <id>
+summary: <one-line>
+branch: <branch-name>
+sha: <commit-sha>
+
+# GATE: declared. If this bead chains on another bead in the same orchestration round
+# (overlapping files — see Step 1 conflict scan), base_branch MUST be that bead's branch,
+# not `main`. Mismatch = re-dispatch.
+base_branch: <main | other-bead-branch>
+
+files_changed: [<path>, ...]
+
+lint:
+  ran: true
+  errors: 0
+  warnings: <n>          # acceptable if pre-existing
+
+build:
+  # GATE: ran=true AND exit_code=0. Vercel runs `npm run build`; if it fails locally,
+  # the deploy will fail. No "build was already broken before my changes" escape — fix
+  # it or surface as an escalation. `next build` runs `next lint` + `tsc`; lint errors
+  # and TypeScript errors are both blocking, lint warnings are tolerated.
+  ran: true
+  command: "npm run build"
+  exit_code: 0
+  log_path: .agents/reports/<bead-id>/build.log   # tail of last ~50 lines is enough
+
+tests:
+  ran: true | false
+  command: <e.g. "npm test -- ModernItineraryDisplay">
+  result: pass | fail | skipped
+  reason_if_skipped: <text, e.g. "no test file exists for this component">
+
+# true if any *.tsx | *.css | *.module.css | route changed
+ui_surface: true | false
+
+ui_qa:
+  # GATE: ui_surface=true ⇒ ran=true. The only opt-out is a `qa:skip` label
+  # pre-applied to the bead by a human. "Small diff", "spec was already complete",
+  # or "no existing test coverage" are NOT valid escapes.
+  ran: true | false
+  reason_if_skipped: <only "ui_surface=false" or "qa:skip label set by human" are valid>
+
+  # GATE: ran=true ⇒ artifacts non-empty AND every file exists on disk.
+  # Screenshots that don't open count as missing.
+  artifacts: [<screenshot path>, ...]
+
+  scenarios: [<entry, key interaction, success state, state transitions>]
+
+deferred:
+  - { item: <text>, reason: <text> }   # planner / reviewer items intentionally not done
+
+# GATE: non-empty ⇒ orchestrator must surface every entry explicitly in its own
+# final summary, not bury them in a paragraph.
+escalations: []

@@ -1,0 +1,66 @@
+# Cross-bead final-report contract for `implement-beads-batch`.
+# Parent fills this at .agents/reports/<batch-id>/batch-report.yaml after Step 8.
+# Lines marked GATE are hard gates: orchestrator REFUSES to declare batch success if any fail.
+
+batch_id: <batch-YYYYMMDDTHHMMSSZ>
+created_at: <ISO-8601 UTC>
+beads: [<id>, ...]
+
+# Wave plan as decided in Step 2. Each wave is dispatched as a single parallel
+# message; later waves wait for earlier ones to converge.
+wave_plan:
+  - wave: 1
+    base_branch: main
+    beads: [<id>, <id>, ...]            # max 4 per wave
+  - wave: 2
+    beads:
+      - id: <id>
+        base_branch: <predecessor-bead-branch>   # NOT main if chained
+  # ...
+
+# One row per bead. status reflects how it finished, not whether it merged.
+results:
+  - bead_id: <id>
+    title: <one-line>
+    wave: 1
+    status: success | absorbed | sequential_fallback | failed
+    branch: <branch-name>
+    head_sha: <sha>
+    base_branch: <main | predecessor-branch>
+    worktree: <absolute path>
+
+    # GATE: every successful bead must have build.exit_code == 0 (re-verified by parent
+    # via `npm run build` in the worktree, not just trusted from the child's report).
+    build: { ran: true, exit_code: 0, log_path: <path> }
+
+    # GATE: ui_surface=true => ui_qa.ran=true AND artifacts non-empty AND every file
+    # opens (parent Read'd each path).
+    ui_surface: true | false
+    ui_qa:
+      ran: true | false
+      reason_if_skipped: <only "ui_surface=false" or "qa:skip label" are valid>
+      artifacts: [<screenshot path inside the worktree>, ...]
+
+    report_yaml_path: <.agents/reports/<bead-id>/report.yaml inside worktree>
+    status_file_path: <.agents/batch/<batch-id>/status/<id>.json>
+
+    retries: <0 | 1 | 2>
+    notes: <text — only when needed, e.g. why this fell to ABSORB>
+
+# GATE: non-empty => surface every entry explicitly in the orchestrator's final summary,
+# not buried in a paragraph. Aggregated from per-child report.yaml + retry diagnostics.
+escalations: []
+
+# Unmerged branches in the order a human should merge them. Chained beads list their
+# predecessor with " <- " so the merge order is unambiguous.
+# Example:
+#   - "nt-a · nt-a/feature-x · 1234abc · /path/to/wt-nt-a"
+#   - "nt-d · nt-d/feature-y · 5678def · /path/to/wt-nt-d <- nt-a"
+unmerged_branches: []
+
+# Beads that went through ABSORB (parent ran inline) or sequential fallback. Empty on a
+# clean run. Non-empty entries should be reflected in the orchestrator's user-facing
+# summary so the human knows the run was not a clean parallel sweep.
+fallbacks:
+  absorbed: []
+  sequential: []
