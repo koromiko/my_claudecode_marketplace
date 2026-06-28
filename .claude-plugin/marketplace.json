@@ -38,7 +38,7 @@
     {
       "name": "default-tools",
       "description": "Tool auto-approval with sensitive-path guards, Ollama LLM fallback, macOS notifications, and an opt-in Stop-hook code review with pluggable reviewers (local LLM, generic CLI, in-session subagent)",
-      "version": "1.7.0",
+      "version": "1.7.1",
       "source": "./default-tools",
       "category": "workflow"
     },

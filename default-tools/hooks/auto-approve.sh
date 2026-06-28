@@ -80,13 +80,20 @@ is_sensitive_path() {
 allow() {
   local reason="${1:-Auto-approved}"
   log_decision "ALLOW" "$TOOL_NAME" "$LOG_SUMMARY" "$reason" "$(elapsed_ms)"
-  jq -n --arg reason "$reason" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "allow",
-      permissionDecisionReason: $reason
-    }
-  }'
+  # Only Claude Code understands a PreToolUse "allow" decision. Codex (and other
+  # runtimes) have no pre-approve semantics — their PreToolUse honors only
+  # deny/block/exit-2 — so emitting "allow" there is reported as unsupported.
+  # Stay silent off Claude Code and let the host's own permission/sandbox policy
+  # decide; logging above still records what would have been approved.
+  if [[ -n "${CLAUDECODE:-}" ]]; then
+    jq -n --arg reason "$reason" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: $reason
+      }
+    }'
+  fi
   exit 0
 }
 
@@ -106,7 +113,9 @@ evaluate_with_ollama() {
     local llm_reason
     llm_reason=$(echo "$result" | jq -r '.hookSpecificOutput.permissionDecisionReason // "LLM-approved"' 2>/dev/null) || llm_reason="LLM-approved"
     log_decision "ALLOW_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$llm_reason" "$(elapsed_ms)"
-    echo "$result"
+    # Same as allow(): the LLM-approve result is a PreToolUse "allow" decision,
+    # which only Claude Code accepts. Suppress it on other runtimes (e.g. Codex).
+    [[ -n "${CLAUDECODE:-}" ]] && echo "$result"
   else
     log_decision "PASS_LLM" "$TOOL_NAME" "$LOG_SUMMARY" "$reason_context: LLM denied or unavailable" "$(elapsed_ms)"
   fi
