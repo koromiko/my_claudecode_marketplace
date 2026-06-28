@@ -62,6 +62,13 @@
       "version": "1.0.0",
       "source": "./workflow",
       "category": "workflow"
+    },
+    {
+      "name": "shopping-price-compare",
+      "description": "Compare product prices, points, and discounts across Japanese shopping sites using the logged-in browser when available",
+      "version": "0.1.1",
+      "source": "./shopping-price-compare",
+      "category": "shopping"
     }
   ]
 }

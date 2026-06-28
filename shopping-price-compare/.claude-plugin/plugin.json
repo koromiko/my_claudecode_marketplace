@@ -1,0 +1,5 @@
+{
+  "name": "shopping-price-compare",
+  "version": "0.1.1",
+  "description": "Compare product prices, points, and discounts across Japanese shopping sites using the logged-in browser when available"
+}
