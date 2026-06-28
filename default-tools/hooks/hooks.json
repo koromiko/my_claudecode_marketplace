@@ -1,5 +1,4 @@
 {
-  "description": "Default tool auto-approval and macOS notification hooks",
   "hooks": {
     "PreToolUse": [
       {
