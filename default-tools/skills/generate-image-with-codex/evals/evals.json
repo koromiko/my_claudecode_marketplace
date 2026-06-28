@@ -1,0 +1,77 @@
+{
+  "skill_name": "generate-image-with-codex",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Generate an image of a cozy reading nook by a rain-streaked window with a sleeping orange cat, soft warm evening light. Save it to the current directory.",
+      "expected_output": "A PNG image file saved in the working directory depicting a cozy reading nook scene; the image renders inline and the saved path is reported.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "image_produced",
+          "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory"
+        },
+        {
+          "id": "image_valid",
+          "text": "The produced image file is a valid, non-empty image that decodes correctly"
+        },
+        {
+          "id": "used_codex",
+          "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded"
+        },
+        {
+          "id": "path_reported",
+          "text": "The final saved image path was reported back to the user"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "I'm opening a small coffee shop called 'Bean There'. Can you make me a simple, clean logo for it? Put it in this folder.",
+      "expected_output": "A PNG logo image saved in the working directory; Claude generates it via the Codex CLI rather than refusing or producing SVG/text art.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "image_produced",
+          "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory"
+        },
+        {
+          "id": "image_valid",
+          "text": "The produced image file is a valid, non-empty image that decodes correctly"
+        },
+        {
+          "id": "used_codex",
+          "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded"
+        },
+        {
+          "id": "path_reported",
+          "text": "The final saved image path was reported back to the user"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "draw a friendly cartoon robot waving hello, flat illustration style, and save it here",
+      "expected_output": "A PNG image of a cartoon robot saved in the working directory, shown inline with its path reported.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "image_produced",
+          "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory"
+        },
+        {
+          "id": "image_valid",
+          "text": "The produced image file is a valid, non-empty image that decodes correctly"
+        },
+        {
+          "id": "used_codex",
+          "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded"
+        },
+        {
+          "id": "path_reported",
+          "text": "The final saved image path was reported back to the user"
+        }
+      ]
+    }
+  ]
+}

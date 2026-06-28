@@ -1,0 +1,23 @@
+{
+  "eval_id": 2,
+  "eval_name": "cartoon-robot",
+  "prompt": "draw a friendly cartoon robot waving hello, flat illustration style, and save it here",
+  "assertions": [
+    {
+      "id": "image_produced",
+      "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory"
+    },
+    {
+      "id": "image_valid",
+      "text": "The produced image file is a valid, non-empty image that decodes correctly"
+    },
+    {
+      "id": "used_codex",
+      "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded"
+    },
+    {
+      "id": "path_reported",
+      "text": "The final saved image path was reported back to the user"
+    }
+  ]
+}

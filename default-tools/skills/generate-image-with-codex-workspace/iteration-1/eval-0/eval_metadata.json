@@ -1,0 +1,23 @@
+{
+  "eval_id": 0,
+  "eval_name": "cozy-reading-nook",
+  "prompt": "Generate an image of a cozy reading nook by a rain-streaked window with a sleeping orange cat, soft warm evening light. Save it to the current directory.",
+  "assertions": [
+    {
+      "id": "image_produced",
+      "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory"
+    },
+    {
+      "id": "image_valid",
+      "text": "The produced image file is a valid, non-empty image that decodes correctly"
+    },
+    {
+      "id": "used_codex",
+      "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded"
+    },
+    {
+      "id": "path_reported",
+      "text": "The final saved image path was reported back to the user"
+    }
+  ]
+}

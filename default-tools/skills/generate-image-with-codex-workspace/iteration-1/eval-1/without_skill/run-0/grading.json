@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory",
+      "passed": true,
+      "evidence": "bean-there-logo.png (800x800) present, plus bean-there-logo.svg"
+    },
+    {
+      "text": "The produced image file is a valid, non-empty image that decodes correctly",
+      "passed": true,
+      "evidence": "Valid PNG, 800x800 RGB, 64KB"
+    },
+    {
+      "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded",
+      "passed": false,
+      "evidence": "Agent hand-coded an SVG and rasterized it with rsvg-convert; no Codex / generative image model used"
+    },
+    {
+      "text": "The final saved image path was reported back to the user",
+      "passed": true,
+      "evidence": "Agent reported both saved paths"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 1,
+    "total": 4,
+    "pass_rate": 0.75
+  }
+}

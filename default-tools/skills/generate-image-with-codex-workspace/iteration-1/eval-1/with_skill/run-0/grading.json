@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "At least one raster image file (.png/.jpg/.webp) exists in the outputs directory",
+      "passed": true,
+      "evidence": "bean-there-coffee-shop-logo.png present"
+    },
+    {
+      "text": "The produced image file is a valid, non-empty image that decodes correctly",
+      "passed": true,
+      "evidence": "Valid PNG, 1254x1254 RGB, 810KB"
+    },
+    {
+      "text": "The image was generated via the Codex CLI (generate_image.sh / codex exec), not faked, drawn as SVG/ASCII, or downloaded",
+      "passed": true,
+      "evidence": "generate_image.sh invoked codex exec; original cached under ~/.codex/generated_images/019e40f2-..."
+    },
+    {
+      "text": "The final saved image path was reported back to the user",
+      "passed": true,
+      "evidence": "Agent reported the full saved path"
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 0,
+    "total": 4,
+    "pass_rate": 1.0
+  }
+}
