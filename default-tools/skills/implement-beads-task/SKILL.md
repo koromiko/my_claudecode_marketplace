@@ -5,7 +5,7 @@ description: Manual trigger. Implement a beads task by orchestrating a team of d
 
 # Implement a beads task with an agent team
 
-You are the **orchestrator**. You do not write the implementation yourself — you dispatch a team, supervise it, and verify the result before reporting back.
+You are the **orchestrator**. You do not write the implementation yourself — you size the pipeline to the work (Step 1.7), dispatch a team, supervise it, and verify the result before reporting back. Trivial beads go straight to dev; complex ones get extra planning and review. Four gates never move (the Step 1.7 hard floor).
 
 Skill assets (load on demand at the step that uses them):
 
@@ -40,7 +40,39 @@ A single beads issue id (e.g. `nt-7kk`). If the user did not pass one, ask. Do n
 
 Run the probe described in `references/permissions.md` **before** `bd update --status=in_progress`. Only after probe success: mark the bead in_progress.
 
-## Step 2 — Plan loop (must converge before dev starts)
+## Step 1.7 — Triage: choose the workflow tier
+
+You are not just a supervisor of a fixed pipeline — you **size the pipeline to the work**. Running the full plan-loop + plan-reviewer + UI-QA + 3 review rounds on a copy tweak burns time and tokens; skipping a plan on a schema migration ships bugs. After reading the bead (Step 1), classify it into **one tier** and **declare the resulting step list** to the user in one line before dispatching anything.
+
+Classify by the *highest-risk* signal present — when a bead matches signals in two tiers, pick the heavier one.
+
+| Tier | Signals | Plan loop (Step 2) | Devs (Step 3) | Review loop cap (Step 5) |
+|---|---|---|---|---|
+| **Trivial** | Copy / string / text updates; single-file bug fix under ~20 LOC; config / constant / version bump; no new control flow or data shape | **Skipped** — you write the one-line plan straight into the dev brief; no planner, no plan reviewer | 1 | **1 round** |
+| **Standard** | Default — anything not clearly Trivial or Complex. Typical feature or fix touching a few files within one surface | Full loop, cap 3, **with** plan reviewer | 1 (2 only if the task naturally splits) | 3 rounds |
+| **Complex** | Schema / contract change; data migration; security boundary; public API; multi-surface feature; more than ~3 files of *new* logic; anything flagged at the Step 1 ambiguity gate as hard-to-reverse | Full loop, cap 3, **plus a mandatory `grill-me` pass on the plan** before dev | 1–2 in separate worktrees | up to 5 rounds |
+
+**Orthogonal to tier — UI surface.** Decide whether the bead renders a user-visible surface (this drives `ui_surface` in the Step 6 report):
+- **UI surface** → the QA browser leg (Step 3 QA agent, screenshots) is **required**, every tier. A `qa:skip` bead label is the only opt-out.
+- **No UI surface** (edge functions, scripts, migrations, pure logic) → **skip the QA browser leg**; substitute CLI / test / DB evidence in the report's `tests` block (`ui_surface: false`).
+
+**Hard floor — these run on EVERY tier, never skipped, never collapsed:**
+1. Conflict scan + worktree isolation (Step 1).
+2. Permission probe (Step 1.5).
+3. Green `npm run build`, run by you (Step 7).
+4. Final structured report + orchestrator re-verify against the diff and screenshots (Steps 6–7), including the `/simplify` pass.
+
+A tier only changes **which planning and review steps run and how many rounds** — it can never lower the floor. If you find yourself wanting to skip a floor item "because it's trivial", that's the wrong instinct: re-classify as Trivial and skip the *plan loop*, not the build gate.
+
+Declare the choice, e.g.: `Triage: Standard tier, non-UI → plan loop (cap 3) + dev + reviewer, QA leg skipped (CLI evidence), build gate + re-verify as always.`
+
+`/implement-beads-batch` sub-orchestrator children have no agent team to size (no `Task` / `Agent`) — they skip this step and do the work inline, but still owe the hard floor (build gate, evidence, re-verify) on their own commit.
+
+## Step 2 — Plan loop (Standard/Complex; skipped for Trivial)
+
+**Trivial tier:** skip this entire step. Write a one-line plan yourself, paste it into the dev brief's plan slot, and go straight to Step 3. No planner, no plan reviewer.
+
+**Complex tier:** after the loop converges, run a `grill-me` pass on the approved plan before dispatching dev; fold the resolved decisions back into the plan (and the `bd` design note) so the dev brief carries them.
 
 Dispatch in order, in parallel where possible:
 
@@ -59,8 +91,10 @@ Loop:
 
 Spawn agents in **a single message with parallel Agent tool calls**. Give each a `name` so you can address them with `SendMessage`.
 
-- **Dev agent(s)** — `subagent_type: general-purpose`, `model: "sonnet"` (or `codex-exec` for tightly-scoped work). One dev for a focused task; **two devs in separate worktrees only when the task naturally splits** (e.g. UI + data layer). `isolation: "worktree"` unless skipped. Brief from `templates/dev-brief.md`, with the approved plan pasted in full.
-- **QA** — `subagent_type: general-purpose`, `model: "sonnet"`, with the `agent-browser` skill. Runs after dev's first pass (or in parallel if instructed to wait for the orchestrator's signal). Brief from `templates/qa-brief.md` — render `{{BEAD_ID}}`, `{{BRANCH}}`, `{{SHA}}`, **and `{{SHA_SHORT}}`** (first 7 chars of `{{SHA}}`) so the QA agent gets a unique `AGENT_BROWSER_SESSION=qa-<bead>-<sha>` (parallel beads must each get a distinct session — the bead-id keyed name guarantees that). Runs against the dev's commit SHA in its own worktree.
+Dev count and the QA leg follow the tier you declared in Step 1.7: Trivial/Standard → one dev; Complex → 1–2 devs in separate worktrees when the task naturally splits. Spawn the QA agent only for a UI-surface bead.
+
+- **Dev agent(s)** — `subagent_type: general-purpose`, `model: "sonnet"` (or `codex-exec` for tightly-scoped work). One dev for a focused task; **two devs in separate worktrees only when the task naturally splits** (e.g. UI + data layer). `isolation: "worktree"` unless skipped. Brief from `templates/dev-brief.md`, with the approved plan (or, for Trivial, your one-line plan) pasted in full.
+- **QA** — *UI-surface beads only.* `subagent_type: general-purpose`, `model: "sonnet"`, with the `agent-browser` skill. Runs after dev's first pass (or in parallel if instructed to wait for the orchestrator's signal). Brief from `templates/qa-brief.md` — render `{{BEAD_ID}}`, `{{BRANCH}}`, `{{SHA}}`, **and `{{SHA_SHORT}}`** (first 7 chars of `{{SHA}}`) so the QA agent gets a unique `AGENT_BROWSER_SESSION=qa-<bead>-<sha>` (parallel beads must each get a distinct session — the bead-id keyed name guarantees that). Runs against the dev's commit SHA in its own worktree.
 - **Code reviewer** — `subagent_type: general-purpose`, `model: "opus"`. Brief from `templates/reviewer-brief.md`.
 
 ## Step 4 — Supervise (do not idle)
@@ -76,9 +110,9 @@ When dev reports a pass:
 3. Consolidate QA failures + reviewer suggestions into one feedback message.
 4. Send to dev via `SendMessage`. The dev may fix or push back with reasoning (see Guardrails).
 5. Re-run QA and reviewer on the updated diff.
-6. Repeat until QA is green and reviewer has no blocking concerns.
+6. Repeat until QA is green (UI-surface beads) and reviewer has no blocking concerns.
 
-**Hard cap: 3 review rounds.** If still not converging, surface to the user.
+**Round cap follows the tier (Step 1.7): Trivial 1, Standard 3, Complex up to 5.** If still not converging at the cap, surface to the user — do not silently keep looping.
 
 ## Step 6 — Final report
 
