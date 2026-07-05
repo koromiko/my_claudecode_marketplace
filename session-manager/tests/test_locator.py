@@ -379,6 +379,24 @@ class TestResolveTiebreakWiring(unittest.TestCase):
         self.assertEqual({r["session_id"] for r in out}, {UUID_A, UUID_B})
 
 
+class TestTtyToPaneIndex(unittest.TestCase):
+    def test_inverts_index_by_tty(self):
+        idx = {
+            ("default", "%126"): {"tty": "ttys008", "pane_pid": 1, "tmux_session": "11",
+                                  "tmux_window": "1", "active": True},
+            ("default", "%127"): {"tty": "ttys009", "pane_pid": 2, "tmux_session": "11",
+                                  "tmux_window": "1", "active": False},
+        }
+        inv = locator.tty_to_pane_index(idx)
+        self.assertEqual(inv["ttys008"], ("default", "%126"))
+        self.assertEqual(inv["ttys009"], ("default", "%127"))
+
+    def test_skips_falsy_tty(self):
+        idx = {("default", "%5"): {"tty": "", "pane_pid": 1, "tmux_session": "s",
+                                   "tmux_window": "0", "active": True}}
+        self.assertEqual(locator.tty_to_pane_index(idx), {})
+
+
 class TestNearestClaudeAncestor(unittest.TestCase):
     TABLE = {
         79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},

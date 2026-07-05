@@ -175,6 +175,20 @@ def parse_tmux_panes(socket_name, list_panes_output):
     return panes
 
 
+def tty_to_pane_index(tmux_index):
+    """Invert {(socket, pane_id): {tty,...}} to {tty: (socket, pane_id)}.
+
+    Used to place a session on the pane whose tty its claude TUI actually holds,
+    rather than trusting a (possibly stale) TMUX_PANE env on a detached child.
+    """
+    inv = {}
+    for (socket, pane_id), info in tmux_index.items():
+        tty = info.get("tty")
+        if tty:
+            inv[tty] = (socket, pane_id)
+    return inv
+
+
 def resolve_roles(procs, ppid_map):
     """Assign each session a role (interactive|child) and its leader pid.
 
