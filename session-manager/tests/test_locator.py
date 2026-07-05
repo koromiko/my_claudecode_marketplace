@@ -379,5 +379,37 @@ class TestResolveTiebreakWiring(unittest.TestCase):
         self.assertEqual({r["session_id"] for r in out}, {UUID_A, UUID_B})
 
 
+class TestNearestClaudeAncestor(unittest.TestCase):
+    TABLE = {
+        79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},
+        79492: {"ppid": 79481, "tty": "ttys008", "command": "node /npx/x/.bin/wrap"},
+        79770: {"ppid": 79492, "tty": "ttys008", "command": "node /npx/x/.bin/context7-mcp"},
+        79313: {"ppid": 1, "tty": "ttys008", "command": "-zsh"},
+        94268: {"ppid": 94266, "tty": None, "command": "node /npx/y/.bin/some-mcp"},
+    }
+
+    def test_re_claude_matches_tui_not_mcp(self):
+        self.assertTrue(locator.RE_CLAUDE.search("claude"))
+        self.assertTrue(locator.RE_CLAUDE.search("claude -r abc --fork-session"))
+        self.assertTrue(locator.RE_CLAUDE.search("/usr/local/bin/claude -r"))
+        self.assertFalse(locator.RE_CLAUDE.search("node /npx/x/.bin/context7-mcp"))
+        self.assertFalse(locator.RE_CLAUDE.search("node /Users/me/.claude/plugins/foo-mcp"))
+
+    def test_walks_up_from_mcp_child_to_claude_tui(self):
+        self.assertEqual(locator.nearest_claude_ancestor(79770, self.TABLE), 79481)
+
+    def test_returns_self_when_pid_is_claude(self):
+        self.assertEqual(locator.nearest_claude_ancestor(79481, self.TABLE), 79481)
+
+    def test_returns_none_when_chain_breaks_before_claude(self):
+        # 94268's parent 94266 is gone from the table -> orphan -> None
+        self.assertIsNone(locator.nearest_claude_ancestor(94268, self.TABLE))
+
+    def test_returns_none_on_cycle(self):
+        cyc = {1: {"ppid": 2, "tty": None, "command": "a"},
+               2: {"ppid": 1, "tty": None, "command": "b"}}
+        self.assertIsNone(locator.nearest_claude_ancestor(1, cyc))
+
+
 if __name__ == "__main__":
     unittest.main()

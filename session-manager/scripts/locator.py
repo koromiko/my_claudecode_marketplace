@@ -29,6 +29,10 @@ RE_TMUX = re.compile(r"\bTMUX=(\S+)")
 RE_ITERM = re.compile(r"\bITERM_SESSION_ID=(\S+)")
 RE_TERM_SESSION = re.compile(r"\bTERM_SESSION_ID=(\S+)")
 RE_TERM_PROGRAM = re.compile(r"\bTERM_PROGRAM=(\S+)")
+# The claude TUI's own command (e.g. "claude", "claude -r", "/path/claude -r").
+# Matches the claude program token; deliberately does NOT match node MCP-server
+# children ("node .../xxx-mcp") or a ".claude" directory inside another path.
+RE_CLAUDE = re.compile(r"(?:^|/)claude(?:\s|$)")
 
 
 def parse_processes(ps_output, self_pid=None):
@@ -121,6 +125,26 @@ def build_process_table(ps_output):
             "command": command,
         }
     return table
+
+
+def nearest_claude_ancestor(pid, proc_table):
+    """Nearest process at or above `pid` whose command is the claude TUI, else None.
+
+    The claude TUI does not carry CLAUDE_CODE_SESSION_ID in its own start-time
+    env (only its children do), so a session's tagged procs are its children; walk
+    up to find the real TUI. Bounded by a seen-set against ppid cycles.
+    """
+    cur = pid
+    seen = set()
+    while cur is not None and cur not in seen:
+        seen.add(cur)
+        info = proc_table.get(cur)
+        if info is None:
+            return None
+        if RE_CLAUDE.search(info["command"]):
+            return cur
+        cur = info["ppid"]
+    return None
 
 
 TMUX_FMT = (
