@@ -29,7 +29,7 @@ cat > "$FAKE_FORK" <<'SH'
 #!/bin/bash
 argf="${FORK_ARGS_OUT:-}"
 [ -n "$argf" ] && echo "$@" > "$argf"
-if [ "${FORK_RC:-0}" -ne 0 ]; then echo "boom" >&2; exit "${FORK_RC}"; fi
+if [ "${FORK_RC:-0}" -ne 0 ]; then echo "${FORK_ERR:-boom}" >&2; exit "${FORK_RC}"; fi
 echo "${FORK_ID-sm-test01}"
 SH
 chmod +x "$FAKE_FORK"
@@ -76,6 +76,16 @@ ok "$rc" "1" "fork failure: exit 1"
 out=$(TMUX="/private/tmp/tmux-501/default,1,1" LOC_OUT='{"session_id":"abc","tty":"t"}' LOC_RC=0 \
       FORK_RC=0 FORK_ID="" run "%5"); rc=$?
 ok "$rc" "1" "fork rc0 but empty managed id: exit 1"
+
+# Case 8: fork fails with a "no transcript" error -> friendly status message, exit 1.
+err=$(TMUX="/private/tmp/tmux-501/default,1,1" LOC_OUT='{"session_id":"abc","tty":"t"}' LOC_RC=0 \
+      FORK_RC=1 FORK_ERR="Error: no transcript found for session abc in any project." \
+      run "%5" 2>&1); rc=$?
+ok "$rc" "1" "no-transcript: exit 1"
+case "$err" in
+  *"No saved conversation in this pane yet"*) ok "yes" "yes" "no-transcript: friendly message shown" ;;
+  *) ok "no" "yes" "no-transcript: friendly message shown" ;;
+esac
 
 echo "----"
 echo "PASS=$pass FAIL=$fail"
