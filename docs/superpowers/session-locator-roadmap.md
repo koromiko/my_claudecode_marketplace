@@ -40,6 +40,7 @@ independent enrichments; SP5 consumes them.
 |-----|-------|--------|------|------|
 | SP1 | Indexer + resolver core (`locator.py`) | ✅ Done, merged | `specs/2026-06-07-session-locator-sp1-design.md` | `plans/2026-06-08-session-locator-sp1.md` |
 | SP2 | Focus adapters → fork-the-active-pane tmux key-binding | ✅ Done, merged to `main` | `specs/2026-06-11-session-locator-sp2-design.md` | `plans/2026-06-12-session-locator-sp2.md` |
+| SP2.1 | Locator resolution hardening (claude-anchored) | ✅ Done, merged | `specs/2026-07-06-session-locator-sp2.1-locator-hardening-design.md` | `plans/2026-07-06-session-locator-sp2.1.md` |
 | SP3 | Hook-backed registry (push: enrich records at SessionStart/End) | ⬜ Not started | — | — |
 | SP4 | Daemon + watch/events (Unix socket, focus stream) | ⬜ Not started | — | — |
 | SP5 | Reactive consumers (status bar / overlay example) | ⬜ Not started | — | — |

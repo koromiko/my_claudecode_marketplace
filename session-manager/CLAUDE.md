@@ -67,6 +67,13 @@ a `child` (subagent / headless invocation). Pane ids are socket-qualified becaus
 they are not unique across tmux servers. See
 `docs/superpowers/specs/2026-06-07-session-locator-sp1-design.md`.
 
+Resolution is **claude-anchored**: a session's pane and `leader_pid` come from its
+real `claude` TUI process (found by walking up from a tagged child via
+`nearest_claude_ancestor`), and the pane is derived from that TUI's tty — not from
+a `TMUX_PANE` env value on a possibly-detached child. This prevents MCP-server
+children from being reported as the leader and prevents detached stragglers from
+"ghosting" a session onto a pane its TUI does not occupy (SP2.1).
+
 Resolve return contract (important for SP2 consumers): `resolve` prints a single
 JSON object when exactly one session matches, a JSON array when several do, and
 `[]` with exit code 1 when none do. **The array case is the ambiguity signal** —
