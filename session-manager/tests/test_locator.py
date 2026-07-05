@@ -429,5 +429,87 @@ class TestNearestClaudeAncestor(unittest.TestCase):
         self.assertIsNone(locator.nearest_claude_ancestor(1, cyc))
 
 
+UUID_9C = "9ccee61d-0000-0000-0000-00000000009c"
+UUID_C3 = "c392555a-0000-0000-0000-0000000000c3"
+
+
+class TestClaudeAnchoredPlacement(unittest.TestCase):
+    def _proc(self, pid, ppid, sid, pane, tty=None, iterm=None, term=None):
+        return {"pid": pid, "ppid": ppid, "session_id": sid, "tmux_pane": pane,
+                "tmux_socket": "default" if pane else None, "tty": tty,
+                "iterm_session_id": iterm, "term_session_id": term}
+
+    TMUX_INDEX = {("default", "%126"): {
+        "tty": "ttys008", "pane_pid": 79313, "tmux_session": "11",
+        "tmux_window": "1", "active": True}}
+
+    def test_leader_upgrades_from_mcp_child_to_claude_tui(self):
+        # Only tagged proc is an MCP child; its claude TUI is pid 79481.
+        procs = [self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008")]
+        table = {
+            79770: {"ppid": 79492, "tty": "ttys008", "command": "node /npx/.bin/context7-mcp"},
+            79492: {"ppid": 79481, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
+            79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},
+            79313: {"ppid": 1, "tty": "ttys008", "command": "-zsh"},
+        }
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertEqual(r["leader_pid"], 79481)          # the claude TUI, not the MCP child
+        self.assertEqual(r["pane"], "tmux:default:%126")  # from the TUI's tty
+        self.assertEqual(r["tty"], "ttys008")
+        self.assertTrue(r["pane_live"])
+
+    def test_detached_child_does_not_ghost_onto_a_pane(self):
+        # c392555a's only tagged proc is detached (tty None) with a STALE TMUX_PANE
+        # of %126, and its parent is gone -> no claude ancestor -> must NOT map to %126.
+        # 9ccee61d legitimately occupies %126.
+        procs = [
+            self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008"),
+            self._proc(94268, 94266, UUID_C3, "%126", tty=None),
+        ]
+        table = {
+            79770: {"ppid": 79492, "tty": "ttys008", "command": "node /npx/.bin/context7-mcp"},
+            79492: {"ppid": 79481, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
+            79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},
+            94268: {"ppid": 94266, "tty": None, "command": "node /npx/.bin/some-mcp"},
+            # 94266 (parent) is gone from the table -> orphan chain
+        }
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        by_sid = {r["session_id"]: r for r in out}
+        self.assertEqual(by_sid[UUID_9C]["pane"], "tmux:default:%126")
+        self.assertIsNone(by_sid[UUID_C3]["pane"])         # ghost eliminated
+        self.assertFalse(by_sid[UUID_C3]["pane_live"])
+        self.assertEqual(by_sid[UUID_C3]["leader_pid"], 94268)  # structural fallback
+
+    def test_claude_tui_on_non_tmux_tty_uses_iterm_env(self):
+        # TUI found but its tty maps to no tmux pane -> iTerm host via rep's env marker.
+        procs = [self._proc(3100, 3050, UUID_A, None, tty="ttys030",
+                            iterm="w0t6p0:GUID")]
+        table = {
+            3100: {"ppid": 3090, "tty": "ttys030", "command": "node /npx/.bin/context7-mcp"},
+            3090: {"ppid": 3000, "tty": "ttys030", "command": "claude"},
+        }
+        out = locator.build_sessions(procs, {}, {},  # no tmux panes
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertEqual(r["leader_pid"], 3090)
+        self.assertEqual(r["pane"], "iterm:w0t6p0:GUID")
+        self.assertEqual(r["host"], "iterm")
+
+    def test_schema_unchanged_with_proc_table(self):
+        procs = [self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008")]
+        table = {79770: {"ppid": 79481, "tty": "ttys008", "command": "node x-mcp"},
+                 79481: {"ppid": 1, "tty": "ttys008", "command": "claude"}}
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        self.assertEqual(
+            set(out[0].keys()),
+            {"session_id", "role", "parent_session_id", "pane", "host", "tty",
+             "cwd", "leader_pid", "pane_live", "tmux"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

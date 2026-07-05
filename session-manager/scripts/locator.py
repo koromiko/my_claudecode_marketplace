@@ -252,60 +252,121 @@ def pane_foreground_ps(tty):
     return _run(["ps", "-t", tty, "-o", "pid=,pgid=,stat="])
 
 
-def build_sessions(procs, ppid_map, tmux_index, cwd_fn=cwd_of):
-    """Assemble one record per session (see spec for schema)."""
+def session_placement(members, rep, proc_table, tmux_index, tty_pane_idx):
+    """Place a session on the pane its real claude TUI holds (claude-anchored).
+
+    members: this session's tagged procs (parse_processes output).
+    rep: the structural leader proc (resolve_roles' leader_pid), used only for
+         iTerm/Apple-Terminal env-marker fallback.
+    Returns {leader_pid, pane, host, tty, pane_live, tmux}.
+    """
+    # Find the session's claude TUI: walk up from each tagged member; prefer a
+    # candidate that has a tty (a live TUI on a terminal).
+    tui = None
+    for m in members:
+        cand = nearest_claude_ancestor(m["pid"], proc_table)
+        if cand is None:
+            continue
+        if proc_table.get(cand, {}).get("tty"):
+            tui = cand
+            break
+        tui = tui or cand
+
+    if tui is None:
+        # Orphaned stragglers (detached children whose TUI has exited): do NOT
+        # trust their stale TMUX_PANE env. Structural leader, no live pane.
+        return {"leader_pid": rep["pid"], "pane": None, "host": None,
+                "tty": rep.get("tty"), "pane_live": False, "tmux": None}
+
+    tui_tty = proc_table[tui].get("tty")
+    if tui_tty and tui_tty in tty_pane_idx:
+        socket, pane_id = tty_pane_idx[tui_tty]
+        pinfo = tmux_index.get((socket, pane_id))
+        tmux_meta = ({"socket": socket, "session": pinfo["tmux_session"],
+                      "window": pinfo["tmux_window"], "active": pinfo["active"]}
+                     if pinfo else None)
+        return {"leader_pid": tui, "pane": f"tmux:{socket}:{pane_id}", "host": "tmux",
+                "tty": tui_tty, "pane_live": True, "tmux": tmux_meta}
+    if rep.get("iterm_session_id"):
+        return {"leader_pid": tui, "pane": f"iterm:{rep['iterm_session_id']}",
+                "host": "iterm", "tty": tui_tty or rep.get("tty"),
+                "pane_live": True, "tmux": None}
+    if rep.get("term_session_id"):
+        return {"leader_pid": tui, "pane": f"term:{rep['term_session_id']}",
+                "host": "apple-terminal", "tty": tui_tty or rep.get("tty"),
+                "pane_live": True, "tmux": None}
+    return {"leader_pid": tui, "pane": None, "host": None,
+            "tty": tui_tty or rep.get("tty"), "pane_live": True, "tmux": None}
+
+
+def build_sessions(procs, ppid_map, tmux_index, cwd_fn=cwd_of, proc_table=None):
+    """Assemble one record per session (see spec for schema).
+
+    When proc_table is provided, placement is claude-anchored (the pane comes
+    from the session's real claude TUI, not from a tagged child's env). When
+    absent, the legacy env-based placement is used (SP1 behavior / unit fixtures).
+    """
     roles = resolve_roles(procs, ppid_map)
     by_pid = {p["pid"]: p for p in procs}
+    members_by_sid = {}
+    for p in procs:
+        members_by_sid.setdefault(p["session_id"], []).append(p)
+    tty_pane_idx = tty_to_pane_index(tmux_index) if proc_table else {}
 
     sessions = []
     for sid, role in roles.items():
         rep = by_pid[role["leader_pid"]]
-        pane = host = tty = tmux_meta = None
-        pane_live = True
-
-        if rep.get("tmux_pane") and rep.get("tmux_socket"):
-            socket = rep["tmux_socket"]
-            pane = f"tmux:{socket}:{rep['tmux_pane']}"
-            host = "tmux"
-            pinfo = tmux_index.get((socket, rep["tmux_pane"]))
-            if pinfo:
-                tty = pinfo["tty"]
-                tmux_meta = {
-                    "socket": socket,
-                    "session": pinfo["tmux_session"],
-                    "window": pinfo["tmux_window"],
-                    "active": pinfo["active"],
-                }
-            else:
-                tty = rep.get("tty")
-                pane_live = False  # detached straggler: pane gone
-        elif rep.get("iterm_session_id"):
-            pane = f"iterm:{rep['iterm_session_id']}"
-            host = "iterm"
-            tty = rep.get("tty")
-        elif rep.get("term_session_id"):
-            pane = f"term:{rep['term_session_id']}"
-            host = "apple-terminal"
-            tty = rep.get("tty")
+        if proc_table:
+            place = session_placement(members_by_sid[sid], rep, proc_table,
+                                      tmux_index, tty_pane_idx)
         else:
-            tty = rep.get("tty")
-
+            place = _legacy_placement(rep, tmux_index)
         sessions.append(
             {
                 "session_id": sid,
                 "role": role["role"],
                 "parent_session_id": role["parent_session_id"],
-                "pane": pane,
-                "host": host,
-                "tty": tty,
-                "cwd": cwd_fn(role["leader_pid"]),
-                "leader_pid": role["leader_pid"],
-                "pane_live": pane_live,
-                "tmux": tmux_meta,
+                "pane": place["pane"],
+                "host": place["host"],
+                "tty": place["tty"],
+                "cwd": cwd_fn(place["leader_pid"]),
+                "leader_pid": place["leader_pid"],
+                "pane_live": place["pane_live"],
+                "tmux": place["tmux"],
             }
         )
     sessions.sort(key=lambda s: (s["pane"] or "~", s["session_id"]))
     return sessions
+
+
+def _legacy_placement(rep, tmux_index):
+    """SP1 env-based placement (used when no proc_table is supplied)."""
+    pane = host = tty = tmux_meta = None
+    pane_live = True
+    if rep.get("tmux_pane") and rep.get("tmux_socket"):
+        socket = rep["tmux_socket"]
+        pane = f"tmux:{socket}:{rep['tmux_pane']}"
+        host = "tmux"
+        pinfo = tmux_index.get((socket, rep["tmux_pane"]))
+        if pinfo:
+            tty = pinfo["tty"]
+            tmux_meta = {"socket": socket, "session": pinfo["tmux_session"],
+                         "window": pinfo["tmux_window"], "active": pinfo["active"]}
+        else:
+            tty = rep.get("tty")
+            pane_live = False
+    elif rep.get("iterm_session_id"):
+        pane = f"iterm:{rep['iterm_session_id']}"
+        host = "iterm"
+        tty = rep.get("tty")
+    elif rep.get("term_session_id"):
+        pane = f"term:{rep['term_session_id']}"
+        host = "apple-terminal"
+        tty = rep.get("tty")
+    else:
+        tty = rep.get("tty")
+    return {"leader_pid": rep["pid"], "pane": pane, "host": host, "tty": tty,
+            "pane_live": pane_live, "tmux": tmux_meta}
 
 
 def match_selector(s, args):
@@ -400,8 +461,9 @@ def gather_sessions():
     ps_output = _run(["ps", "-E", "-ww", "-o", "pid=,ppid=,tty=,command=", "-ax"])
     procs = parse_processes(ps_output, self_pid=os.getpid())
     ppid_map = build_ppid_map(ps_output)
+    proc_table = build_process_table(ps_output)
     tmux_index = tmux_pane_index()
-    return build_sessions(procs, ppid_map, tmux_index)
+    return build_sessions(procs, ppid_map, tmux_index, proc_table=proc_table)
 
 
 def cmd_list(_args):
