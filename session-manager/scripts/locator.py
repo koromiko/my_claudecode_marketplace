@@ -97,6 +97,32 @@ def build_ppid_map(ps_output):
     return m
 
 
+def build_process_table(ps_output):
+    """pid -> {ppid, tty, command} for ALL processes in the ps output.
+
+    Superset of build_ppid_map: ancestry walks, claude-TUI identification, and
+    the TUI's tty are all read from this one table. tty normalized like
+    parse_processes ("??" -> None, /dev/ stripped).
+    """
+    table = {}
+    for line in ps_output.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 2:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        tty = parts[2] if len(parts) >= 3 else "??"
+        command = parts[3] if len(parts) >= 4 else ""
+        table[pid] = {
+            "ppid": ppid,
+            "tty": None if tty == "??" else tty.replace("/dev/", ""),
+            "command": command,
+        }
+    return table
+
+
 TMUX_FMT = (
     "#{pane_id}\t#{pane_tty}\t#{pane_pid}\t#{session_name}\t"
     "#{window_index}\t#{pane_active}"

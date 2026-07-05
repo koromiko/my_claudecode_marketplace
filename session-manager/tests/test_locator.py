@@ -73,6 +73,23 @@ class TestBuildPpidMap(unittest.TestCase):
         self.assertNotIn("garbage", m)
 
 
+class TestBuildProcessTable(unittest.TestCase):
+    def test_captures_all_procs_with_tty_and_command(self):
+        out = "\n".join([
+            "79481 79313 ttys008 claude",
+            "79770 79492 ttys008 node /npx/abc/.bin/context7-mcp",
+            "94268 94266 ?? node /npx/def/.bin/some-mcp",
+            "1900 1800 ttys016 -zsh",
+            "garbage line",                       # non-numeric pid -> skipped
+        ])
+        t = locator.build_process_table(out)
+        self.assertEqual(t[79481], {"ppid": 79313, "tty": "ttys008", "command": "claude"})
+        self.assertEqual(t[79770]["command"], "node /npx/abc/.bin/context7-mcp")
+        self.assertIsNone(t[94268]["tty"])        # "??" -> None
+        self.assertEqual(t[1900]["ppid"], 1800)   # non-claude proc present for ancestry
+        self.assertNotIn("garbage", t)
+
+
 class TestParseTmuxPanes(unittest.TestCase):
     SAMPLE = "%86\t/dev/ttys016\t1900\twork\t3\t1\n%0\t/dev/ttys020\t1700\tmisc\t0\t0"
 
