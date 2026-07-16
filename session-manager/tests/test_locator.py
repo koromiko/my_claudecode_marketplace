@@ -431,6 +431,8 @@ class TestNearestClaudeAncestor(unittest.TestCase):
 
 UUID_9C = "9ccee61d-0000-0000-0000-00000000009c"
 UUID_C3 = "c392555a-0000-0000-0000-0000000000c3"
+UUID_OWNER = "645fe01b-0000-0000-0000-000000000645"
+UUID_STALE = "51a1e000-0000-0000-0000-0000000051a1"
 
 
 class TestClaudeAnchoredPlacement(unittest.TestCase):
@@ -497,6 +499,29 @@ class TestClaudeAnchoredPlacement(unittest.TestCase):
         self.assertEqual(r["leader_pid"], 3090)
         self.assertEqual(r["pane"], "iterm:w0t6p0:GUID")
         self.assertEqual(r["host"], "iterm")
+
+    def test_stale_straggler_shares_tui_but_not_pane(self):
+        # Two sessions reach the SAME claude TUI (4973 on ttys008): the live
+        # owner via an MCP child ON ttys008, the stale session only via a
+        # DETACHED child (tty None). Only the owner occupies %126.
+        procs = [
+            self._proc(5054, 4997, UUID_OWNER, "%126", tty="ttys008"),
+            self._proc(81310, 81300, UUID_STALE, "%126", tty=None),
+        ]
+        table = {
+            5054: {"ppid": 4997, "tty": "ttys008", "command": "node /npx/.bin/context7-mcp"},
+            4997: {"ppid": 4973, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
+            4973: {"ppid": 79313, "tty": "ttys008", "command": "claude -r"},
+            81310: {"ppid": 81300, "tty": None, "command": "node /npx/.bin/some-mcp"},
+            81300: {"ppid": 4973, "tty": None, "command": "zsh -c tool"},  # detached, still reaches 4973
+        }
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        by_sid = {r["session_id"]: r for r in out}
+        self.assertEqual(by_sid[UUID_OWNER]["pane"], "tmux:default:%126")
+        self.assertEqual(by_sid[UUID_OWNER]["leader_pid"], 4973)
+        self.assertIsNone(by_sid[UUID_STALE]["pane"])
+        self.assertFalse(by_sid[UUID_STALE]["pane_live"])
 
     def test_schema_unchanged_with_proc_table(self):
         procs = [self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008")]

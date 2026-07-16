@@ -260,17 +260,20 @@ def session_placement(members, rep, proc_table, tmux_index, tty_pane_idx):
          iTerm/Apple-Terminal env-marker fallback.
     Returns {leader_pid, pane, host, tty, pane_live, tmux}.
     """
-    # Find the session's claude TUI: walk up from each tagged member; prefer a
-    # candidate that has a tty (a live TUI on a terminal).
+    # A session occupies a pane only where it has a LIVE presence: a tagged
+    # member whose own tty is the TUI's tty. Detached stragglers (tty None)
+    # that merely walk up to a reused TUI must not anchor the session to that
+    # pane — otherwise a stale session ghosts onto the current occupant's pane
+    # and collides on leader_pid. See spec addendum 2026-07-17.
     tui = None
     for m in members:
         cand = nearest_claude_ancestor(m["pid"], proc_table)
         if cand is None:
             continue
-        if proc_table.get(cand, {}).get("tty"):
+        cand_tty = proc_table.get(cand, {}).get("tty")
+        if cand_tty and m.get("tty") == cand_tty:
             tui = cand
             break
-        tui = tui or cand
 
     if tui is None:
         # Orphaned stragglers (detached children whose TUI has exited): do NOT
