@@ -89,3 +89,47 @@ For `fork-active-pane.sh`: extend `tests/test-fork-active-pane.sh` with a shimme
 ## Convention note
 
 Convention review verdict: **DIVERGENT (minor)** — the new pure functions align with `parse_*/build_*`; identifying the TUI by program name is a new *signal kind* but the same regex-on-command idiom (name it like the existing `RE_*`). The two flagged architecture risks (moving per-host branching earlier; a competing leader definition) are avoided by reusing the upward ancestry walk and keeping one leader definition, as specified in §1–§2.
+
+## Addendum (2026-07-17): liveness anchor — shared-TUI / stale-straggler correctness
+
+The final whole-branch review found a Critical regression, confirmed against live
+processes, that invalidates the §4 assumption ("two interactive sessions on one pane
+essentially cannot occur"). It **can** occur: a pane's `claude` TUI is reused across
+sessions (fork / re-`claude -r`), and a *previous* session's detached tagged procs
+(`tty=??`) still walk up to the current TUI. Both the current occupant and the stale
+session then resolve to the **same** TUI `leader_pid`, both stay `interactive`, and —
+because they share a `leader_pid` — the SP2 foreground tiebreak maps both to the same
+pgid and returns the ambiguity array. This is *worse* than SP1/SP2, which gave them
+distinct structural leaders the tiebreak could separate.
+
+Live evidence: TUI `4973` (`claude -r`, ttys008, %126). Session `645fe01b` — live MCP
+children `5054`/`5086` **on ttys008**. Session `c392555a` — only detached procs
+(`tty=??`) that reach `4973`. `645fe01b` is the real occupant; `c392555a` is stale.
+
+**Fix — liveness anchor (refines §1/§2, in `session_placement` only):** a session
+occupies a pane only if it has a tagged **member whose own tty equals the TUI's tty**
+— i.e. a live presence *in that pane*. The TUI is selected from such a member:
+
+```
+for m in members:
+    cand = nearest_claude_ancestor(m["pid"], proc_table)
+    if cand is None: continue
+    cand_tty = proc_table.get(cand, {}).get("tty")
+    if cand_tty and m.get("tty") == cand_tty:   # live in the TUI's pane
+        tui = cand; break
+# no live on-tty member -> not an occupant of any pane:
+#   pane=None, host=None, pane_live=False, leader_pid=structural leader
+```
+
+Detached stragglers (`tty=??`) therefore never anchor a session to a reused pane, so
+`resolve --pane %126` returns only the live occupant (`645fe01b`). This is preferred
+over role-demotion: it needs no change to `resolve_roles`, keeps `role` semantics
+honest (a stale session is not a *child* — it is simply not occupying a live pane),
+and leaves `cmd_resolve`, the tiebreak, and the 10-key schema untouched. The genuine
+residual case (two sessions with live on-tty members truly sharing one tty) still
+falls through to the foreground tiebreak, i.e. SP1/SP2 behavior — fail-safe.
+
+All four Task-4 placement tests still hold under this rule (their anchoring members
+share the TUI's tty). New test: two sessions reach one TUI — one via an on-tty member,
+one via a detached member — assert the on-tty session gets the pane and the detached
+session gets `pane=None`.
