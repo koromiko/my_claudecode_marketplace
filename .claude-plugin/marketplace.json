@@ -69,6 +69,13 @@
       "version": "0.1.1",
       "source": "./shopping-price-compare",
       "category": "shopping"
+    },
+    {
+      "name": "travel-drive-itinerary",
+      "description": "Build a verified self-drive day-trip itinerary (Google Maps links, driving times, local blog references, photos for every stop and extra nearby spot) starting from a single place name",
+      "version": "0.2.0",
+      "source": "./travel-drive-itinerary",
+      "category": "travel"
     }
   ]
 }

@@ -1,0 +1,22 @@
+{
+  "skill_name": "build-drive-itinerary",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "幫我做一個自駕行程，終點是輕井沢的星野温泉 トンボの湯，我想要那種悠閒渡假風格",
+      "expected_output": "A markdown itinerary file with: a discovered stop list (café/shop/scenic-road pattern) ending at 星野温泉 トンボの湯, a per-stop table with address + Google Maps link, driving-time estimates between stops, a photo per stop where one was found (honestly marked absent otherwise), local-language blog references, and a 延伸推薦 section of extra nearby spots pulled from those blogs. Every link/image/address should have been opened and checked by a browser-using verification subagent, with any problems it found fixed before the file was finalized.",
+      "files": [],
+      "expectations": [
+        "Output itinerary.md file exists and is non-empty",
+        "File contains at least 3 distinct Google Maps links (maps.google.com or google.com/maps)",
+        "File contains a 景點總覽-style table with an address column per stop",
+        "File states estimated driving time (分鐘/km) between at least 2 consecutive stop pairs",
+        "File contains at least one embedded image (markdown ![]() with an http(s) URL)",
+        "File contains a 延伸推薦/nearby-extra-spots section listing spots not in the main stop table",
+        "No placeholder/fake-looking URLs (example.com, lorem ipsum, obviously invented domains)",
+        "Where a link/image genuinely couldn't be found, the file says so explicitly (e.g. 未找到/no image found) rather than omitting the stop silently or inventing something",
+        "(with-skill only) Agent's final report describes an actual browser-based verification pass (agent-browser) that opened links/images, and at least one concrete fix applied as a result — not just a claim that verification 'was done'"
+      ]
+    }
+  ]
+}
