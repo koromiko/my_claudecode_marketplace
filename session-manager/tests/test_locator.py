@@ -361,7 +361,7 @@ class TestResolveTiebreakWiring(unittest.TestCase):
              "host": "tmux", "tty": "ttys016", "leader_pid": 2002},
         ]
         # No live procs -> the on-tty discriminator finds nothing, so behavior is
-        # governed purely by the foreground signal (as before this refactor).
+        # governed purely by the foreground signal.
         locator._scan_and_build = lambda: (self.two, [])
 
     def tearDown(self):
