@@ -453,6 +453,34 @@ def pick_foreground_winner(hits, ps_output):
     return matches[0] if len(matches) == 1 else None
 
 
+def on_tty_member_sids(procs, tty):
+    """Session ids with a tagged member whose own tty is `tty` (live on-tty presence).
+
+    Used by resolve_collision to separate a reused TUI's live occupant (which has an
+    on-tty member) from a stale straggler (detached-only) when both name the same TUI
+    pid and thus share a foreground pgid.
+    """
+    if not tty:
+        return set()
+    return {p["session_id"] for p in procs if p.get("tty") == tty}
+
+
+def resolve_collision(hits, tty, procs, ps_output):
+    """Narrow >1 interactive hits sharing one tty to a single winner if possible.
+
+    1) foreground pgid (pick_foreground_winner);
+    2) if that signal ties (e.g. a reused TUI shared as leader_pid by both), prefer
+       the hit whose session has a live on-tty member.
+    Returns a list: length 1 when resolved, else the original hits (ambiguity array).
+    """
+    winner = pick_foreground_winner(hits, ps_output)
+    if winner is not None:
+        return [winner]
+    on_tty = on_tty_member_sids(procs, tty)
+    narrowed = [h for h in hits if h["session_id"] in on_tty]
+    return narrowed if len(narrowed) == 1 else list(hits)
+
+
 def list_tmux_sockets():
     """All tmux socket basenames for this user (plus the one from $TMUX)."""
     sockets = set()
@@ -473,14 +501,21 @@ def tmux_pane_index():
     return index
 
 
-def gather_sessions():
-    """Live scan -> assembled session records (the impure top-level)."""
+def _scan_and_build():
+    """Live scan -> (session records, tagged procs). The impure top-level shared
+    by cmd_list (records only) and cmd_resolve (also needs procs for the tiebreak)."""
     ps_output = _run(["ps", "-E", "-ww", "-o", "pid=,ppid=,tty=,command=", "-ax"])
     procs = parse_processes(ps_output, self_pid=os.getpid())
     ppid_map = build_ppid_map(ps_output)
     proc_table = build_process_table(ps_output)
     tmux_index = tmux_pane_index()
-    return build_sessions(procs, ppid_map, tmux_index, proc_table=proc_table)
+    sessions = build_sessions(procs, ppid_map, tmux_index, proc_table=proc_table)
+    return sessions, procs
+
+
+def gather_sessions():
+    """Assembled session records (the impure top-level)."""
+    return _scan_and_build()[0]
 
 
 def cmd_list(_args):
@@ -488,17 +523,16 @@ def cmd_list(_args):
 
 
 def cmd_resolve(args):
-    sessions = gather_sessions()
+    sessions, procs = _scan_and_build()
     hits = [s for s in sessions if match_selector(s, args)]
     if not hits:
         print(json.dumps([], indent=2))
         sys.exit(1)
     if len(hits) > 1:
-        # Multiple hits only arise from a --pane/--tty selector, so they all
-        # share one tty; hits[0]'s tty is the pane's tty.
-        winner = pick_foreground_winner(hits, pane_foreground_ps(hits[0].get("tty")))
-        if winner is not None:
-            hits = [winner]
+        # Multiple hits only arise from a --pane/--tty selector, so they all share
+        # one tty; hits[0]'s tty is the pane's tty.
+        tty = hits[0].get("tty")
+        hits = resolve_collision(hits, tty, procs, pane_foreground_ps(tty))
     print(json.dumps(hits[0] if len(hits) == 1 else hits, indent=2))
 
 

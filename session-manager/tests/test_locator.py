@@ -352,7 +352,7 @@ class TestResolveTiebreakWiring(unittest.TestCase):
     one, and keep returning the array when the foreground is undeterminable."""
 
     def setUp(self):
-        self._gather = locator.gather_sessions
+        self._scan = locator._scan_and_build
         self._ps = locator.pane_foreground_ps
         self.two = [
             {"session_id": UUID_A, "role": "interactive", "pane": "tmux:default:%86",
@@ -360,10 +360,12 @@ class TestResolveTiebreakWiring(unittest.TestCase):
             {"session_id": UUID_B, "role": "interactive", "pane": "tmux:default:%86",
              "host": "tmux", "tty": "ttys016", "leader_pid": 2002},
         ]
-        locator.gather_sessions = lambda: self.two
+        # No live procs -> the on-tty discriminator finds nothing, so behavior is
+        # governed purely by the foreground signal (as before this refactor).
+        locator._scan_and_build = lambda: (self.two, [])
 
     def tearDown(self):
-        locator.gather_sessions = self._gather
+        locator._scan_and_build = self._scan
         locator.pane_foreground_ps = self._ps
 
     def _resolve_pane(self):
@@ -386,6 +388,49 @@ class TestResolveTiebreakWiring(unittest.TestCase):
         out = self._resolve_pane()
         self.assertIsInstance(out, list)
         self.assertEqual({r["session_id"] for r in out}, {UUID_A, UUID_B})
+
+
+class TestOnTtyMemberSids(unittest.TestCase):
+    def test_selects_sessions_with_member_on_tty(self):
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008"},
+            {"session_id": UUID_STALE, "pid": 81310, "tty": None},
+        ]
+        self.assertEqual(locator.on_tty_member_sids(procs, "ttys008"), {UUID_OWNER})
+
+    def test_empty_tty_returns_empty(self):
+        procs = [{"session_id": UUID_A, "pid": 1, "tty": "ttys1"}]
+        self.assertEqual(locator.on_tty_member_sids(procs, None), set())
+
+
+class TestResolveCollision(unittest.TestCase):
+    def _hit(self, sid, leader):
+        return {"session_id": sid, "role": "interactive", "pane": "tmux:default:%126",
+                "host": "tmux", "tty": "ttys008", "leader_pid": leader}
+
+    def test_reuse_collision_prefers_on_tty_session(self):
+        # Both hits share the reused TUI 4973 -> foreground pgid ties -> the
+        # on-tty member breaks it in favor of the live owner.
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [{"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008"},
+                 {"session_id": UUID_STALE, "pid": 81310, "tty": None}]
+        ps = "4973 4973 S+\n5054 4973 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_OWNER])
+
+    def test_genuine_ambiguity_returns_both(self):
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [{"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008"},
+                 {"session_id": UUID_STALE, "pid": 81310, "tty": "ttys008"}]
+        ps = "4973 4973 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual({h["session_id"] for h in out}, {UUID_OWNER, UUID_STALE})
+
+    def test_foreground_wins_for_distinct_leaders(self):
+        hits = [self._hit(UUID_A, 2001), self._hit(UUID_B, 2002)]
+        ps = "2001 2001 S\n2002 2002 S+\n"
+        out = locator.resolve_collision(hits, "ttys016", [], ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_B])
 
 
 class TestTtyToPaneIndex(unittest.TestCase):
