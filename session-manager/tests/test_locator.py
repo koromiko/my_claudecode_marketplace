@@ -445,10 +445,12 @@ UUID_STALE = "51a1e000-0000-0000-0000-0000000051a1"
 
 
 class TestClaudeAnchoredPlacement(unittest.TestCase):
-    def _proc(self, pid, ppid, sid, pane, tty=None, iterm=None, term=None):
+    def _proc(self, pid, ppid, sid, pane, tty=None, iterm=None, term=None,
+              claude_pid=None):
         return {"pid": pid, "ppid": ppid, "session_id": sid, "tmux_pane": pane,
                 "tmux_socket": "default" if pane else None, "tty": tty,
-                "iterm_session_id": iterm, "term_session_id": term}
+                "iterm_session_id": iterm, "term_session_id": term,
+                "claude_pid": claude_pid}
 
     TMUX_INDEX = {("default", "%126"): {
         "tty": "ttys008", "pane_pid": 79313, "tmux_session": "11",
@@ -509,10 +511,34 @@ class TestClaudeAnchoredPlacement(unittest.TestCase):
         self.assertEqual(r["pane"], "iterm:w0t6p0:GUID")
         self.assertEqual(r["host"], "iterm")
 
-    def test_stale_straggler_shares_tui_but_not_pane(self):
-        # Two sessions reach the SAME claude TUI (4973 on ttys008): the live
-        # owner via an MCP child ON ttys008, the stale session only via a
-        # DETACHED child (tty None). Only the owner occupies %126.
+    def test_mcp_less_detached_session_placed_via_claude_pid(self):
+        # SP2.2 fix: the session's only member is DETACHED (tty None), no on-tty
+        # member, but CLAUDE_PID names the live claude TUI 79313 on ttys008.
+        procs = [self._proc(2740, 1, UUID_9C, None, tty=None, claude_pid=79313)]
+        table = {79313: {"ppid": 14528, "tty": "ttys008", "command": "claude"}}
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertEqual(r["leader_pid"], 79313)
+        self.assertEqual(r["pane"], "tmux:default:%126")   # from the TUI's tty
+        self.assertTrue(r["pane_live"])
+
+    def test_claude_pid_naming_dead_pid_orphans(self):
+        # CLAUDE_PID names a pid absent from proc_table and no claude ancestor is
+        # reachable -> orphan (pane=None), never a ghost.
+        procs = [self._proc(2740, 1, UUID_9C, None, tty=None, claude_pid=99999)]
+        table = {2740: {"ppid": 1, "tty": None, "command": "zsh -c tool"}}
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertIsNone(r["pane"])
+        self.assertFalse(r["pane_live"])
+        self.assertEqual(r["leader_pid"], 2740)            # structural fallback
+
+    def test_reuse_straggler_collides_at_placement(self):
+        # SP2.2: both sessions name the same live TUI 4973 (one via an on-tty MCP
+        # child, one via a detached child), so BOTH are placed on %126 at the
+        # placement layer. Disambiguation is the resolve layer's job (Task 3).
         procs = [
             self._proc(5054, 4997, UUID_OWNER, "%126", tty="ttys008"),
             self._proc(81310, 81300, UUID_STALE, "%126", tty=None),
@@ -522,15 +548,15 @@ class TestClaudeAnchoredPlacement(unittest.TestCase):
             4997: {"ppid": 4973, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
             4973: {"ppid": 79313, "tty": "ttys008", "command": "claude -r"},
             81310: {"ppid": 81300, "tty": None, "command": "node /npx/.bin/some-mcp"},
-            81300: {"ppid": 4973, "tty": None, "command": "zsh -c tool"},  # detached, still reaches 4973
+            81300: {"ppid": 4973, "tty": None, "command": "zsh -c tool"},
         }
         out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
                                      cwd_fn=lambda pid: None, proc_table=table)
         by_sid = {r["session_id"]: r for r in out}
         self.assertEqual(by_sid[UUID_OWNER]["pane"], "tmux:default:%126")
+        self.assertEqual(by_sid[UUID_STALE]["pane"], "tmux:default:%126")  # co-located now
         self.assertEqual(by_sid[UUID_OWNER]["leader_pid"], 4973)
-        self.assertIsNone(by_sid[UUID_STALE]["pane"])
-        self.assertFalse(by_sid[UUID_STALE]["pane_live"])
+        self.assertEqual(by_sid[UUID_STALE]["leader_pid"], 4973)
 
     def test_schema_unchanged_with_proc_table(self):
         procs = [self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008")]

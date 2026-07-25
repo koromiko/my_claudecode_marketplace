@@ -256,31 +256,42 @@ def pane_foreground_ps(tty):
 
 
 def session_placement(members, rep, proc_table, tmux_index, tty_pane_idx):
-    """Place a session on the pane its real claude TUI holds (claude-anchored).
+    """Place a session on the pane its real claude TUI holds (claude-anchored, SP2.2).
+
+    The TUI is named directly by the CLAUDE_PID a tagged member carries in its env
+    (validated as a live claude in proc_table). This works even when every member
+    is detached (tty None) — unlike SP2.1, which required an on-tty member and so
+    dropped sessions with no live stdio MCP server. Falls back to the ppid-walk
+    (nearest_claude_ancestor) when CLAUDE_PID is absent/invalid (older claude).
+
+    Stale-straggler rejection for a REUSED TUI (a previous session's detached
+    members still name the current live TUI pid) is deliberately NOT done here:
+    the live occupant and the stale one name the same pid, so both are placed and
+    the tie is broken one layer up, in cmd_resolve (see spec 2026-07-25 and
+    resolve_collision). The pane is always derived from the TUI's own live tty,
+    never from a member's start-time TMUX_PANE env, so a straggler never ghosts
+    onto a pane its TUI does not occupy.
 
     members: this session's tagged procs (parse_processes output).
     rep: the structural leader proc (resolve_roles' leader_pid), used only for
          iTerm/Apple-Terminal env-marker fallback.
     Returns {leader_pid, pane, host, tty, pane_live, tmux}.
     """
-    # A session occupies a pane only where it has a LIVE presence: a tagged
-    # member whose own tty is the TUI's tty. Detached stragglers (tty None)
-    # that merely walk up to a reused TUI must not anchor the session to that
-    # pane — otherwise a stale session ghosts onto the current occupant's pane
-    # and collides on leader_pid. See spec addendum 2026-07-17.
     tui = None
     for m in members:
-        cand = nearest_claude_ancestor(m["pid"], proc_table)
-        if cand is None:
-            continue
-        cand_tty = proc_table.get(cand, {}).get("tty")
-        if cand_tty and m.get("tty") == cand_tty:
-            tui = cand
+        cp = m.get("claude_pid")
+        if cp and cp in proc_table and RE_CLAUDE.search(proc_table[cp]["command"]):
+            tui = cp
             break
+    if tui is None:
+        for m in members:
+            cand = nearest_claude_ancestor(m["pid"], proc_table)
+            if cand is not None:
+                tui = cand
+                break
 
     if tui is None:
-        # Orphaned stragglers (detached children whose TUI has exited): do NOT
-        # trust their stale TMUX_PANE env. Structural leader, no live pane.
+        # No live claude TUI reachable (orphaned stragglers whose TUI has exited).
         return {"leader_pid": rep["pid"], "pane": None, "host": None,
                 "tty": rep.get("tty"), "pane_live": False, "tmux": None}
 
