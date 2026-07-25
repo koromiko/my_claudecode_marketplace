@@ -25,6 +25,7 @@ RE_SESSION = re.compile(
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
 RE_TMUX_PANE = re.compile(r"\bTMUX_PANE=(%\d+)")
+RE_CLAUDE_PID = re.compile(r"\bCLAUDE_PID=(\d+)")
 RE_TMUX = re.compile(r"\bTMUX=(\S+)")
 RE_ITERM = re.compile(r"\bITERM_SESSION_ID=(\S+)")
 RE_TERM_SESSION = re.compile(r"\bTERM_SESSION_ID=(\S+)")
@@ -64,6 +65,7 @@ def parse_processes(ps_output, self_pid=None):
         iterm = RE_ITERM.search(command)
         term_s = RE_TERM_SESSION.search(command)
         term_p = RE_TERM_PROGRAM.search(command)
+        claude_pid_m = RE_CLAUDE_PID.search(command)
         # Note: a proc may have tmux_socket but no tmux_pane (partially-stripped
         # env); build_sessions guards on both before using them.
         procs.append(
@@ -72,6 +74,7 @@ def parse_processes(ps_output, self_pid=None):
                 "ppid": ppid,
                 "tty": None if tty == "??" else tty.replace("/dev/", ""),
                 "session_id": m.group(1),
+                "claude_pid": int(claude_pid_m.group(1)) if claude_pid_m else None,
                 "tmux_pane": pane.group(1) if pane else None,
                 "tmux_socket": socket,
                 "iterm_session_id": iterm.group(1) if iterm else None,

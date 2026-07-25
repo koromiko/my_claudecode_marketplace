@@ -59,6 +59,15 @@ class TestParseProcesses(unittest.TestCase):
         out = pline(4242, 1, "ttys016", CLAUDE_CODE_SESSION_ID=UUID_A)
         self.assertEqual(locator.parse_processes(out, self_pid=4242), [])
 
+    def test_extracts_claude_pid(self):
+        with_pid = pline(2001, 1900, "ttys016",
+                         CLAUDE_CODE_SESSION_ID=UUID_A, CLAUDE_PID="17141")
+        without = pline(2002, 1900, "ttys016", CLAUDE_CODE_SESSION_ID=UUID_B)
+        procs = locator.parse_processes(with_pid + "\n" + without)
+        by_sid = {p["session_id"]: p for p in procs}
+        self.assertEqual(by_sid[UUID_A]["claude_pid"], 17141)
+        self.assertIsNone(by_sid[UUID_B]["claude_pid"])
+
 
 class TestBuildPpidMap(unittest.TestCase):
     def test_maps_all_processes_not_just_claude(self):
