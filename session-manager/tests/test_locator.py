@@ -469,6 +469,31 @@ class TestResolveCollision(unittest.TestCase):
         out = locator.resolve_collision(hits, "ttys016", [], ps)
         self.assertEqual([h["session_id"] for h in out], [UUID_B])
 
+    def test_resume_phantom_prefers_claude_pid_carrier(self):
+        # One TUI (2076) -> two sids: active carries CLAUDE_PID=2076 on a detached
+        # shell; the pre-resume phantom's MCP server is on-tty but carries no
+        # CLAUDE_PID. Foreground pgid ties; the CLAUDE_PID tier must pick the active.
+        hits = [self._hit(UUID_OWNER, 2076), self._hit(UUID_STALE, 2076)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 3100, "tty": None, "claude_pid": 2076},
+            {"session_id": UUID_STALE, "pid": 2900, "tty": "ttys008", "claude_pid": None},
+        ]
+        ps = "2076 2076 S+\n2900 2076 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_OWNER])
+
+    def test_reuse_collision_still_uses_on_tty_when_both_carry_claude_pid(self):
+        # /clear-reuse: both sids carry CLAUDE_PID=4973 -> tier 2 ties -> on-tty
+        # presence (tier 3) still picks the live owner. SP2.2 behavior preserved.
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008", "claude_pid": 4973},
+            {"session_id": UUID_STALE, "pid": 81310, "tty": None, "claude_pid": 4973},
+        ]
+        ps = "4973 4973 S+\n5054 4973 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_OWNER])
+
 
 class TestTtyToPaneIndex(unittest.TestCase):
     def test_inverts_index_by_tty(self):

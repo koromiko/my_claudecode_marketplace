@@ -483,13 +483,20 @@ def resolve_collision(hits, tty, procs, ps_output):
     """Narrow >1 interactive hits sharing one tty to a single winner if possible.
 
     1) foreground pgid (pick_foreground_winner);
-    2) if that signal ties (e.g. a reused TUI shared as leader_pid by both), prefer
+    2) if that ties, prefer the hit whose session has a member directly carrying
+       CLAUDE_PID == its leader_pid (a `claude --resume` active session vs the
+       throwaway pre-resume id, whose MCP members carry no CLAUDE_PID);
+    3) if that still ties (a reused TUI where both sids carry CLAUDE_PID), prefer
        the hit whose session has a live on-tty member.
     Returns a list: length 1 when resolved, else the original hits (ambiguity array).
     """
     winner = pick_foreground_winner(hits, ps_output)
     if winner is not None:
         return [winner]
+    anchored = claude_pid_anchored_sids(hits, procs)
+    by_anchor = [h for h in hits if h["session_id"] in anchored]
+    if len(by_anchor) == 1:
+        return by_anchor
     on_tty = on_tty_member_sids(procs, tty)
     narrowed = [h for h in hits if h["session_id"] in on_tty]
     return narrowed if len(narrowed) == 1 else list(hits)
