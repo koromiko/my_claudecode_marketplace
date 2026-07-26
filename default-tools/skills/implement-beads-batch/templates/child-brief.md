@@ -20,30 +20,45 @@ You are a **sub-orchestrator** for one bead, dispatched by the `implement-beads-
 
 ### Worktree pre-flight (run BEFORE you touch the bead's work)
 
-Your worktree is a fresh `git worktree add` — it has source files but **not** the per-machine setup the parent repo has. Two things are missing and you must fix them before running build/test gates, or your gates will fail for reasons unrelated to your bead:
+Your worktree is a fresh `git worktree add` — it has source files but **not** the per-machine setup the parent repo has. Fix that before running build/test gates, or your gates will fail for reasons unrelated to your bead.
 
 ```sh
 PARENT_REPO=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
 
-# 1. .env.local — required by `npm run build` for any page touching process.env.NEXT_PUBLIC_*.
-#    Without it Next.js fails with "Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL".
-if [ ! -f .env.local ]; then
-  if [ -f "$PARENT_REPO/.env.local" ]; then
-    cp "$PARENT_REPO/.env.local" .env.local
-  else
-    echo "NEEDS_ELEVATION:env:parent-missing-env-local"
-    # write status: "failed" and exit; do not proceed without env.
-  fi
-fi
+# 1. Local env files — copy whatever the parent actually has. Next.js needs .env.local
+#    for any page reading process.env.NEXT_PUBLIC_*; without it the build dies with
+#    "Missing required environment variable: ...".
+for f in .env.local .env.development.local; do
+  [ ! -f "$f" ] && [ -f "$PARENT_REPO/$f" ] && cp "$PARENT_REPO/$f" "$f"
+done
 
-# 2. node_modules — symlink to the parent's. The lockfile is identical (same base commit),
-#    so this is correct AND avoids a 60–120s `npm install` per worktree.
+# 2. node_modules — symlinking to the parent avoids a 60–120s install and is correct
+#    (identical lockfile, same base commit). But SOME bundlers reject a symlinked
+#    module root, so treat this as an optimization that must be validated, not a given.
 if [ ! -d node_modules ] && [ -d "$PARENT_REPO/node_modules" ]; then
   ln -s "$PARENT_REPO/node_modules" node_modules
 fi
 ```
 
-Skipping pre-flight is the most common cause of false-failure builds in batched runs. Do it first.
+**Do not fail the bead on a missing env file.** If the parent has no `.env.local`, that is normal for many repos — the build may not need one. Proceed, and only escalate `NEEDS_ELEVATION:env:<var>` if the build actually fails with a missing-variable error naming that variable.
+
+**Validate the symlink, don't assume it.** Run the build gate once immediately after pre-flight, before writing any code. If it fails with a symlink/module-resolution error — e.g. Turbopack's `Symlink [project]/node_modules is invalid, it points out of the filesystem root`, or pnpm/yarn PnP resolution errors — then:
+
+```sh
+rm node_modules && npm install     # or the repo's package manager
+```
+
+and re-run the gate. Record in your `report.yaml` that the symlink was rejected, so the parent can surface it. A real install costs a minute; a misattributed build failure costs a retry cycle.
+
+**Find the real build command — don't assume it lives at the repo root.** Monorepos frequently have no root `build` script; the gate is then the app workspace's own script:
+
+```sh
+node -e "console.log(Object.keys(require('./package.json').scripts||{}).join(' '))"
+```
+
+If there's no root `build`, locate the app package (`apps/*/package.json`, `packages/*/package.json`) and run its build — `npm run build --workspace=<pkg>` or `npm run build` from inside that directory. Use the same command for lint/typecheck. State the exact command you used in `report.yaml`; the parent re-runs it verbatim during verification, and an unqualified `npm run build` that dies on `Missing script: "build"` reads as a red bead.
+
+Establishing a green baseline before you touch code is the single highest-value pre-flight step: it separates "my change broke it" from "this worktree was never buildable."
 
 ### Hard gates (your work is not done until all are green)
 
