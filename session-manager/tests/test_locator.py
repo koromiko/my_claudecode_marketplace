@@ -403,6 +403,43 @@ class TestOnTtyMemberSids(unittest.TestCase):
         self.assertEqual(locator.on_tty_member_sids(procs, None), set())
 
 
+class TestClaudePidAnchoredSids(unittest.TestCase):
+    def _hit(self, sid, leader):
+        return {"session_id": sid, "leader_pid": leader}
+
+    def test_selects_session_whose_member_carries_claude_pid_of_its_tui(self):
+        hits = [self._hit(UUID_OWNER, 2076), self._hit(UUID_STALE, 2076)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 3100, "claude_pid": 2076},
+            {"session_id": UUID_STALE, "pid": 2900, "claude_pid": None},
+        ]
+        self.assertEqual(
+            locator.claude_pid_anchored_sids(hits, procs), {UUID_OWNER})
+
+    def test_ignores_member_whose_claude_pid_mismatches_leader(self):
+        hits = [self._hit(UUID_OWNER, 2076)]
+        procs = [{"session_id": UUID_OWNER, "pid": 3100, "claude_pid": 9999}]
+        self.assertEqual(locator.claude_pid_anchored_sids(hits, procs), set())
+
+    def test_none_claude_pid_never_matches(self):
+        hits = [self._hit(UUID_OWNER, 2076)]
+        procs = [{"session_id": UUID_OWNER, "pid": 3100, "claude_pid": None}]
+        self.assertEqual(locator.claude_pid_anchored_sids(hits, procs), set())
+
+    def test_both_carriers_returns_both(self):
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 5054, "claude_pid": 4973},
+            {"session_id": UUID_STALE, "pid": 5090, "claude_pid": 4973},
+        ]
+        self.assertEqual(
+            locator.claude_pid_anchored_sids(hits, procs),
+            {UUID_OWNER, UUID_STALE})
+
+    def test_empty_inputs(self):
+        self.assertEqual(locator.claude_pid_anchored_sids([], []), set())
+
+
 class TestResolveCollision(unittest.TestCase):
     def _hit(self, sid, leader):
         return {"session_id": sid, "role": "interactive", "pane": "tmux:default:%126",

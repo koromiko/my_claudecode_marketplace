@@ -465,6 +465,20 @@ def on_tty_member_sids(procs, tty):
     return {p["session_id"] for p in procs if p.get("tty") == tty}
 
 
+def claude_pid_anchored_sids(hits, procs):
+    """Session ids among `hits` with a member directly carrying CLAUDE_PID == that
+    session's TUI (leader_pid) — a first-class TUI-ownership witness, distinct from
+    ancestor-only reachability. Separates a `claude --resume` active session (whose
+    tool shells carry CLAUDE_PID) from the throwaway pre-resume id (whose MCP servers
+    carry none) when both anchor to the same TUI pid. Ties (both carry it) for the
+    reused-TUI case, where the on-tty tier decides instead.
+    """
+    leader_of = {h["session_id"]: h.get("leader_pid") for h in hits}
+    return {p["session_id"] for p in procs
+            if p.get("claude_pid") is not None
+            and p["claude_pid"] == leader_of.get(p["session_id"])}
+
+
 def resolve_collision(hits, tty, procs, ps_output):
     """Narrow >1 interactive hits sharing one tty to a single winner if possible.
 
