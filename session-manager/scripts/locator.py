@@ -35,6 +35,11 @@ RE_TERM_PROGRAM = re.compile(r"\bTERM_PROGRAM=(\S+)")
 # children ("node .../xxx-mcp") or a ".claude" directory inside another path.
 RE_CLAUDE = re.compile(r"(?:^|/)claude(?:\s|$)")
 
+SESSIONS_DIR = os.path.join(
+    os.environ.get("CLAUDE_SM_HOME", os.path.expanduser("~/.claude/session-manager")),
+    "sessions",
+)
+
 
 def parse_processes(ps_output, self_pid=None):
     """Parse `ps -E -ww -o pid=,ppid=,tty=,command=` output into claude records.
@@ -356,6 +361,56 @@ def build_sessions(procs, ppid_map, tmux_index, cwd_fn=cwd_of, proc_table=None):
     return sessions
 
 
+def merge_registry_sessions(sessions, entries, proc_table, tmux_index, tty_pane_idx):
+    """Add records for registry entries the pull scan didn't discover (idle sessions
+    with no live tagged child). Placed claude-anchored on claude_pid; a registry entry
+    is used only when its session_id is not already present (live discovery wins) and
+    its claude_pid is a live claude TUI. Pure; result sorted like build_sessions."""
+    known = {s["session_id"] for s in sessions}
+    out = list(sessions)
+    for e in entries:
+        sid = e.get("session_id")
+        cpid = e.get("claude_pid")
+        if not sid or sid in known:
+            continue
+        if not cpid or cpid not in proc_table:
+            continue
+        if not RE_CLAUDE.search(proc_table[cpid]["command"]):
+            continue
+        member = {"pid": cpid, "claude_pid": cpid, "tty": None,
+                  "iterm_session_id": None, "term_session_id": None}
+        place = session_placement([member], member, proc_table, tmux_index, tty_pane_idx)
+        out.append({
+            "session_id": sid,
+            "role": "interactive",
+            "parent_session_id": None,
+            "pane": place["pane"],
+            "host": place["host"],
+            "tty": place["tty"],
+            "cwd": e.get("cwd"),
+            "leader_pid": place["leader_pid"],
+            "pane_live": place["pane_live"],
+            "tmux": place["tmux"],
+        })
+        known.add(sid)
+    out.sort(key=lambda s: (s["pane"] or "~", s["session_id"]))
+    return out
+
+
+def dead_registry_sids(entries, proc_table):
+    """session_ids whose recorded claude_pid is no longer a live claude TUI — safe to
+    delete from the registry. Pure."""
+    dead = set()
+    for e in entries:
+        sid = e.get("session_id")
+        cpid = e.get("claude_pid")
+        if not sid:
+            continue
+        if not cpid or cpid not in proc_table or not RE_CLAUDE.search(proc_table[cpid]["command"]):
+            dead.add(sid)
+    return dead
+
+
 def _legacy_placement(rep, tmux_index):
     """SP1 env-based placement (used when no proc_table is supplied)."""
     pane = host = tty = tmux_meta = None
@@ -522,6 +577,27 @@ def tmux_pane_index():
     return index
 
 
+def _read_registry_entries():
+    """Load registry entries from the per-session files (impure). Skips malformed."""
+    entries = []
+    for path in glob.glob(os.path.join(SESSIONS_DIR, "*.json")):
+        try:
+            with open(path) as f:
+                entries.append(json.load(f))
+        except (OSError, ValueError):
+            continue
+    return entries
+
+
+def _sweep_dead_registry(entries, proc_table):
+    """Delete registry files whose claude_pid is dead (impure, best-effort)."""
+    for sid in dead_registry_sids(entries, proc_table):
+        try:
+            os.remove(os.path.join(SESSIONS_DIR, f"{sid}.json"))
+        except OSError:
+            pass
+
+
 def _scan_and_build():
     """Live scan -> (session records, tagged procs). The impure top-level shared
     by cmd_list (records only) and cmd_resolve (also needs procs for the tiebreak)."""
@@ -531,6 +607,10 @@ def _scan_and_build():
     proc_table = build_process_table(ps_output)
     tmux_index = tmux_pane_index()
     sessions = build_sessions(procs, ppid_map, tmux_index, proc_table=proc_table)
+    entries = _read_registry_entries()
+    tty_pane_idx = tty_to_pane_index(tmux_index)
+    sessions = merge_registry_sessions(sessions, entries, proc_table, tmux_index, tty_pane_idx)
+    _sweep_dead_registry(entries, proc_table)
     return sessions, procs
 
 

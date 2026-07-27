@@ -678,5 +678,77 @@ class TestClaudeAnchoredPlacement(unittest.TestCase):
         )
 
 
+class TestMergeRegistrySessions(unittest.TestCase):
+    TMUX_INDEX = {("default", "%126"): {
+        "tty": "ttys008", "pane_pid": 79313, "tmux_session": "11",
+        "tmux_window": "1", "active": True}}
+    TABLE = {40116: {"ppid": 14528, "tty": "ttys008", "command": "claude --resume x"},
+             99: {"ppid": 1, "tty": "ttys008", "command": "-zsh"}}
+
+    def _idx(self):
+        return locator.tty_to_pane_index(self.TMUX_INDEX)
+
+    def test_live_pid_synthesizes_placed_record(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 40116, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(len(out), 1)
+        rec = out[0]
+        self.assertEqual(rec["session_id"], UUID_C3)
+        self.assertEqual(rec["role"], "interactive")
+        self.assertEqual(rec["pane"], "tmux:default:%126")
+        self.assertEqual(rec["leader_pid"], 40116)
+        self.assertEqual(rec["cwd"], "/x")
+        self.assertTrue(rec["pane_live"])
+
+    def test_dead_pid_skipped(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 55555, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(out, [])
+
+    def test_non_claude_pid_skipped(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 99, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(out, [])
+
+    def test_live_discovered_session_wins(self):
+        existing = [{"session_id": UUID_C3, "role": "interactive", "pane": "tmux:default:%126",
+                     "leader_pid": 40116, "parent_session_id": None, "host": "tmux",
+                     "tty": "ttys008", "cwd": "/live", "pane_live": True, "tmux": None}]
+        entries = [{"session_id": UUID_C3, "claude_pid": 40116, "cwd": "/stale", "ts": 1}]
+        out = locator.merge_registry_sessions(existing, entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["cwd"], "/live")  # live record untouched
+
+    def test_empty_inputs(self):
+        self.assertEqual(locator.merge_registry_sessions([], [], {}, {}, {}), [])
+
+    def test_synthesized_record_has_exactly_schema_keys(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 40116, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(set(out[0].keys()), {
+            "session_id", "role", "parent_session_id", "pane", "host", "tty",
+            "cwd", "leader_pid", "pane_live", "tmux"})
+
+
+class TestDeadRegistrySids(unittest.TestCase):
+    TABLE = {40116: {"ppid": 1, "tty": "ttys008", "command": "claude --resume x"},
+             99: {"ppid": 1, "tty": "ttys008", "command": "-zsh"}}
+
+    def test_flags_dead_and_non_claude_only(self):
+        entries = [
+            {"session_id": UUID_C3, "claude_pid": 40116},   # live claude -> keep
+            {"session_id": UUID_9C, "claude_pid": 55555},   # dead pid -> dead
+            {"session_id": UUID_OWNER, "claude_pid": 99},    # non-claude -> dead
+            {"session_id": UUID_STALE, "claude_pid": None},  # no pid -> dead
+        ]
+        self.assertEqual(locator.dead_registry_sids(entries, self.TABLE),
+                         {UUID_9C, UUID_OWNER, UUID_STALE})
+
+
 if __name__ == "__main__":
     unittest.main()
