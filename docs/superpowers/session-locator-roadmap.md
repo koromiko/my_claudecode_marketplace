@@ -72,16 +72,28 @@ independent enrichments; SP5 consumes them.
   that pgid against the foreground set; do not assume `pgid == leader_pid`. The array is
   returned only when two interactive sessions are genuinely indistinguishable.
 
-## Next sub-project (SP3) — scope sketch (not yet specced)
+## SP3 — hook-backed registry (specced: `docs/superpowers/specs/2026-07-27-session-locator-sp3-hook-backed-registry-design.md`)
 
-Hook-backed registry: enrich locator records at `SessionStart`/`SessionEnd` (push),
-persisting under `~/.claude/session-manager/` (mirrors `registry.json`). Purpose: carry
-metadata the pull scan can't see (e.g. session titles, parent chains across restarts).
-SP1's pull remains ground truth; SP3 only enriches. **Start a new SP3 cycle with the
-`superpowers:brainstorming` skill** — do not implement before a spec is approved.
+Hook-backed registry at `SessionStart`/`SessionEnd`, persisting under
+`~/.claude/session-manager/sessions/`. Purpose (broadened from the original sketch):
+**discovery**, not just enrichment — resolve an idle session that has no live tagged
+child (no MCP server, no in-flight Bash-tool shell), which the pull scan cannot see.
+The hook stamps `{session_id, claude_pid, cwd, ts}`; the locator falls back to the
+registry, liveness-validated on `claude_pid`, only when the pull scan places nothing
+(so SP1's pull stays ground truth).
+
+**Storage decision:** per-session files (`sessions/<session_id>.json`), NOT a shared
+file. The earlier "mirrors `registry.json`" sketch predated the concurrency point:
+every session's `SessionStart` fires independently, and `registry.json` /
+`fork-snapshots.list` use non-atomic no-lock writes — a shared file would race.
+Per-session files (single writer each) remove the race and match the ambient
+`~/.claude/projects/*/<session_id>.jsonl` convention `fork-iterm.sh` relies on.
+
+Session titles / cross-restart parent chains (the original enrichment idea) are
+deferred — not needed for the fork use case that motivated SP3.
 
 ## How to resume from a new session
 
-1. Read this file + the SP2 spec/plan for the most recent context.
-2. `git log --oneline` on `main` — SP1/SP2 commits are landed.
-3. To start SP3: invoke `superpowers:brainstorming` (spec → plan → subagent-driven-dev).
+1. Read this file + the SP2 / SP3 spec+plan for the most recent context.
+2. `git log --oneline` on `main` — SP1/SP2/SP2.x commits are landed.
+3. Later sub-projects: invoke `superpowers:brainstorming` (spec → plan → subagent-driven-dev).
