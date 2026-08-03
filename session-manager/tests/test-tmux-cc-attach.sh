@@ -32,4 +32,21 @@ printf '{"session_id":"s1","cwd":"/tmp/a","ts_start":1,"ts_end":100,"reason":"lo
 line=$(read_resume_records)
 check "read record joined" "[ \"\$line\" = 's1|/tmp/a|100|logout' ]"
 
+# Integration: --resume-only -n prints a resume command for a fresh, resumable record.
+NOW2=$(date +%s)
+rm -f "$(resume_dir)"/*.json
+mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-live"
+touch "$CLAUDE_PROJECTS_DIR/-tmp-live/livesid.jsonl"
+printf '{"session_id":"livesid","cwd":"/tmp/live","ts_start":1,"ts_end":%s,"reason":"logout"}\n' "$NOW2" \
+    > "$(resume_dir)/livesid.json"
+# A stale (old) record and a no-transcript record must be dropped.
+printf '{"session_id":"oldsid","cwd":"/tmp/old","ts_start":1,"ts_end":1,"reason":"other"}\n' \
+    > "$(resume_dir)/oldsid.json"
+printf '{"session_id":"ghostsid","cwd":"/tmp/ghost","ts_start":1,"ts_end":%s,"reason":"other"}\n' "$NOW2" \
+    > "$(resume_dir)/ghostsid.json"
+out=$(TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --resume-only -n 2>/dev/null)
+check "dry-run shows resumable" "printf '%s' \"\$out\" | grep -q \"claude -r 'livesid'\""
+check "dry-run drops stale age" "! printf '%s' \"\$out\" | grep -q oldsid"
+check "dry-run drops no-transcript" "! printf '%s' \"\$out\" | grep -q ghostsid"
+
 [ "$fails" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }

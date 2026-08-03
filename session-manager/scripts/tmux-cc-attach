@@ -31,6 +31,8 @@ DRY_RUN=0
 ASSUME_YES=0
 INCLUDE_ATTACHED=0
 GROUP=1
+RESUME=1
+RESUME_ONLY=0
 DELAY=0.4
 ONLY_GLOBS=()
 EXCLUDE_GLOBS=()
@@ -230,6 +232,15 @@ read_resume_records() {
     done
 }
 
+LOCATOR="${TMUX_CC_LOCATOR:-$(cd "$(dirname "$0")" && pwd)/locator.py}"
+
+# session_ids currently live per the locator (best-effort; empty on any failure).
+live_session_ids() {
+    command -v python3 >/dev/null 2>&1 || return 0
+    [ -f "$LOCATOR" ] || return 0
+    python3 "$LOCATOR" list 2>/dev/null | jq -r '.[].session_id' 2>/dev/null
+}
+
 attach_command_for() {
     local sid="$1" attached="$2" escaped
     escaped=$(escape_shell_single "$sid")
@@ -286,6 +297,9 @@ while [ $# -gt 0 ]; do
         -x|--exclude)   [ $# -ge 2 ] || die "--exclude needs a glob"; EXCLUDE_GLOBS+=("$2"); shift 2 ;;
         -p|--project)   [ $# -ge 2 ] || die "--project needs a glob"; PROJECT_GLOBS+=("$2"); shift 2 ;;
         -d|--delay)     [ $# -ge 2 ] || die "--delay needs seconds"; DELAY="$2"; shift 2 ;;
+        --no-resume)    RESUME=0; shift ;;
+        --resume-only)  RESUME_ONLY=1; RESUME=1; shift ;;
+        --since)        [ $# -ge 2 ] || die "--since needs days"; RESUME_MAX_AGE_DAYS="$2"; shift 2 ;;
         -h|--help)      usage; exit 0 ;;
         *)              die "unknown option: $1 (try --help)" ;;
     esac
@@ -296,10 +310,9 @@ done
 command -v tmux >/dev/null 2>&1 || die "tmux not found on PATH"
 command -v osascript >/dev/null 2>&1 || die "osascript not found (macOS only)"
 [ -d "$ITERM_APP" ] || die "iTerm2 not installed at $ITERM_APP"
-tmux list-sessions >/dev/null 2>&1 || die "no tmux server running"
-
-PANE_DATA=$(tmux list-panes -a \
-    -F '#{session_id}|#{?#{&&:#{window_active},#{pane_active}},1,0}|#{pane_current_path}' 2>/dev/null)
+if [ "$RESUME_ONLY" -eq 0 ]; then
+    tmux list-sessions >/dev/null 2>&1 || die "no tmux server running"
+fi
 
 # --- build the work list ------------------------------------------------------
 
@@ -308,6 +321,10 @@ SESSION_NAMES=()
 SESSION_ATTACHED=()
 SESSION_WINDOWS=()
 SESSION_PROJECT=()
+
+if [ "$RESUME_ONLY" -eq 0 ]; then
+PANE_DATA=$(tmux list-panes -a \
+    -F '#{session_id}|#{?#{&&:#{window_active},#{pane_active}},1,0}|#{pane_current_path}' 2>/dev/null)
 
 while IFS='|' read -r sid name attached windows; do
     [ -n "$sid" ] || continue
@@ -333,9 +350,37 @@ while IFS='|' read -r sid name attached windows; do
     SESSION_PROJECT+=("$project")
 done < <(tmux list-sessions \
     -F '#{session_id}|#{session_name}|#{session_attached}|#{session_windows}' 2>/dev/null)
+fi
 
-if [ ${#SESSION_IDS[@]} -eq 0 ]; then
-    echo "Nothing to attach (no sessions matched)."
+# --- resume work list --------------------------------------------------------
+
+RESUME_IDS=()
+RESUME_CWDS=()
+RESUME_PROJECT=()
+RESUME_REASON=()
+
+if [ "$RESUME" -eq 1 ]; then
+    now=$(date +%s)
+    live_ids=$(live_session_ids)
+    troot=$(transcript_root)
+    while IFS='|' read -r rid rcwd rts rreason; do
+        [ -n "$rid" ] || continue
+        resume_within_age "$rts" "$now" "$RESUME_MAX_AGE_DAYS" || { rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
+        resume_is_resumable "$rid" "$troot" || { rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
+        printf '%s\n' "$live_ids" | grep -qx "$rid" && continue
+        proj=$(project_of_dir "$rcwd")
+        if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$proj" "${PROJECT_GLOBS[@]}"; then
+            continue
+        fi
+        RESUME_IDS+=("$rid")
+        RESUME_CWDS+=("$rcwd")
+        RESUME_PROJECT+=("$proj")
+        RESUME_REASON+=("$rreason")
+    done < <(read_resume_records)
+fi
+
+if [ ${#SESSION_IDS[@]} -eq 0 ] && [ ${#RESUME_IDS[@]} -eq 0 ]; then
+    echo "Nothing to attach or resume (no sessions matched)."
     exit 0
 fi
 
@@ -383,6 +428,10 @@ if [ "$DRY_RUN" -eq 1 ]; then
     for i in "${!SESSION_IDS[@]}"; do
         printf '  %s\n' \
             "$(attach_command_for "${SESSION_IDS[i]}" "${SESSION_ATTACHED[i]}")   # ${SESSION_NAMES[i]} @ ${SESSION_GROUP[i]}"
+    done
+    for i in "${!RESUME_IDS[@]}"; do
+        printf '  %s\n' \
+            "$(resume_attach_command "${RESUME_CWDS[i]}" "${RESUME_IDS[i]}")   # resume ${RESUME_IDS[i]} @ ${RESUME_PROJECT[i]}"
     done
     if [ "$GROUP" -eq 1 ]; then
         printf '\nWould set %s=%d for the run, then restore to %s\n' \
