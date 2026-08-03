@@ -11,6 +11,7 @@ fails=0
 check() { if eval "$2"; then echo "ok - $1"; else echo "FAIL - $1"; fails=$((fails+1)); fi; }
 
 TMUX_CC_LIB_ONLY=1 . "$SCRIPT"
+trap 'rm -rf "$TMP"' EXIT
 
 NOW=1785000000
 check "within age true"  "resume_within_age $((NOW-86400)) $NOW 14"
