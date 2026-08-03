@@ -386,7 +386,7 @@ fi
 
 # Group key per session, then the distinct groups in first-seen order.
 SESSION_GROUP=()
-for project in "${SESSION_PROJECT[@]}"; do
+for project in ${SESSION_PROJECT[@]+"${SESSION_PROJECT[@]}"}; do
     if [ "$GROUP" -eq 0 ]; then
         SESSION_GROUP+=("(all)")
     else
