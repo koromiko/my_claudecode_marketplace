@@ -48,5 +48,10 @@ out=$(TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --resume-only -n 2>/dev/null)
 check "dry-run shows resumable" "printf '%s' \"\$out\" | grep -q \"claude -r 'livesid'\""
 check "dry-run drops stale age" "! printf '%s' \"\$out\" | grep -q oldsid"
 check "dry-run drops no-transcript" "! printf '%s' \"\$out\" | grep -q ghostsid"
+check "dry-run does not prune stale record" "[ -f \"\$(resume_dir)/oldsid.json\" ]"
+check "dry-run does not prune no-transcript record" "[ -f \"\$(resume_dir)/ghostsid.json\" ]"
+
+bash "$SCRIPT" --since foo --resume-only -n >/dev/null 2>&1; rc=$?
+check "--since non-numeric dies" "[ $rc -ne 0 ]"
 
 [ "$fails" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }
