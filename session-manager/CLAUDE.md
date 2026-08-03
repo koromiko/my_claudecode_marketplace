@@ -103,9 +103,12 @@ A separate store from the live registry above, for sessions that have already
 ended. The `SessionEnd` hook (`hooks/remove-session.sh`) writes
 `${CLAUDE_SM_HOME:-$HOME/.claude/session-manager}/resume/<session_id>.json`
 (`{session_id, cwd, ts_start, ts_end, reason}`) before deleting the live
-`sessions/<id>.json` file. `cwd` and `ts_start` come from the start record
-when present, falling back to the `SessionEnd` payload's `cwd` and `ts_end`.
-No record is written if no `cwd` is known (`claude -r` needs it to resume).
+`sessions/<id>.json` file. `cwd` comes from the start record when present,
+falling back to the `SessionEnd` payload's `cwd`. `ts_end` is always the
+hook's own `date +%s` at removal time, never read from any payload. `ts_start`
+comes from the start record's `ts`; when that's missing or non-numeric,
+`ts_start` is set equal to the computed `ts_end`. No record is written if no
+`cwd` is known (`claude -r` needs it to resume).
 
 `locator.py` never reads or sweeps `resume/` — it only ever reads and sweeps
 `sessions/`. The two stores are independent; `resume/` entries are pruned
@@ -130,11 +133,11 @@ Resume-specific flags:
 `-o`/`--only` (name glob) applies to live sessions only. `-p`/`--project`
 and `--since` filter resume entries too.
 
-Read-time hygiene (applied before listing, every run except `-n` dry-run,
-which changes nothing): a resume entry is dropped and its record deleted if
-it is older than the window, or if its transcript
-(`~/.claude/projects/*/<session_id>.jsonl`) is gone; an entry whose
-`session_id` is currently live (per `locator.py list`) is deduped out.
+Read-time hygiene runs on every listing: entries past the age window,
+entries whose transcript (`~/.claude/projects/*/<session_id>.jsonl`) is gone,
+and entries whose `session_id` is currently live (per `locator.py list`) are
+omitted from the list. Under `-n` (dry-run) the omission still happens, but
+the stale/no-transcript record files are not deleted.
 
 Each picked resume entry launches via `resume_attach_command`:
 `tmux -CC new-session -c '<cwd>' "claude -r '<id>'"` — a fresh tmux session

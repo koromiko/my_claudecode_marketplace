@@ -105,7 +105,7 @@ the former `~/.local/bin/tmux-cc-attach` standalone script; symlink it back
 there to keep using the bare `tmux-cc-attach` command name:
 
 ```bash
-ln -sf "$(pwd)/session-manager/scripts/tmux-cc-attach" ~/.local/bin/tmux-cc-attach
+ln -sf "$HOME/Project/my_claudecode_marketplace/session-manager/scripts/tmux-cc-attach" ~/.local/bin/tmux-cc-attach
 ```
 
 Resume relies on a `resume/` record store written by the `SessionEnd` hook
