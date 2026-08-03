@@ -395,7 +395,11 @@ for project in "${SESSION_PROJECT[@]}"; do
 done
 
 PROJECT_GROUPS=()
-for group in "${SESSION_GROUP[@]}"; do
+for group in ${SESSION_GROUP[@]+"${SESSION_GROUP[@]}"}; do
+    contains_exact "$group" ${PROJECT_GROUPS[@]+"${PROJECT_GROUPS[@]}"} \
+        || PROJECT_GROUPS+=("$group")
+done
+for group in ${RESUME_PROJECT[@]+"${RESUME_PROJECT[@]}"}; do
     contains_exact "$group" ${PROJECT_GROUPS[@]+"${PROJECT_GROUPS[@]}"} \
         || PROJECT_GROUPS+=("$group")
 done
@@ -406,10 +410,11 @@ total_tabs=0
 for i in "${!SESSION_IDS[@]}"; do
     total_tabs=$((total_tabs + 1 + SESSION_WINDOWS[i]))
 done
+total_tabs=$(( total_tabs + ${#RESUME_IDS[@]} ))
 
 printf '\n'
-printf 'Attaching %d session(s) into %d iTerm window(s), ~%d tabs total:\n\n' \
-    "${#SESSION_IDS[@]}" "${#PROJECT_GROUPS[@]}" "$total_tabs"
+printf 'Attaching/resuming %d session(s) into %d iTerm window(s), ~%d tabs total:\n\n' \
+    "$(( ${#SESSION_IDS[@]} + ${#RESUME_IDS[@]} ))" "${#PROJECT_GROUPS[@]}" "$total_tabs"
 
 for group in "${PROJECT_GROUPS[@]}"; do
     printf '  %s\n' "$group"
@@ -419,6 +424,11 @@ for group in "${PROJECT_GROUPS[@]}"; do
         [ "${SESSION_ATTACHED[i]}" = "1" ] && marker="  [already attached -> grouped]"
         printf '      %-12s (%s)  %s window(s)%s\n' \
             "${SESSION_NAMES[i]}" "${SESSION_IDS[i]}" "${SESSION_WINDOWS[i]}" "$marker"
+    done
+    for i in ${RESUME_IDS[@]+"${!RESUME_IDS[@]}"}; do
+        [ "${RESUME_PROJECT[i]}" = "$group" ] || continue
+        printf '      %-12s (%s)  [resume: %s]\n' \
+            "${RESUME_IDS[i]:0:8}" "${RESUME_IDS[i]}" "${RESUME_REASON[i]:-ended}"
     done
 done
 printf '\n'
@@ -487,6 +497,28 @@ for group in "${PROJECT_GROUPS[@]}"; do
             printf '  %-12s -> tab in window %s\n' "$name" "$window_id"
         fi
 
+        attached_count=$((attached_count + 1))
+        sleep "$DELAY"
+    done
+
+    for i in ${RESUME_IDS[@]+"${!RESUME_IDS[@]}"}; do
+        [ "${RESUME_PROJECT[i]}" = "$group" ] || continue
+        name="${RESUME_IDS[i]:0:8}"
+        cmd=$(resume_attach_command "${RESUME_CWDS[i]}" "${RESUME_IDS[i]}")
+        if [ -z "$window_id" ]; then
+            window_id=$(create_group_window "$cmd")
+            if [ -z "$window_id" ]; then
+                warn "failed to create iTerm window for group $group"
+                FAILED+=("$name"); failed_count=$((failed_count + 1)); continue
+            fi
+            printf '  %-12s -> new window %s   %s [resume]\n' "$name" "$window_id" "$group"
+        else
+            if [ "$(add_gateway_tab "$window_id" "$cmd")" != "ok" ]; then
+                warn "failed to open resume tab for $name"
+                FAILED+=("$name"); failed_count=$((failed_count + 1)); continue
+            fi
+            printf '  %-12s -> tab in window %s [resume]\n' "$name" "$window_id"
+        fi
         attached_count=$((attached_count + 1))
         sleep "$DELAY"
     done

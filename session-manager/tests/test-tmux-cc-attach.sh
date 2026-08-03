@@ -51,6 +51,16 @@ check "dry-run drops no-transcript" "! printf '%s' \"\$out\" | grep -q ghostsid"
 check "dry-run does not prune stale record" "[ -f \"\$(resume_dir)/oldsid.json\" ]"
 check "dry-run does not prune no-transcript record" "[ -f \"\$(resume_dir)/ghostsid.json\" ]"
 
+# Report: the resumable session must appear under its project group. Anchor
+# on the report's own group-header line ("  <group>", nothing else) so this
+# doesn't pass merely because the dry-run commands list also mentions the
+# project (it prints "# resume ... @ <group>" regardless of the report loop).
+live_group=$(project_of_dir /tmp/live)
+check "report shows project group for /tmp/live" \
+    "printf '%s\n' \"\$out\" | grep -qxF \"  \$live_group\""
+check "report shows resume marker line for livesid" \
+    "printf '%s' \"\$out\" | grep -q '^ *livesid ' && printf '%s' \"\$out\" | grep -q '\\[resume'"
+
 bash "$SCRIPT" --since foo --resume-only -n >/dev/null 2>&1; rc=$?
 check "--since non-numeric dies" "[ $rc -ne 0 ]"
 
