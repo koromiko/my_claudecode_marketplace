@@ -97,6 +97,51 @@ indistinguishable. Consumers must still handle the array case (test for a list /
 
 Tests: `python3 session-manager/tests/test_locator.py -v`.
 
+### Resume store (ended sessions)
+
+A separate store from the live registry above, for sessions that have already
+ended. The `SessionEnd` hook (`hooks/remove-session.sh`) writes
+`${CLAUDE_SM_HOME:-$HOME/.claude/session-manager}/resume/<session_id>.json`
+(`{session_id, cwd, ts_start, ts_end, reason}`) before deleting the live
+`sessions/<id>.json` file. `cwd` and `ts_start` come from the start record
+when present, falling back to the `SessionEnd` payload's `cwd` and `ts_end`.
+No record is written if no `cwd` is known (`claude -r` needs it to resume).
+
+`locator.py` never reads or sweeps `resume/` — it only ever reads and sweeps
+`sessions/`. The two stores are independent; `resume/` entries are pruned
+only at read time by `tmux-cc-attach` (below), never by the locator.
+
+Tests: `bash session-manager/tests/test-record-session.sh`.
+
+### tmux-cc-attach (attach live sessions, resume ended ones)
+
+`scripts/tmux-cc-attach` is the vendored copy of the former
+`~/.local/bin/tmux-cc-attach` global script. Resume is **on by default**: a
+plain run lists both live tmux sessions to attach and recent resumable ended
+sessions from the `resume/` store, grouped by project (`project_of_dir`).
+
+Resume-specific flags:
+- `--no-resume` — live sessions only.
+- `--resume-only` — ended sessions only; skips the tmux-server preflight.
+- `--since <days>` — recency window override; validated as a non-negative
+  integer (dies otherwise).
+- `RESUME_MAX_AGE_DAYS` (env, default `14`) — default recency window.
+
+`-o`/`--only` (name glob) applies to live sessions only. `-p`/`--project`
+and `--since` filter resume entries too.
+
+Read-time hygiene (applied before listing, every run except `-n` dry-run,
+which changes nothing): a resume entry is dropped and its record deleted if
+it is older than the window, or if its transcript
+(`~/.claude/projects/*/<session_id>.jsonl`) is gone; an entry whose
+`session_id` is currently live (per `locator.py list`) is deduped out.
+
+Each picked resume entry launches via `resume_attach_command`:
+`tmux -CC new-session -c '<cwd>' "claude -r '<id>'"` — a fresh tmux session
+in the owning cwd, attached in iTerm control mode.
+
+Tests: `bash session-manager/tests/test-tmux-cc-attach.sh`.
+
 ### fork-active-pane.sh (fork the focused pane — tmux key-binding)
 
 The fork hotkey: press a tmux key on any pane and the Claude session running in
