@@ -96,6 +96,34 @@ python3 scripts/locator.py resolve --session <uuid>   # by session id
 
 `resolve --pane` / `--tty` return the single interactive session in that pane (a JSON object), or a JSON array on the rare occasion two interactive sessions share a pane and the focused one can't be told apart, or `[]` with exit code 1 when none match.
 
+## Attach and Resume Sessions (tmux-cc-attach)
+
+`scripts/tmux-cc-attach` attaches detached tmux sessions in iTerm2 control
+mode (`tmux -CC`), one iTerm window per project, and — on by default — also
+lists and resumes recently-ended Claude sessions. It is the vendored copy of
+the former `~/.local/bin/tmux-cc-attach` standalone script; symlink it back
+there to keep using the bare `tmux-cc-attach` command name:
+
+```bash
+ln -sf "$HOME/Project/my_claudecode_marketplace/session-manager/scripts/tmux-cc-attach" ~/.local/bin/tmux-cc-attach
+```
+
+Resume relies on a `resume/` record store written by the `SessionEnd` hook
+(see `CLAUDE.md`) — only sessions that ended after this hook was installed
+will show up; sessions that ended earlier leave no record.
+
+```bash
+tmux-cc-attach              # live sessions to attach + resumable ended ones
+tmux-cc-attach --no-resume  # live sessions only
+tmux-cc-attach --resume-only              # ended sessions only
+tmux-cc-attach --since 3    # only ended sessions from the last 3 days
+```
+
+Other flags (`-n`/`-y`/`-a`/`-o`/`-x`/`-p`/`-d`/`--no-group`) work as before;
+`-o` (name glob) matches live sessions only, while `-p` (project glob) and
+`--since` also filter resume entries. The recency window defaults to 14 days
+and can be overridden globally with `RESUME_MAX_AGE_DAYS`.
+
 ## Interacting with Managed Panes
 
 After creating a pane with `run-in-pane`, you can interact with it using the session-manager script:
