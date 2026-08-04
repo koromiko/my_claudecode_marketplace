@@ -30,7 +30,7 @@ This prints `SESSION_ID`, `OWNER_CWD` (where the session is resumable from), `CU
 
 ### Step 3 — Run the fork
 
-Always pass `--quiet` so the success path prints only the managed ID (no `Forking…` / `Verifying…` chatter). This matters because the forked pane resumes a *copy of this transcript* — less fork chatter here means a cleaner top-of-context in the new pane. Errors are unaffected by `--quiet`.
+Always pass `--quiet` so the success path prints only the managed ID (no `Forking…` / `Verifying…` chatter) and this session's transcript stays clean. Errors are unaffected by `--quiet`.
 
 Approach A (default / `MATCH=yes` / user chose A):
 ```bash
@@ -42,11 +42,11 @@ Approach B (user chose to relocate to the current directory):
 ${CLAUDE_PLUGIN_ROOT}/scripts/fork-iterm.sh "$(pwd)" --fork-dir "$(pwd)" --relocate --quiet
 ```
 
-The script detects tmux vs iTerm, opens the pane/tab at the fork directory, sends `claude -r <id> --fork-session`, and **verifies the session actually started** before reporting success: it polls the target pane/tab (up to ~20s) and requires `claude` to hold the foreground for several consecutive checks (a launch that fails — `claude` not on PATH, an immediate crash — falls back to the shell prompt and is reported failed). It only prints a managed ID (e.g. `sm-abc123`) on the last line of stdout **after** the session is confirmed up; on failure it exits non-zero, prints the captured pane/tab output, and does not register the session.
+The script detects tmux vs iTerm, opens the pane/tab at the fork directory, sends `claude -r <id> --fork-session` against a snapshot of the transcript cut at the last closed turn (this turn is still running, so the live record ends mid-turn — the fork would otherwise open on a truncated turn), and **verifies the session actually started** before reporting success: it polls the target pane/tab (up to ~20s) and requires `claude` to hold the foreground for several consecutive checks (a launch that fails — `claude` not on PATH, an immediate crash — falls back to the shell prompt and is reported failed). It only prints a managed ID (e.g. `sm-abc123`) on the last line of stdout **after** the session is confirmed up; on failure it exits non-zero, prints the captured pane/tab output, and does not register the session.
 
 ## Reporting to User
 
 **Base your report on the script's exit code, not just on the pane/tab opening.**
 
-- **Exit code 0 with a managed ID on stdout** — the fork was verified. Report **only the managed ID**, in a single line — e.g. `Forked → sm-abc123`. Do not append the session-manager command cheatsheet or extra explanation; keeping the report to one line minimizes the fork's footprint in the forked pane's transcript. (Exception: if Approach B was used, add one short line noting the forked session runs in the current directory but its history refers to the original location.)
+- **Exit code 0 with a managed ID on stdout** — the fork was verified. Report **only the managed ID**, in a single line — e.g. `Forked → sm-abc123`. Do not append the session-manager command cheatsheet or extra explanation. (Exception: if Approach B was used, add one short line noting the forked session runs in the current directory but its history refers to the original location.)
 - **Non-zero exit code** — the fork did NOT start (e.g., `claude` not on PATH, the session is not resumable, an immediate launch error). Do **not** report success or invent a managed ID. Surface the captured pane/tab output the script printed and explain what failed so the user can fix it (the orphan pane/tab was left open for inspection and was not registered).

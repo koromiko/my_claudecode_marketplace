@@ -68,11 +68,17 @@ they are not unique across tmux servers. See
 `docs/superpowers/specs/2026-06-07-session-locator-sp1-design.md`.
 
 Resolution is **claude-anchored**: a session's pane and `leader_pid` come from its
-real `claude` TUI process (found by walking up from a tagged child via
-`nearest_claude_ancestor`), and the pane is derived from that TUI's tty — not from
-a `TMUX_PANE` env value on a possibly-detached child. This prevents MCP-server
-children from being reported as the leader and prevents detached stragglers from
-"ghosting" a session onto a pane its TUI does not occupy (SP2.1).
+real `claude` TUI process, and the pane is derived from that TUI's live tty — never
+from a `TMUX_PANE` env value on a possibly-detached child, so a stray child never
+ghosts a session onto a pane its TUI does not occupy. The TUI is identified by the
+`CLAUDE_PID` a tagged child carries in its environment (validated as a live `claude`
+process), falling back to a `nearest_claude_ancestor` ppid-walk when absent. This
+resolves sessions whose only tagged members are detached — no live stdio MCP server
+on the TUI's tty — which the earlier on-tty-member rule left unplaced (SP2.2). When
+one `claude` TUI is reused across sessions, a stale straggler and the live occupant
+name the same pid and both appear placed in `list`; `resolve --pane`/`--tty` breaks
+the tie via foreground pgid, then by which session has a live on-tty member,
+returning the single live occupant.
 
 When a session is **idle with no live tagged child** (no stdio MCP server, no in-flight
 Bash-tool shell), the pull scan cannot see it — the TUI itself carries no
@@ -166,6 +172,18 @@ When the caller's directory differs from the session's owning directory, `/fork`
 
 Script flags: `[current_dir] [--fork-dir <dir>] [--relocate] [--resolve]`. `--resolve` prints `SESSION_ID` / `OWNER_CWD` / `CURRENT_DIR` / `MATCH` and exits without forking.
 
+#### Fork snapshot (the fork opens on a closed turn, not a half-finished one)
+
+The fork is dispatched from *inside* the turn that requested it, so the live transcript on disk still has that turn open — its last row is an unresolved `tool_use` (the fork command itself), with no result and no closing message. A child resuming that record verbatim inherits the truncation: the forked pane renders a final turn stuck mid-tool-call. This cannot be fixed by waiting, because the turn cannot close until the fork script returns.
+
+`write_fork_snapshot` therefore copies the record to a fresh session id and cuts it at the last **closed** turn — the last main-chain assistant row that carries reply text, opens no tool call, and leaves none awaiting a `tool_result` (a thinking-only or `tool_use` row opens a turn rather than closing one). `mode` / `permission-mode` set after the cut are carried over; lines are copied byte-for-byte; the source is never touched. `claude -r <snapshot-id> --fork-session` then rewrites the whole history under its own new id, so the snapshot is not the fork's record.
+
+`/fork` forks the session that is running the command (`SESSION_ID == CLAUDE_CODE_SESSION_ID`), whose final turn is unfinished by construction — that turn is dropped whole (`in_flight=1`), so the fork branches from just before the request and carries no trace of it. An externally supplied `--session-id` (the tmux hotkey) belongs to another session whose last turn may legitimately have ended, so only trailing incomplete structure is trimmed. With no closed turn to cut at, the live record is forked as before.
+
+Snapshots are recorded in `~/.claude/session-manager/fork-snapshots.list` and deleted by a later fork once older than `FORK_SNAPSHOT_TTL` (default 600s), not at the end of the fork that made them: cleanup then rests on no startup timing, and a fork that failed to launch keeps its snapshot so the pane's command can be retried. (A child reads its snapshot ~1s into startup, measured by deleting it at T+1s/T+2s/T+3.2s — all loaded fine — so an immediate delete would also have worked; the sweep just removes the assumption and cleans up failures too.)
+
+Tests: `bash session-manager/tests/test-fork-snapshot.sh`.
+
 #### Fork verification (only report success when the fork actually works)
 
 `fork-iterm.sh` only prints a managed ID / exits 0 once the fork is confirmed:
@@ -175,7 +193,7 @@ Script flags: `[current_dir] [--fork-dir <dir>] [--relocate] [--resolve]`. `--re
 
 Two signals were tried and **rejected** because the terminal observation is ambiguous: (a) watching for the forked transcript `.jsonl` — an *interactive* fork doesn't write it until the first prompt (only `--print` flushes it at startup); (b) "a non-shell process took over the terminal" alone — a *failed* resume keeps `node` in the foreground showing an error rather than exiting. Hence resolve resumability up front, then confirm the process launched and survived.
 
-Tunables (env vars): `FORK_VERIFY_TIMEOUT`, `FORK_STABILIZE_CHECKS`. Helper functions can be unit-tested by sourcing with `FORK_LIB_ONLY=1` (see `tests/test-fork-verify.sh`).
+Tunables (env vars): `FORK_VERIFY_TIMEOUT`, `FORK_STABILIZE_CHECKS`, `FORK_SNAPSHOT_TTL`. Helper functions can be unit-tested by sourcing with `FORK_LIB_ONLY=1` (see `tests/test-fork-verify.sh`, `tests/test-fork-snapshot.sh`).
 
 ### /session-manager:run-in-pane
 Run a bash command in a new tmux pane or iTerm tab with automatic tracking. Returns a managed ID for subsequent operations.
@@ -208,10 +226,13 @@ cd plugins/session-manager
 ./scripts/session-manager.sh cleanup
 ```
 
-Unit-test the fork-verification helpers (no terminal needed):
+Unit-test the fork helpers (no terminal needed):
 ```bash
 bash session-manager/tests/test-fork-verify.sh
 # Sources fork-iterm.sh with FORK_LIB_ONLY=1 and exercises session_resumable_in
+
+bash session-manager/tests/test-fork-snapshot.sh
+# Cut points, in-flight turn dropping, mode carry-over, snapshot sweep
 ```
 
 Test the fork script (now returns managed ID):

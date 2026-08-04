@@ -152,6 +152,139 @@ session_launch_cwd() {
     grep -m1 -o '"cwd":"[^"]*"' "$owner_file" | sed 's/.*"cwd":"//; s/"$//'
 }
 
+# Write a fork-ready copy of a transcript and echo the new session id it is
+# stored under. The live record on disk ends mid-turn — the forking turn is still
+# running, so its last row is an unresolved tool_use (this very fork command)
+# with no result and no closing message. A child resuming it verbatim inherits
+# that truncated turn. The copy is therefore cut at the last closed turn; mode
+# rows set after the cut are carried over.
+#
+# With in_flight=1 the caller is the session being forked, so its final turn is
+# by construction unfinished (this fork is what it is doing) and is dropped whole
+# — the fork branches from just before the request, not from the middle of it.
+#
+# Exits 3 when there is no closed turn to cut at (caller forks the live record
+# instead). The source file is never modified.
+write_fork_snapshot() {
+    local owner_file="$1" dest_dir="$2" in_flight="${3:-0}"
+
+    python3 - "$owner_file" "$dest_dir" "$in_flight" << 'PYEOF'
+import json
+import os
+import sys
+import uuid
+
+owner_file = sys.argv[1]
+dest_dir = sys.argv[2]
+in_flight = sys.argv[3] == '1'
+
+try:
+    with open(owner_file) as f:
+        lines = [line for line in f if line.strip()]
+    rows = [json.loads(line) for line in lines]
+except (OSError, ValueError):
+    sys.exit(3)
+
+
+def is_human_prompt(row):
+    """A typed prompt — not a tool result, slash-command expansion or sidechain."""
+    if row.get('type') != 'user' or row.get('isMeta') or row.get('isSidechain'):
+        return False
+    content = (row.get('message') or {}).get('content')
+    if isinstance(content, list):
+        return not any(b.get('type') == 'tool_result'
+                       for b in content if isinstance(b, dict))
+    return isinstance(content, str)
+
+
+# Rows the cut may land on: everything, or everything before the unfinished turn.
+limit = len(rows)
+if in_flight:
+    for i, row in enumerate(rows):
+        if is_human_prompt(row):
+            limit = i
+
+# Cut point: last main-chain assistant row that closes a turn — it carries the
+# reply text, opens no tool call, and leaves none awaiting a tool_result. A
+# thinking-only or tool_use row starts a turn rather than ending one, so cutting
+# there would reproduce the truncation this snapshot exists to avoid.
+pending = []
+cut = -1
+for i, row in enumerate(rows[:limit]):
+    content = (row.get('message') or {}).get('content')
+    opens_tool = False
+    has_text = False
+    if isinstance(content, list):
+        for block in content:
+            if block.get('type') == 'tool_use':
+                pending.append(block.get('id'))
+                opens_tool = True
+            elif block.get('type') == 'tool_result':
+                tool_use_id = block.get('tool_use_id')
+                if tool_use_id in pending:
+                    pending.remove(tool_use_id)
+            elif block.get('type') == 'text' and block.get('text', '').strip():
+                has_text = True
+    elif isinstance(content, str) and content.strip():
+        has_text = True
+    if (row.get('type') == 'assistant' and has_text and not opens_tool
+            and not pending and not row.get('isSidechain')):
+        cut = i
+
+if cut < 0:
+    sys.exit(3)
+
+# Lines are copied verbatim, so the snapshot is a byte-identical prefix.
+kept = lines[:cut + 1]
+# These carry no uuid references, so a later value stays valid after the cut.
+for kind in ('mode', 'permission-mode'):
+    trailing = [lines[i] for i in range(cut + 1, len(rows)) if rows[i].get('type') == kind]
+    if trailing:
+        kept.append(trailing[-1])
+
+snapshot_id = str(uuid.uuid4())
+try:
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(os.path.join(dest_dir, snapshot_id + '.jsonl'), 'w') as f:
+        for line in kept:
+            f.write(line if line.endswith('\n') else line + '\n')
+except OSError:
+    sys.exit(3)
+
+print(snapshot_id)
+PYEOF
+}
+
+# A fork snapshot is dead weight once its child has read it (measured at ~1s into
+# startup, before verification), but it is deleted on a later fork rather than at
+# the end of this one: cleanup then depends on no startup timing at all, and a
+# fork that failed to come up keeps its snapshot so the pane's command can be
+# retried. Without the sweep each fork would leave a full copy of the transcript
+# behind — megabytes for a long session.
+SNAPSHOT_LIST="$REGISTRY_DIR/fork-snapshots.list"
+SNAPSHOT_TTL="${FORK_SNAPSHOT_TTL:-600}"
+
+snapshot_track() {
+    printf '%s %s\n' "$(date +%s)" "$1" >> "$SNAPSHOT_LIST"
+}
+
+snapshot_sweep() {
+    [ -f "$SNAPSHOT_LIST" ] || return 0
+    local now keep ts path
+    now=$(date +%s)
+    keep=$(mktemp) || return 0
+    while read -r ts path; do
+        [ -n "$path" ] || continue
+        case "$ts" in ''|*[!0-9]*) continue ;; esac
+        if [ "$((now - ts))" -ge "$SNAPSHOT_TTL" ]; then
+            rm -f "$path"
+        else
+            printf '%s %s\n' "$ts" "$path" >> "$keep"
+        fi
+    done < "$SNAPSHOT_LIST"
+    mv "$keep" "$SNAPSHOT_LIST"
+}
+
 # Add a pane to the registry
 registry_add() {
     local id="$1"
@@ -488,16 +621,34 @@ progress "Forking session $SESSION_ID from $FORK_DIR"
 # Common managed id / timestamp / fork command (used by both tmux and iTerm paths).
 managed_id=$(generate_id)
 timestamp=$(get_timestamp)
-fork_cmd="claude -r $SESSION_ID --fork-session"
+
+# Resume a snapshot cut at the last closed turn rather than the live record: the
+# record still has the forking turn open (unresolved tool_use), which the child
+# would otherwise inherit as a truncated final turn. Falls back to the live record
+# when there is no closed turn to cut at.
+# Forking our own session (/fork) means that open turn is the fork request itself,
+# so it is dropped whole; an externally supplied id (the tmux hotkey) belongs to
+# another session whose last turn may well be finished.
+snapshot_sweep
+SNAPSHOT_FILE=""
+if [ "$SESSION_ID" = "${CLAUDE_CODE_SESSION_ID:-}" ]; then in_flight=1; else in_flight=0; fi
+resume_id=$(write_fork_snapshot "$OWNER_FILE" "$(project_sessions_dir "$FORK_DIR")" "$in_flight")
+if [ -n "$resume_id" ] && session_resumable_in "$resume_id" "$FORK_DIR"; then
+    SNAPSHOT_FILE="$(project_sessions_dir "$FORK_DIR")/$resume_id.jsonl"
+    snapshot_track "$SNAPSHOT_FILE"
+else
+    resume_id="$SESSION_ID"
+fi
+fork_cmd="claude -r $resume_id --fork-session"
+# The registry records the parent session; the snapshot id is ephemeral.
+registry_cmd="claude -r $SESSION_ID --fork-session"
 
 # Orientation note appended to the forked session's system prompt so the child
-# knows it IS the completed fork. Without it, the child resumes a copy of the
-# parent transcript captured mid-fork (parent's last line is the in-progress
-# fork command, no managed id yet) and mistakes the fork for unfinished —
-# offering to "finish" a fork that already succeeded. Appended at each dispatch
-# site (not baked into fork_cmd) so the quotes can be escaped per transport:
-# raw for tmux send-keys, AppleScript-escaped for the iTerm -c block. Keep it
-# one plain-ASCII line with no quotes/backslashes/$ so it survives both.
+# knows it IS the completed fork and can refer to itself by its managed id.
+# Appended at each dispatch site (not baked into fork_cmd) so the quotes can be
+# escaped per transport: raw for tmux send-keys, AppleScript-escaped for the
+# iTerm -c block. Keep it one plain-ASCII line with no quotes/backslashes/$ so
+# it survives both.
 fork_note="Forked session (session-manager id: $managed_id); fork complete."
 
 # Check if running inside tmux
@@ -523,7 +674,7 @@ if [ -n "$TMUX" ]; then
 
         if [ "$fork_status" = "verified" ]; then
             # Register the forked session only after it is confirmed up.
-            registry_add "$managed_id" "tmux" "$pane_id" "$FORK_DIR" "$fork_cmd" "$timestamp"
+            registry_add "$managed_id" "tmux" "$pane_id" "$FORK_DIR" "$registry_cmd" "$timestamp"
             progress "Session forked successfully into new tmux pane (verified)."
             # Output only the managed ID on stdout for easy parsing
             echo "$managed_id"
@@ -534,6 +685,7 @@ if [ -n "$TMUX" ]; then
             tmux capture-pane -t "$pane_id" -p -S -50 2>/dev/null >&2
             echo "---------------------------------------" >&2
             echo "The pane was left open for inspection; it was NOT registered as a managed session." >&2
+            [ -n "$SNAPSHOT_FILE" ] && echo "The pane's command can be retried while the fork snapshot lasts: $SNAPSHOT_FILE" >&2
             exit 1
         fi
     else
@@ -588,12 +740,13 @@ progress "Verifying forked session started (up to ${FORK_VERIFY_TIMEOUT}s)..."
 fork_status=$(verify_fork_iterm "$pane_id")
 
 if [ "$fork_status" = "verified" ]; then
-    registry_add "$managed_id" "iterm" "$pane_id" "$FORK_DIR" "$fork_cmd" "$timestamp"
+    registry_add "$managed_id" "iterm" "$pane_id" "$FORK_DIR" "$registry_cmd" "$timestamp"
     progress "Session forked successfully into new iTerm tab (verified)."
     # Output only the managed ID on stdout for easy parsing
     echo "$managed_id"
 else
     echo "Error: Fork command was sent but the Claude session did not start in the new iTerm tab." >&2
     echo "The tab was left open for inspection; it was NOT registered as a managed session." >&2
+    [ -n "$SNAPSHOT_FILE" ] && echo "The tab's command can be retried while the fork snapshot lasts: $SNAPSHOT_FILE" >&2
     exit 1
 fi
