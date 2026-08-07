@@ -141,9 +141,18 @@ and `--since` filter resume entries too.
 
 Read-time hygiene runs on every listing: entries past the age window,
 entries whose transcript (`~/.claude/projects/*/<session_id>.jsonl`) is gone,
-and entries whose `session_id` is currently live (per `locator.py list`) are
-omitted from the list. Under `-n` (dry-run) the omission still happens, but
-the stale/no-transcript record files are not deleted.
+entries whose transcript is an autonomous teammate/agent session (carries a
+`"type":"agent-setting"` record), and entries whose `session_id` is currently
+live (per `locator.py list`) are omitted from the list. Autonomous entries are
+skipped, not deleted; they age out via the window prune. Under `-n` (dry-run)
+the omission still happens, but the stale/no-transcript record files are not
+deleted.
+
+Selection is per project group. After the report (each group numbered
+`[1]`, `[2]`, …), the prompt `Select projects [Enter=all, e.g. '1 3',
+'n'=none]` toggles whole groups: a deselected group skips both its live-attach
+and resume entries. `-y` skips the prompt and takes all groups; `-n` previews
+all groups without prompting.
 
 Each picked resume entry launches via `resume_attach_command`:
 `tmux -CC new-session -c '<cwd>' "claude -r '<id>'"` — a fresh tmux session
