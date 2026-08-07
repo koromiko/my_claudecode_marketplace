@@ -308,6 +308,7 @@ parse_group_selection() {
     esac
     for tok in $reply; do
         case "$tok" in ''|*[!0-9]*) return 1 ;; esac
+        tok=$((10#$tok))
         { [ "$tok" -ge 1 ] && [ "$tok" -le "$count" ]; } || return 1
         out+=("$tok")
     done

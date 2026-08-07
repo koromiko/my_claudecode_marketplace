@@ -89,4 +89,11 @@ parse_group_selection 'n' 3 >/dev/null; check "sel none rc2" "[ $? -eq 2 ]"
 parse_group_selection '5' 3 >/dev/null; check "sel oob rc1"  "[ $? -eq 1 ]"
 parse_group_selection 'x' 3 >/dev/null; check "sel nonnum rc1" "[ $? -eq 1 ]"
 
+# parse_group_selection: leading-zero tokens must normalize to decimal, not
+# be read as octal (bash treats a leading-0 numeric literal as octal in
+# arithmetic context, e.g. array subscripts).
+check "sel zero-padded 008 = 8"  "[ \"\$(parse_group_selection '008' 10 | tr '\n' ' ')\" = '8 ' ]"
+check "sel zero-padded 010 = 10" "[ \"\$(parse_group_selection '010' 10 | tr '\n' ' ')\" = '10 ' ]"
+check "sel mixed zero-padded"    "[ \"\$(parse_group_selection '01 03' 5 | tr '\n' ' ')\" = '1 3 ' ]"
+
 [ "$fails" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }
