@@ -213,6 +213,17 @@ resume_is_resumable() {
     compgen -G "$root/*/$id.jsonl" >/dev/null 2>&1
 }
 
+# 0 if the session's transcript marks it as an autonomous teammate/agent
+# session (carries a "type":"agent-setting" record); human sessions have none.
+resume_is_autonomous() {
+    local id="$1" root="$2" f
+    for f in "$root"/*/"$id".jsonl; do
+        [ -e "$f" ] || continue
+        grep -q '"type":"agent-setting"' "$f" && return 0
+    done
+    return 1
+}
+
 # The command that recreates + attaches a session in a fresh tmux -CC session.
 resume_attach_command() {
     local ec ei
@@ -367,6 +378,7 @@ if [ "$RESUME" -eq 1 ]; then
         [ -n "$rid" ] || continue
         resume_within_age "$rts" "$now" "$RESUME_MAX_AGE_DAYS" || { [ "$DRY_RUN" -eq 1 ] || rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
         resume_is_resumable "$rid" "$troot" || { [ "$DRY_RUN" -eq 1 ] || rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
+        resume_is_autonomous "$rid" "$troot" && continue
         printf '%s\n' "$live_ids" | grep -qx "$rid" && continue
         proj=$(project_of_dir "$rcwd")
         if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$proj" "${PROJECT_GLOBS[@]}"; then

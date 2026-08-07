@@ -23,6 +23,15 @@ touch "$CLAUDE_PROJECTS_DIR/-tmp-proj/abc123.jsonl"
 check "resumable true"  "resume_is_resumable abc123 \"\$(transcript_root)\""
 check "resumable false" "! resume_is_resumable nope \"\$(transcript_root)\""
 
+# resume_is_autonomous: a transcript carrying an agent-setting record is
+# autonomous; a plain human transcript is not; a missing transcript is not.
+mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-auto"
+printf '{"type":"agent-setting"}\n{"type":"user"}\n' > "$CLAUDE_PROJECTS_DIR/-tmp-auto/autosid.jsonl"
+printf '{"type":"user"}\n{"type":"assistant"}\n'     > "$CLAUDE_PROJECTS_DIR/-tmp-auto/humansid.jsonl"
+check "autonomous true"    "resume_is_autonomous autosid \"\$(transcript_root)\""
+check "autonomous false"   "! resume_is_autonomous humansid \"\$(transcript_root)\""
+check "autonomous missing" "! resume_is_autonomous nope \"\$(transcript_root)\""
+
 cmd=$(resume_attach_command "/tmp/my proj" "id'x")
 check "attach cmd cwd"  "printf '%s' \"\$cmd\" | grep -q \"new-session -c '/tmp/my proj'\""
 check "attach cmd id"   "printf '%s' \"\$cmd\" | grep -q \"claude -r 'id'\\\\\\\\''x'\""
@@ -44,10 +53,16 @@ printf '{"session_id":"oldsid","cwd":"/tmp/old","ts_start":1,"ts_end":1,"reason"
     > "$(resume_dir)/oldsid.json"
 printf '{"session_id":"ghostsid","cwd":"/tmp/ghost","ts_start":1,"ts_end":%s,"reason":"other"}\n' "$NOW2" \
     > "$(resume_dir)/ghostsid.json"
+# An autonomous (teammate/agent) session must be excluded from the list.
+mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-auto2"
+printf '{"type":"agent-setting"}\n' > "$CLAUDE_PROJECTS_DIR/-tmp-auto2/autosid2.jsonl"
+printf '{"session_id":"autosid2","cwd":"/tmp/auto2","ts_start":1,"ts_end":%s,"reason":"other"}\n' "$NOW2" \
+    > "$(resume_dir)/autosid2.json"
 out=$(TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --resume-only -n 2>/dev/null)
 check "dry-run shows resumable" "printf '%s' \"\$out\" | grep -q \"claude -r 'livesid'\""
 check "dry-run drops stale age" "! printf '%s' \"\$out\" | grep -q oldsid"
 check "dry-run drops no-transcript" "! printf '%s' \"\$out\" | grep -q ghostsid"
+check "dry-run drops autonomous" "! printf '%s' \"\$out\" | grep -q autosid2"
 check "dry-run does not prune stale record" "[ -f \"\$(resume_dir)/oldsid.json\" ]"
 check "dry-run does not prune no-transcript record" "[ -f \"\$(resume_dir)/ghostsid.json\" ]"
 
