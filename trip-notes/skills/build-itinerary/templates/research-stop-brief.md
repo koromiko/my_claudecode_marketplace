@@ -8,10 +8,10 @@ Next stop in the route (for driving-time estimate; omit if this is the last stop
 Find and return:
 
 1. **Exact address** in the local language, and confirm the place actually exists (don't rely on a single low-confidence source).
-2. **Google Maps link** — prefer a real maps.google.com share link if you find one; otherwise construct `https://www.google.com/maps/search/?api=1&query=<url-encoded address or name+address>` using the confirmed address.
+2. **Google Maps link** — prefer a real maps.google.com share link if you find one; otherwise construct `https://www.google.com/maps/search/?api=1&query=<url-encoded address or name+address>` using the confirmed address. **Also report the pin's lat,lng** (readable off the Maps result) — the orchestrator uses it to sanity-check the driving distances numerically.
 3. **2–3 local-language blog/news articles** about this specific spot (not generic area guides unless nothing else exists). WebFetch each candidate to confirm it's actually about this place before including it.
 4. **Traditional Chinese (繁體中文) coverage** if any genuinely exists — don't force an unrelated or same-named-different-place result in; if you find a same-name-different-location trap (this happens with common facility names), flag it explicitly so it isn't confused with the real stop.
-5. **Driving time to {{NEXT_STOP_NAME}}** — look for a source with an actual estimate; if none exists, estimate from the map distance and label it clearly as an estimate, not a live-traffic figure.
+5. **Driving time AND distance in km to {{NEXT_STOP_NAME}}** — look for a source with an actual estimate; if none exists, estimate from the map distance and label it clearly as an estimate, not a live-traffic figure. Always give the km figure, not just the minutes.
 
 Return as clean markdown:
 - Address + Google Maps link

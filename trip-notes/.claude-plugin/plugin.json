@@ -1,0 +1,18 @@
+{
+  "name": "trip-notes",
+  "version": "1.0.0",
+  "description": "Build a verified travel itinerary as an Obsidian note — self-drive route, train/walk-accessible plan, or both (Google Maps links, driving or station-walk times, per-weekday opening hours, local blog references, photos, and nearby extra spots), browser-verified before delivery",
+  "author": {
+    "name": "Neo"
+  },
+  "keywords": [
+    "travel",
+    "itinerary",
+    "japan",
+    "drive",
+    "train",
+    "walk",
+    "google-maps",
+    "agent-browser"
+  ]
+}

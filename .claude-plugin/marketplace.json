@@ -71,10 +71,10 @@
       "category": "shopping"
     },
     {
-      "name": "travel-drive-itinerary",
-      "description": "Build a verified self-drive day-trip itinerary (Google Maps links, driving times, local blog references, photos for every stop and extra nearby spot) starting from a single place name",
-      "version": "0.2.0",
-      "source": "./travel-drive-itinerary",
+      "name": "trip-notes",
+      "description": "Build a verified travel itinerary as an Obsidian note — self-drive, train/walk, or both; browser-verified links, photos, and opening hours",
+      "version": "1.0.0",
+      "source": "./trip-notes",
       "category": "travel"
     }
   ]
