@@ -49,6 +49,11 @@ Exit conventions:
 
 Both notification scripts derive a project name from the git root of `cwd`. They use `terminal-notifier` (activating iTerm2) and `say` for audio. The Stop hook guards against re-entry via `stop_hook_active` and only fires if the session marker exists.
 
+Two gates suppress output, both shared by the Notification and Stop scripts:
+
+- **`is-in-meeting.sh`** — exit 0 = in a meeting (Zoom `CptHost` running, or a mic is active via CoreAudio). Suppresses both the banner and the spoken announcement.
+- **`is-volume-loud.sh`** — exit 0 = system output volume is at or above `CLAUDE_HOOK_SAY_MAX_VOLUME` (default `50`). Suppresses only the spoken `say` announcement; the banner still fires. If the volume can't be read (`missing value` on some aggregate/Bluetooth devices), it exits 1 and the announcement proceeds.
+
 ## Stop-hook Code Review
 
 `stop-review.sh` runs a second-pass review of the previous Claude turn at Stop time. Disabled by default (`reviewHook.enabled=false`); enabled per-project via `/review-config enable`.

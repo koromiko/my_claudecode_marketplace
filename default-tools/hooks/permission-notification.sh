@@ -42,6 +42,8 @@ if ! "$HOOK_DIR/is-in-meeting.sh"; then
       -message "$message" -activate com.googlecode.iterm2
   fi
 
-  # Speak the notification
-  say "$project_name: $message" &
+  # Speak the notification, unless the system volume is too loud
+  if ! "$HOOK_DIR/is-volume-loud.sh"; then
+    say "$project_name: $message" &
+  fi
 fi
