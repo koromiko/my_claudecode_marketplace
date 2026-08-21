@@ -1,4 +1,4 @@
-import os, sys, tempfile, unittest, shlex
+import os, tempfile, unittest, shlex
 import json
 import threading
 import urllib.request
@@ -84,6 +84,25 @@ class CountTurns(unittest.TestCase):
 
     def test_missing_file(self):
         self.assertIsNone(web.count_turns(os.path.join(self.d, "nope.jsonl")))
+
+    def test_counts_only_human_turns(self):
+        p = os.path.join(self.d, "c.jsonl")
+        _write(p, ['{"type":"user","message":{"content":"Real human message"}}',
+                   '{"type":"user","message":{"content":"<command-name>/clear</command-name>"}}',
+                   '{"type":"user","message":{"content":"<teammate-message>hi</teammate-message>"}}',
+                   '{"type":"assistant","message":{"content":"ok"}}'])
+        self.assertEqual(web.count_turns(p), 1)
+
+    def test_counts_list_form_human_message(self):
+        p = os.path.join(self.d, "d.jsonl")
+        _write(p, ['{"type":"user","message":{"content":[{"type":"text","text":"hi"}]}}'])
+        self.assertEqual(web.count_turns(p), 1)
+
+    def test_skips_non_dict_json_line(self):
+        p = os.path.join(self.d, "e.jsonl")
+        _write(p, ['"hello"',
+                   '{"type":"user","message":{"content":"real"}}'])
+        self.assertEqual(web.count_turns(p), 1)
 
 
 class GroupAndSort(unittest.TestCase):

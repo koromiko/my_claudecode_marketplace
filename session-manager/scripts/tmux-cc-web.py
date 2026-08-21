@@ -57,6 +57,8 @@ def extract_title(transcript_path, maxlen=TITLE_MAX):
                     rec = json.loads(line)
                 except ValueError:
                     continue
+                if not isinstance(rec, dict):
+                    continue
                 if rec.get("type") != "user":
                     continue
                 text = _content_text((rec.get("message") or {}).get("content"))
@@ -79,9 +81,12 @@ def count_turns(transcript_path):
                     rec = json.loads(line)
                 except ValueError:
                     continue
+                if not isinstance(rec, dict):
+                    continue
                 if rec.get("type") != "user":
                     continue
-                if isinstance((rec.get("message") or {}).get("content"), str):
+                text = _content_text((rec.get("message") or {}).get("content"))
+                if _is_human_title(text):
                     n += 1
     except OSError:
         return None
