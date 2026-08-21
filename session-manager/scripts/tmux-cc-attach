@@ -213,6 +213,17 @@ resume_is_resumable() {
     compgen -G "$root/*/$id.jsonl" >/dev/null 2>&1
 }
 
+# 0 if the session's transcript marks it as an autonomous teammate/agent
+# session (carries a "type":"agent-setting" record); human sessions have none.
+resume_is_autonomous() {
+    local id="$1" root="$2" f
+    for f in "$root"/*/"$id".jsonl; do
+        [ -e "$f" ] || continue
+        grep -q '"type":"agent-setting"' "$f" && return 0
+    done
+    return 1
+}
+
 # The command that recreates + attaches a session in a fresh tmux -CC session.
 resume_attach_command() {
     local ec ei
@@ -278,6 +289,31 @@ tell application "iTerm"
   return "ok"
 end tell
 OSA
+}
+
+# --- group selection ---------------------------------------------------------
+
+# Parse a group-selection reply against a group count.
+#   empty reply         -> print 1..count (all), return 0
+#   n / none            -> return 2 (abort)
+#   space/comma numbers -> print those indices, return 0
+#   any bad token / oob -> return 1 (caller re-prompts)
+parse_group_selection() {
+    local reply="$1" count="$2" tok i out=()
+    reply="${reply//,/ }"
+    reply="$(printf '%s' "$reply" | tr -s ' ')"
+    case "$reply" in
+        ''|' ') for ((i = 1; i <= count; i++)); do printf '%s\n' "$i"; done; return 0 ;;
+        n|N|none|NONE) return 2 ;;
+    esac
+    for tok in $reply; do
+        case "$tok" in ''|*[!0-9]*) return 1 ;; esac
+        tok=$((10#$tok))
+        { [ "$tok" -ge 1 ] && [ "$tok" -le "$count" ]; } || return 1
+        out+=("$tok")
+    done
+    printf '%s\n' ${out[@]+"${out[@]}"}
+    return 0
 }
 
 # When sourced by tests, stop here with all helpers defined.
@@ -367,6 +403,7 @@ if [ "$RESUME" -eq 1 ]; then
         [ -n "$rid" ] || continue
         resume_within_age "$rts" "$now" "$RESUME_MAX_AGE_DAYS" || { [ "$DRY_RUN" -eq 1 ] || rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
         resume_is_resumable "$rid" "$troot" || { [ "$DRY_RUN" -eq 1 ] || rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
+        resume_is_autonomous "$rid" "$troot" && continue
         printf '%s\n' "$live_ids" | grep -qx "$rid" && continue
         proj=$(project_of_dir "$rcwd")
         if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$proj" "${PROJECT_GLOBS[@]}"; then
@@ -416,8 +453,10 @@ printf '\n'
 printf 'Attaching/resuming %d session(s) into %d iTerm window(s), ~%d tabs total:\n\n' \
     "$(( ${#SESSION_IDS[@]} + ${#RESUME_IDS[@]} ))" "${#PROJECT_GROUPS[@]}" "$total_tabs"
 
+gi=0
 for group in "${PROJECT_GROUPS[@]}"; do
-    printf '  %s\n' "$group"
+    gi=$((gi + 1))
+    printf '  [%d] %s\n' "$gi" "$group"
     for i in "${!SESSION_IDS[@]}"; do
         [ "${SESSION_GROUP[i]}" = "$group" ] || continue
         marker=""
@@ -450,13 +489,23 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-if [ "$ASSUME_YES" -eq 0 ]; then
-    printf 'Proceed? [y/N] '
-    read -r reply
-    case "$reply" in
-        y|Y|yes|YES) ;;
-        *) echo "Aborted."; exit 0 ;;
-    esac
+SELECTED_GROUPS=()
+if [ "$ASSUME_YES" -eq 1 ]; then
+    SELECTED_GROUPS=(${PROJECT_GROUPS[@]+"${PROJECT_GROUPS[@]}"})
+else
+    while :; do
+        printf "Select projects [Enter=all, e.g. '1 3', 'n'=none]: "
+        read -r reply || { echo "Aborted."; exit 0; }
+        sel=$(parse_group_selection "$reply" "${#PROJECT_GROUPS[@]}"); rc=$?
+        [ "$rc" -eq 2 ] && { echo "Aborted."; exit 0; }
+        if [ "$rc" -eq 0 ]; then
+            for idx in $sel; do
+                SELECTED_GROUPS+=("${PROJECT_GROUPS[idx-1]}")
+            done
+            break
+        fi
+        printf '  Invalid selection; enter numbers 1-%d, Enter for all, or n.\n' "${#PROJECT_GROUPS[@]}"
+    done
 fi
 
 # --- attach -------------------------------------------------------------------
@@ -471,6 +520,7 @@ failed_count=0
 FAILED=()
 
 for group in "${PROJECT_GROUPS[@]}"; do
+    contains_exact "$group" ${SELECTED_GROUPS[@]+"${SELECTED_GROUPS[@]}"} || continue
     window_id=""
     for i in "${!SESSION_IDS[@]}"; do
         [ "${SESSION_GROUP[i]}" = "$group" ] || continue
