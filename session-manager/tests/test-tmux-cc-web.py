@@ -1,4 +1,8 @@
 import os, sys, tempfile, unittest, shlex
+import json
+import threading
+import urllib.request
+import urllib.error
 HERE = os.path.dirname(os.path.abspath(__file__))
 import importlib.util
 spec = importlib.util.spec_from_file_location(
@@ -153,6 +157,45 @@ class LoadSessions(unittest.TestCase):
         cmd = ["bash", "-c", "echo boom >&2; exit 1"]
         with self.assertRaises(RuntimeError):
             web.load_sessions(cmd, self.root, {})
+
+
+class LiveServer(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        d = os.path.join(self.root, "-proj")
+        os.makedirs(d, exist_ok=True)
+        _write(os.path.join(d, "s1.jsonl"),
+               ['{"type":"user","message":{"content":"My session title"}}'])
+
+    def _serve(self, attach_cmd):
+        srv = web.WebServer(("127.0.0.1", 0), attach_cmd, self.root)
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        return srv, srv.server_address[1]
+
+    def test_api_and_index(self):
+        payload = '[{"session_id":"s1","cwd":"/tmp/a","project":"/pa","ts_end":5,"reason":"other"}]'
+        srv, port = self._serve(["bash", "-c", "printf '%s' " + shlex.quote(payload)])
+        try:
+            body = urllib.request.urlopen("http://127.0.0.1:%d/api/sessions" % port, timeout=5).read()
+            groups = json.loads(body)
+            self.assertEqual(groups[0]["sessions"][0]["title"], "My session title")
+            html = urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=5).read().decode()
+            self.assertIn('id="app"', html)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_api_error_returns_500(self):
+        srv, port = self._serve(["bash", "-c", "echo boom >&2; exit 1"])
+        try:
+            try:
+                urllib.request.urlopen("http://127.0.0.1:%d/api/sessions" % port, timeout=5)
+                self.fail("expected HTTP 500")
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 500)
+                self.assertIn("error", json.loads(e.read()))
+        finally:
+            srv.shutdown(); srv.server_close()
 
 
 if __name__ == "__main__":
