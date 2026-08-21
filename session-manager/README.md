@@ -124,6 +124,21 @@ Other flags (`-n`/`-y`/`-a`/`-o`/`-x`/`-p`/`-d`/`--no-group`) work as before;
 `--since` also filter resume entries. The recency window defaults to 14 days
 and can be overridden globally with `RESUME_MAX_AGE_DAYS`.
 
+### /session-manager:list-resumable-web
+
+Open a local web UI listing resumable sessions, grouped by project.
+
+```
+/session-manager:list-resumable-web
+```
+
+Starts a Python stdlib HTTP server (loopback only) that reads the resumable
+list from `tmux-cc-attach --json` and enriches each session with a title and
+turn count from its transcript. Each row's Copy button places
+`cd <cwd> && claude -r <id>` on the clipboard; nothing is resumed server-side.
+
+Run directly: `python3 scripts/tmux-cc-web.py [--port N] [--host H] [--no-open]`.
+
 ## Interacting with Managed Panes
 
 After creating a pane with `run-in-pane`, you can interact with it using the session-manager script:
