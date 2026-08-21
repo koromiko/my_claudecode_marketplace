@@ -86,3 +86,60 @@ def count_turns(transcript_path):
     except OSError:
         return None
     return n
+
+
+def _find_transcript(session_id, projects_root):
+    hits = glob.glob(os.path.join(projects_root, "*", session_id + ".jsonl"))
+    return hits[0] if hits else None
+
+
+def _cwd_basename(cwd):
+    return os.path.basename(cwd.rstrip("/")) or cwd
+
+
+def enrich(session, projects_root, cache):
+    sid = session["session_id"]
+    session["copy_command"] = build_copy_command(session["cwd"], sid)
+    path = _find_transcript(sid, projects_root)
+    if not path:
+        session["title"] = _cwd_basename(session["cwd"])
+        session["turns"] = None
+        return session
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
+    key = (sid, mtime)
+    if key in cache:
+        title, turns = cache[key]
+    else:
+        title = extract_title(path)
+        turns = count_turns(path)
+        cache[key] = (title, turns)
+    session["title"] = title or _cwd_basename(session["cwd"])
+    session["turns"] = turns
+    return session
+
+
+def group_and_sort(sessions):
+    groups = {}
+    for s in sessions:
+        groups.setdefault(s.get("project") or "(unknown)", []).append(s)
+    for items in groups.values():
+        items.sort(key=lambda s: s.get("ts_end") or 0, reverse=True)
+    ordered = sorted(
+        groups.keys(),
+        key=lambda p: max((s.get("ts_end") or 0) for s in groups[p]),
+        reverse=True)
+    return [{"project": p, "sessions": groups[p]} for p in ordered]
+
+
+def load_sessions(attach_cmd, projects_root, cache):
+    proc = subprocess.run(attach_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        msg = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(msg or "tmux-cc-attach --json failed")
+    data = json.loads(proc.stdout.decode("utf-8", "replace") or "[]")
+    for s in data:
+        enrich(s, projects_root, cache)
+    return group_and_sort(data)
