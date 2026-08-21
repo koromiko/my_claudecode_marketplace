@@ -33,6 +33,7 @@ INCLUDE_ATTACHED=0
 GROUP=1
 RESUME=1
 RESUME_ONLY=0
+JSON_MODE=0
 DELAY=0.4
 ONLY_GLOBS=()
 EXCLUDE_GLOBS=()
@@ -61,6 +62,8 @@ Options:
       --no-group          One window for all gateways; leave tmux window
                           placement to your existing iTerm preference
   -d, --delay SEC         Delay between attaches (default 0.4)
+      --json              Print resumable sessions as JSON and exit (implies
+                          --resume-only; skips iTerm/tmux preflight)
   -h, --help              This message
 
 Examples:
@@ -335,6 +338,7 @@ while [ $# -gt 0 ]; do
         -d|--delay)     [ $# -ge 2 ] || die "--delay needs seconds"; DELAY="$2"; shift 2 ;;
         --no-resume)    RESUME=0; shift ;;
         --resume-only)  RESUME_ONLY=1; RESUME=1; shift ;;
+        --json)         JSON_MODE=1; RESUME_ONLY=1; RESUME=1; shift ;;
         --since)        [ $# -ge 2 ] || die "--since needs days"; case "$2" in ''|*[!0-9]*) die "--since needs a non-negative integer" ;; esac; RESUME_MAX_AGE_DAYS="$2"; shift 2 ;;
         -h|--help)      usage; exit 0 ;;
         *)              die "unknown option: $1 (try --help)" ;;
@@ -343,11 +347,15 @@ done
 
 # --- preflight ----------------------------------------------------------------
 
-command -v tmux >/dev/null 2>&1 || die "tmux not found on PATH"
-command -v osascript >/dev/null 2>&1 || die "osascript not found (macOS only)"
-[ -d "$ITERM_APP" ] || die "iTerm2 not installed at $ITERM_APP"
-if [ "$RESUME_ONLY" -eq 0 ]; then
-    tmux list-sessions >/dev/null 2>&1 || die "no tmux server running"
+if [ "$JSON_MODE" -eq 1 ]; then
+    command -v jq >/dev/null 2>&1 || die "jq required for --json"
+else
+    command -v tmux >/dev/null 2>&1 || die "tmux not found on PATH"
+    command -v osascript >/dev/null 2>&1 || die "osascript not found (macOS only)"
+    [ -d "$ITERM_APP" ] || die "iTerm2 not installed at $ITERM_APP"
+    if [ "$RESUME_ONLY" -eq 0 ]; then
+        tmux list-sessions >/dev/null 2>&1 || die "no tmux server running"
+    fi
 fi
 
 # --- build the work list ------------------------------------------------------
@@ -394,6 +402,7 @@ RESUME_IDS=()
 RESUME_CWDS=()
 RESUME_PROJECT=()
 RESUME_REASON=()
+RESUME_TS=()
 
 if [ "$RESUME" -eq 1 ]; then
     now=$(date +%s)
@@ -413,7 +422,25 @@ if [ "$RESUME" -eq 1 ]; then
         RESUME_CWDS+=("$rcwd")
         RESUME_PROJECT+=("$proj")
         RESUME_REASON+=("$rreason")
+        RESUME_TS+=("$rts")
     done < <(read_resume_records)
+fi
+
+if [ "$JSON_MODE" -eq 1 ]; then
+    if [ ${#RESUME_IDS[@]} -eq 0 ]; then
+        printf '[]\n'
+        exit 0
+    fi
+    for i in "${!RESUME_IDS[@]}"; do
+        jq -cn \
+            --arg id "${RESUME_IDS[i]}" \
+            --arg cwd "${RESUME_CWDS[i]}" \
+            --arg project "${RESUME_PROJECT[i]}" \
+            --argjson ts_end "${RESUME_TS[i]}" \
+            --arg reason "${RESUME_REASON[i]}" \
+            '{session_id:$id, cwd:$cwd, project:$project, ts_end:$ts_end, reason:$reason}'
+    done | jq -sc '.'
+    exit 0
 fi
 
 if [ ${#SESSION_IDS[@]} -eq 0 ] && [ ${#RESUME_IDS[@]} -eq 0 ]; then

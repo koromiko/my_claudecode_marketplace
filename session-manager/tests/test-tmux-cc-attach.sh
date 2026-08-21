@@ -96,4 +96,19 @@ check "sel zero-padded 008 = 8"  "[ \"\$(parse_group_selection '008' 10 | tr '\n
 check "sel zero-padded 010 = 10" "[ \"\$(parse_group_selection '010' 10 | tr '\n' ' ')\" = '10 ' ]"
 check "sel mixed zero-padded"    "[ \"\$(parse_group_selection '01 03' 5 | tr '\n' ' ')\" = '1 3 ' ]"
 
+# --json emits a JSON array of resumable sessions, honoring the same filters.
+jout=$(TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --json 2>/dev/null)
+check "--json is valid array" \
+    "printf '%s' \"\$jout\" | jq -e 'type==\"array\"' >/dev/null"
+check "--json includes livesid" \
+    "printf '%s' \"\$jout\" | jq -e '.[]|select(.session_id==\"livesid\")' >/dev/null"
+check "--json livesid cwd" \
+    "[ \"\$(printf '%s' \"\$jout\" | jq -r '.[]|select(.session_id==\"livesid\").cwd')\" = '/tmp/live' ]"
+check "--json livesid ts_end numeric" \
+    "printf '%s' \"\$jout\" | jq -e '.[]|select(.session_id==\"livesid\").ts_end|type==\"number\"' >/dev/null"
+check "--json drops stale/ghost/auto" \
+    "[ \"\$(printf '%s' \"\$jout\" | jq -r '[.[]|select(.session_id|IN(\"oldsid\",\"ghostsid\",\"autosid2\"))]|length')\" = '0' ]"
+check "--json no report text" \
+    "! printf '%s' \"\$jout\" | grep -q 'Attaching/resuming'"
+
 [ "$fails" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }
