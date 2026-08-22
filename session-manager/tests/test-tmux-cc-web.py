@@ -28,6 +28,45 @@ class CopyCommand(unittest.TestCase):
         self.assertIn("'/tmp/my proj'", cmd)
         self.assertTrue(cmd.startswith("cd "))
 
+    def test_fork_command(self):
+        self.assertEqual(
+            web.build_fork_command("/tmp/proj", "abc-123"),
+            "cd /tmp/proj && claude -r abc-123 --fork-session")
+
+
+class ParseDays(unittest.TestCase):
+    def test_valid(self):
+        self.assertEqual(web.parse_days("7"), 7)
+
+    def test_absent(self):
+        self.assertIsNone(web.parse_days(None))
+
+    def test_non_int(self):
+        self.assertIsNone(web.parse_days("abc"))
+
+    def test_negative_clamped_to_zero(self):
+        self.assertEqual(web.parse_days("-5"), 0)
+
+    def test_huge_clamped(self):
+        self.assertEqual(web.parse_days("999999999999"), 100000)
+
+
+class BuildAttachCmd(unittest.TestCase):
+    def test_no_days_leaves_command_unchanged(self):
+        self.assertEqual(
+            web.build_attach_cmd(["tmux-cc-attach", "--json"], None),
+            ["tmux-cc-attach", "--json"])
+
+    def test_days_appends_since(self):
+        self.assertEqual(
+            web.build_attach_cmd(["a", "--json"], 7),
+            ["a", "--json", "--since", "7"])
+
+    def test_does_not_mutate_input(self):
+        base = ["a", "--json"]
+        web.build_attach_cmd(base, 7)
+        self.assertEqual(base, ["a", "--json"])
+
 
 class ExtractTitle(unittest.TestCase):
     def setUp(self):
@@ -199,6 +238,23 @@ class Enrich(unittest.TestCase):
         self.assertEqual(s["turns"], 99)
         self.assertEqual(s["last_activity"], 12345)
 
+    def test_enrich_sets_fork_command(self):
+        self._transcript("sf", ['{"type":"user","message":{"content":"Hi"}}'])
+        s = web.enrich({"session_id": "sf", "cwd": "/tmp/x", "project": "/p", "ts_end": 1},
+                       self.root, {})
+        self.assertEqual(s["fork_command"], "cd /tmp/x && claude -r sf --fork-session")
+
+    def test_enrich_passes_status_and_fork_for_live(self):
+        # A live session carries status but no ts_end/reason; enrich keeps status
+        # and derives last_activity from the transcript.
+        self._transcript("lv", [
+            '{"type":"user","message":{"content":"Working"},"timestamp":"1970-01-01T00:00:30Z"}'])
+        s = web.enrich({"session_id": "lv", "cwd": "/tmp/x", "project": "/p", "status": "live"},
+                       self.root, {})
+        self.assertEqual(s["status"], "live")
+        self.assertEqual(s["fork_command"], "cd /tmp/x && claude -r lv --fork-session")
+        self.assertEqual(s["last_activity"], 30.0)
+
     def test_enrich_missing_transcript_falls_back(self):
         cache = {}
         s = web.enrich({"session_id": "ghost", "cwd": "/tmp/foo/bar", "project": "/p", "ts_end": 1},
@@ -224,6 +280,17 @@ class LoadSessions(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             web.load_sessions(cmd, self.root, {})
 
+    def test_load_passes_since_when_days_given(self):
+        argfile = os.path.join(self.root, "args.txt")
+        stub = os.path.join(self.root, "stub.sh")
+        _write(stub, ["#!/bin/bash",
+                      'printf "%s" "$*" > ' + shlex.quote(argfile),
+                      'printf "[]"'])
+        os.chmod(stub, 0o755)
+        web.load_sessions([stub, "--json"], self.root, {}, days=7)
+        with open(argfile) as fh:
+            self.assertIn("--since 7", fh.read())
+
 
 class LiveServer(unittest.TestCase):
     def setUp(self):
@@ -232,6 +299,8 @@ class LiveServer(unittest.TestCase):
         os.makedirs(d, exist_ok=True)
         _write(os.path.join(d, "s1.jsonl"),
                ['{"type":"user","message":{"content":"My session title"}}'])
+        _write(os.path.join(d, "s2.jsonl"),
+               ['{"type":"user","message":{"content":"Live one"},"timestamp":"1970-01-01T00:00:30Z"}'])
 
     def _serve(self, attach_cmd):
         srv = web.WebServer(("127.0.0.1", 0), attach_cmd, self.root)
@@ -240,12 +309,18 @@ class LiveServer(unittest.TestCase):
         return srv, srv.server_address[1]
 
     def test_api_and_index(self):
-        payload = '[{"session_id":"s1","cwd":"/tmp/a","project":"/pa","ts_end":5,"reason":"other"}]'
+        payload = ('[{"session_id":"s1","cwd":"/tmp/a","project":"/pa","ts_end":5,'
+                   '"reason":"other","status":"ended"},'
+                   '{"session_id":"s2","cwd":"/tmp/b","project":"/pb","status":"live"}]')
         srv, port = self._serve(["bash", "-c", "printf '%s' " + shlex.quote(payload)])
         try:
-            body = urllib.request.urlopen("http://127.0.0.1:%d/api/sessions" % port, timeout=5).read()
+            body = urllib.request.urlopen("http://127.0.0.1:%d/api/sessions?days=7" % port, timeout=5).read()
             groups = json.loads(body)
-            self.assertEqual(groups[0]["sessions"][0]["title"], "My session title")
+            flat = {s["session_id"]: s for g in groups for s in g["sessions"]}
+            self.assertEqual(flat["s1"]["title"], "My session title")
+            self.assertEqual(flat["s1"]["status"], "ended")
+            self.assertEqual(flat["s2"]["status"], "live")
+            self.assertEqual(flat["s2"]["fork_command"], "cd /tmp/b && claude -r s2 --fork-session")
             html = urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=5).read().decode()
             self.assertIn('id="app"', html)
         finally:

@@ -110,5 +110,43 @@ check "--json drops stale/ghost/auto" \
     "[ \"\$(printf '%s' \"\$jout\" | jq -r '[.[]|select(.session_id|IN(\"oldsid\",\"ghostsid\",\"autosid2\"))]|length')\" = '0' ]"
 check "--json no report text" \
     "! printf '%s' \"\$jout\" | grep -q 'Attaching/resuming'"
+check "--json ended carries status ended" \
+    "[ \"\$(printf '%s' \"\$jout\" | jq -r '.[]|select(.session_id==\"livesid\").status')\" = 'ended' ]"
+
+# --json with a live locator: interactive sessions are emitted as status:"live",
+# child (subagent) sessions are omitted, and a live id also present in the resume
+# store appears once (live wins, no double-list).
+STUB="$TMP/locstub.py"
+cat > "$STUB" <<'PY'
+import json
+print(json.dumps([
+    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive"},
+    {"session_id": "childproc", "cwd": "/tmp/child", "role": "child"},
+    {"session_id": "livesid", "cwd": "/tmp/live", "role": "interactive"},
+]))
+PY
+ljout=$(TMUX_CC_LOCATOR="$STUB" bash "$SCRIPT" --json 2>/dev/null)
+check "--json live is valid array" \
+    "printf '%s' \"\$ljout\" | jq -e 'type==\"array\"' >/dev/null"
+check "--json includes live interactive session" \
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").status')\" = 'live' ]"
+check "--json omits child role session" \
+    "printf '%s' \"\$ljout\" | jq -e '[.[]|select(.session_id==\"childproc\")]|length==0' >/dev/null"
+check "--json live id not double-listed" \
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '[.[]|select(.session_id==\"livesid\")]|length')\" = '1' ]"
+check "--json live id resolves to live status" \
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"livesid\").status')\" = 'live' ]"
+
+# --json is a read-only view: it must never prune resume records, even when a
+# narrow --since window excludes them (regression: --since deleted stale files).
+mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-keep"
+touch "$CLAUDE_PROJECTS_DIR/-tmp-keep/keepsid.jsonl"
+printf '{"session_id":"keepsid","cwd":"/tmp/keep","ts_start":1,"ts_end":%s,"reason":"other"}\n' "$((NOW2 - 5*86400))" \
+    > "$(resume_dir)/keepsid.json"
+TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --json --since 1 >/dev/null 2>&1
+check "--json --since does not prune out-of-window record" "[ -f \"$(resume_dir)/keepsid.json\" ]"
+# The interactive resume path still prunes it.
+TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --resume-only --since 1 </dev/null >/dev/null 2>&1
+check "--resume-only prunes out-of-window record" "[ ! -f \"$(resume_dir)/keepsid.json\" ]"
 
 [ "$fails" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }

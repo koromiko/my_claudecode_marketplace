@@ -15,12 +15,18 @@ import shlex
 import subprocess
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 TITLE_MAX = 120
 
 
 def build_copy_command(cwd, session_id):
     return "cd %s && claude -r %s" % (shlex.quote(cwd), shlex.quote(session_id))
+
+
+def build_fork_command(cwd, session_id):
+    return "cd %s && claude -r %s --fork-session" % (
+        shlex.quote(cwd), shlex.quote(session_id))
 
 
 def _content_text(content):
@@ -144,6 +150,7 @@ def _cwd_basename(cwd):
 def enrich(session, projects_root, cache):
     sid = session["session_id"]
     session["copy_command"] = build_copy_command(session["cwd"], sid)
+    session["fork_command"] = build_fork_command(session["cwd"], sid)
     path = _find_transcript(sid, projects_root)
     if not path:
         session["title"] = _cwd_basename(session["cwd"])
@@ -185,8 +192,27 @@ def group_and_sort(sessions):
     return [{"project": p, "sessions": groups[p]} for p in ordered]
 
 
-def load_sessions(attach_cmd, projects_root, cache):
-    proc = subprocess.run(attach_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def parse_days(raw):
+    """Clamp a `days` query value to a sane int window, or None if absent/invalid."""
+    if raw is None:
+        return None
+    try:
+        return max(0, min(int(raw), 100000))
+    except ValueError:
+        return None
+
+
+def build_attach_cmd(attach_cmd, days=None):
+    """Copy of attach_cmd, appending `--since <days>` when a window is given."""
+    cmd = list(attach_cmd)
+    if days is not None:
+        cmd += ["--since", str(int(days))]
+    return cmd
+
+
+def load_sessions(attach_cmd, projects_root, cache, days=None):
+    cmd = build_attach_cmd(attach_cmd, days)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         msg = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(msg or "tmux-cc-attach --json failed")
@@ -204,9 +230,9 @@ PAGE_HTML = r"""<!doctype html>
 <title>Resumable Claude Code Sessions</title>
 <style>
 :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --fg:#1b1f24;
-  --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
+  --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --live:#16a34a; }
 @media (prefers-color-scheme: dark) { :root { --bg:#0e1116; --card:#171b21;
-  --fg:#e6e9ee; --muted:#9aa4b2; --border:#2a2f37; --accent:#4f8cff; } }
+  --fg:#e6e9ee; --muted:#9aa4b2; --border:#2a2f37; --accent:#4f8cff; --live:#34d399; } }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--fg);
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
@@ -224,12 +250,24 @@ main { padding:16px 20px; max-width:1000px; margin:0 auto; }
 .group > summary .count { color:var(--muted); font-weight:400; margin-left:8px; }
 .session { background:var(--card); border:1px solid var(--border); border-radius:10px;
   padding:10px 12px; margin:8px 0; display:flex; gap:12px; align-items:flex-start; }
+.session.live { border-left:3px solid var(--live); }
 .session .body { flex:1 1 auto; min-width:0; }
 .session .title { font-weight:600; }
+.session .badge { color:var(--live); font-weight:700; font-size:11px;
+  letter-spacing:.02em; margin-right:6px; }
 .session .meta { color:var(--muted); font-size:12px; margin-top:2px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.copy { flex:0 0 auto; }
+.actions { flex:0 0 auto; display:flex; gap:6px; }
 .copy.copied { border-color:var(--accent); color:var(--accent); }
+.seg { display:flex; }
+.seg button { border-radius:0; border-right-width:0; }
+.seg button:first-child { border-top-left-radius:8px; border-bottom-left-radius:8px; }
+.seg button:last-child { border-right-width:1px;
+  border-top-right-radius:8px; border-bottom-right-radius:8px; }
+.seg button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+label.field { color:var(--muted); display:flex; align-items:center; gap:6px; }
+select { font:inherit; color:var(--fg); background:var(--card);
+  border:1px solid var(--border); border-radius:8px; padding:6px 8px; }
 #empty, #error { text-align:center; color:var(--muted); padding:40px; }
 #error { color:#b91c1c; }
 .hidden { display:none; }
@@ -239,6 +277,19 @@ main { padding:16px 20px; max-width:1000px; margin:0 auto; }
 <header>
   <h1>Resumable sessions</h1>
   <input id="search" type="search" placeholder="Filter title / cwd / id…" autocomplete="off">
+  <div class="seg" id="statusFilter">
+    <button data-status="all" class="active">All</button>
+    <button data-status="live">Live</button>
+    <button data-status="ended">Ended</button>
+  </div>
+  <label class="field">Active within
+    <select id="window">
+      <option value="1">1 day</option>
+      <option value="7" selected>7 days</option>
+      <option value="30">30 days</option>
+      <option value="3650">All time</option>
+    </select>
+  </label>
   <button id="sort">Sort: project</button>
   <button id="refresh">Refresh</button>
 </header>
@@ -249,8 +300,11 @@ main { padding:16px 20px; max-width:1000px; margin:0 auto; }
 </main>
 <script>
 let GROUPS = [];
-let SORT = "project"; // "recent" | "project"
+let SORT = "project";     // "recent" | "project"
+let STATUS = "all";       // "all" | "live" | "ended"
+let WINDOW_DAYS = 7;      // "active within" window; drives the /api fetch
 const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 function ago(ts) {
   if (!ts) return "";
@@ -287,45 +341,81 @@ function escapeHtml(s) {
     {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
+const isLive = (s) => (s.status || "ended") === "live";
+
+function actionButton(label, cmd, title) {
+  const btn = document.createElement("button");
+  btn.className = "copy"; btn.textContent = label; btn.title = title;
+  btn.addEventListener("click", () => copy(cmd, btn));
+  return btn;
+}
+
 function row(s, project) {
   const el = document.createElement("div");
-  el.className = "session";
+  el.className = "session" + (isLive(s) ? " live" : "");
   const metaBits = [];
   const ts = actTs(s);
   if (ts) metaBits.push('<span title="Last activity: '+escapeHtml(when(ts))+'">'+ago(ts)+"</span>");
   if (s.turns != null) metaBits.push(s.turns + " turns");
   if (s.reason) metaBits.push(escapeHtml(s.reason));
   metaBits.push(escapeHtml(project ? project : s.cwd));
+  const badge = isLive(s) ? '<span class="badge">● LIVE</span>' : "";
   el.innerHTML =
-    '<div class="body"><div class="title">' + escapeHtml(s.title || s.session_id) + "</div>" +
+    '<div class="body"><div class="title">' + badge + escapeHtml(s.title || s.session_id) + "</div>" +
     '<div class="meta">' + metaBits.join(" · ") + "</div></div>";
-  const btn = document.createElement("button");
-  btn.className = "copy"; btn.textContent = "Copy";
-  btn.addEventListener("click", () => copy(s.copy_command, btn));
-  el.appendChild(btn);
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  if (isLive(s)) {
+    actions.appendChild(actionButton("Fork", s.fork_command,
+      "Copy: fork this live session into a new one"));
+    actions.appendChild(actionButton("Resume", s.copy_command,
+      "Copy: resume this session anyway (a live one is already running)"));
+  } else {
+    actions.appendChild(actionButton("Resume", s.copy_command, "Copy resume command"));
+  }
+  el.appendChild(actions);
   return el;
+}
+
+// Sessions passing the active-within window. Live sessions are active now, so
+// they always pass regardless of the window.
+function windowed() {
+  const cutoff = Date.now()/1000 - WINDOW_DAYS*86400;
+  const out = [];
+  for (const g of GROUPS) for (const s of g.sessions) {
+    if (isLive(s) || actTs(s) >= cutoff) out.push([g.project, s]);
+  }
+  return out;
 }
 
 function render() {
   const q = $("#search").value.trim();
   const list = $("#list"); list.innerHTML = "";
+
+  const win = windowed();
+  const liveN = win.filter(([, s]) => isLive(s)).length;
+  setCounts(win.length, liveN, win.length - liveN);
+
+  let flat = win.filter(([, s]) => STATUS === "all" || (isLive(s) ? "live" : "ended") === STATUS)
+                .filter(([, s]) => matches(s, q));
   let shown = 0;
 
   if (SORT === "recent") {
-    let flat = [];
-    for (const g of GROUPS) for (const s of g.sessions) flat.push([g.project, s]);
-    flat = flat.filter(([, s]) => matches(s, q))
-               .sort((a, b) => actTs(b[1]) - actTs(a[1]));
+    flat.sort((a, b) => actTs(b[1]) - actTs(a[1]));
     for (const [project, s] of flat) { list.appendChild(row(s, project)); shown++; }
   } else {
-    for (const g of GROUPS) {
-      const kids = g.sessions.filter((s) => matches(s, q));
-      if (!kids.length) continue;
+    const order = [], byProject = new Map();
+    for (const [project, s] of flat) {
+      if (!byProject.has(project)) { byProject.set(project, []); order.push(project); }
+      byProject.get(project).push(s);
+    }
+    for (const project of order) {
+      const kids = byProject.get(project);
       const d = document.createElement("details");
       d.className = "group"; d.open = true;
       const sum = document.createElement("summary");
       const groupTs = Math.max(...kids.map(actTs));
-      sum.innerHTML = escapeHtml(g.project) + '<span class="count">' + kids.length + "</span>"
+      sum.innerHTML = escapeHtml(project) + '<span class="count">' + kids.length + "</span>"
         + '<span class="count" title="Last activity: ' + escapeHtml(when(groupTs)) + '">' + ago(groupTs) + "</span>";
       d.appendChild(sum);
       for (const s of kids) { d.appendChild(row(s)); shown++; }
@@ -335,10 +425,15 @@ function render() {
   $("#empty").classList.toggle("hidden", shown !== 0);
 }
 
+function setCounts(all, live, ended) {
+  const labels = { all: "All " + all, live: "Live " + live, ended: "Ended " + ended };
+  for (const b of $$("#statusFilter button")) b.textContent = labels[b.dataset.status];
+}
+
 async function load() {
   $("#error").classList.add("hidden");
   try {
-    const r = await fetch("/api/sessions");
+    const r = await fetch("/api/sessions?days=" + WINDOW_DAYS);
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
     GROUPS = await r.json();
     render();
@@ -354,6 +449,16 @@ $("#sort").addEventListener("click", () => {
   SORT = SORT === "recent" ? "project" : "recent";
   $("#sort").textContent = "Sort: " + SORT;
   render();
+});
+$("#statusFilter").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  STATUS = b.dataset.status;
+  for (const x of $$("#statusFilter button")) x.classList.toggle("active", x === b);
+  render();
+});
+$("#window").addEventListener("change", (e) => {
+  WINDOW_DAYS = parseInt(e.target.value, 10) || 7;
+  load();
 });
 load();
 </script>
@@ -376,13 +481,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/" or self.path.startswith("/?"):
+        parsed = urlparse(self.path)
+        if parsed.path == "/":
             self._send(200, PAGE_HTML.encode("utf-8"), "text/html; charset=utf-8")
             return
-        if self.path == "/api/sessions":
+        if parsed.path == "/api/sessions":
+            days = parse_days(parse_qs(parsed.query).get("days", [None])[0])
             try:
                 groups = load_sessions(self.server.attach_cmd,
-                                       self.server.projects_root, self.server.cache)
+                                       self.server.projects_root, self.server.cache,
+                                       days=days)
                 self._send(200, json.dumps(groups).encode("utf-8"), "application/json")
             except Exception as exc:
                 self._send(500, json.dumps({"error": str(exc)}).encode("utf-8"),

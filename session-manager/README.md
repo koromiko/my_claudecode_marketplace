@@ -126,16 +126,19 @@ and can be overridden globally with `RESUME_MAX_AGE_DAYS`.
 
 ### /session-manager:list-resumable-web
 
-Open a local web UI listing resumable sessions, grouped by project.
+Open a local web UI listing live and resumable sessions, grouped by project.
 
 ```
 /session-manager:list-resumable-web
 ```
 
-Starts a Python stdlib HTTP server (loopback only) that reads the resumable
-list from `tmux-cc-attach --json` and enriches each session with a title and
-turn count from its transcript. Each row's Copy button places
-`cd <cwd> && claude -r <id>` on the clipboard; nothing is resumed server-side.
+Starts a Python stdlib HTTP server (loopback only) that reads the session list
+from `tmux-cc-attach --json` and enriches each with a title and turn count from
+its transcript. Live (running) sessions carry a green ● LIVE badge and offer
+Fork (`claude -r <id> --fork-session`) and Resume buttons; ended sessions offer
+a single Resume button copying `cd <cwd> && claude -r <id>`. An All/Live/Ended
+toggle and an "Active within" window (default 7 days) filter the list. Nothing
+is resumed or deleted server-side — the view is read-only.
 
 Run directly: `python3 scripts/tmux-cc-web.py [--port N] [--host H] [--no-open]`.
 

@@ -6,9 +6,17 @@ allowed-tools:
 
 # Resumable Sessions Web UI
 
-Launch a local web page that lists resumable Claude Code sessions (grouped by
-project) with title, last-activity, turn count, and end reason. Each row has a
-Copy button that puts `cd <cwd> && claude -r <id>` on the clipboard.
+Launch a local web page that lists Claude Code sessions (grouped by project)
+with title, last-activity, turn count, and end reason. Both currently running
+(live) and ended sessions are shown:
+
+- Ended rows have a single Resume button copying `cd <cwd> && claude -r <id>`.
+- Live rows are marked with a green ● LIVE badge and offer two buttons — Fork
+  (`… claude -r <id> --fork-session`) and Resume (`… claude -r <id>`).
+
+Filter controls: an All / Live / Ended toggle (with counts) and an "Active
+within" window that defaults to 7 days. The view is read-only — it never
+deletes or modifies any session record.
 
 ## Instructions
 

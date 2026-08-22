@@ -248,11 +248,34 @@ read_resume_records() {
 
 LOCATOR="${TMUX_CC_LOCATOR:-$(cd "$(dirname "$0")" && pwd)/locator.py}"
 
-# session_ids currently live per the locator (best-effort; empty on any failure).
-live_session_ids() {
+# Raw `locator.py list` output (JSON array). Empty on any failure. Captured
+# once per run so the live scan (the slow path) is never repeated.
+LOCATOR_JSON=""
+run_locator_list() {
     command -v python3 >/dev/null 2>&1 || return 0
     [ -f "$LOCATOR" ] || return 0
-    python3 "$LOCATOR" list 2>/dev/null | jq -r '.[].session_id' 2>/dev/null
+    python3 "$LOCATOR" list 2>/dev/null
+}
+
+# session_ids currently live per the captured locator output.
+live_session_ids() {
+    printf '%s' "$LOCATOR_JSON" | jq -r '.[].session_id' 2>/dev/null
+}
+
+# One compact JSON object per interactive live session, tagged status:"live",
+# honoring the same --project filter as the resumable list.
+live_sessions_json() {
+    local sid cwd proj
+    while IFS='|' read -r sid cwd; do
+        [ -n "$sid" ] || continue
+        proj=$(project_of_dir "$cwd")
+        if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$proj" "${PROJECT_GLOBS[@]}"; then
+            continue
+        fi
+        jq -cn --arg id "$sid" --arg cwd "$cwd" --arg project "$proj" \
+            '{session_id:$id, cwd:$cwd, project:$project, status:"live"}'
+    done < <(printf '%s' "$LOCATOR_JSON" \
+        | jq -r '.[] | select(.role=="interactive") | [.session_id, (.cwd // "")] | join("|")' 2>/dev/null)
 }
 
 attach_command_for() {
@@ -406,12 +429,18 @@ RESUME_TS=()
 
 if [ "$RESUME" -eq 1 ]; then
     now=$(date +%s)
+    # Stale/dead records are pruned only when actually resuming. Dry-run and
+    # --json (the read-only web view) must never delete records — otherwise a
+    # narrower --since window would permanently drop resumable sessions.
+    PRUNE_STALE=1
+    { [ "$DRY_RUN" -eq 1 ] || [ "$JSON_MODE" -eq 1 ]; } && PRUNE_STALE=0
+    LOCATOR_JSON=$(run_locator_list)
     live_ids=$(live_session_ids)
     troot=$(transcript_root)
     while IFS='|' read -r rid rcwd rts rreason; do
         [ -n "$rid" ] || continue
-        resume_within_age "$rts" "$now" "$RESUME_MAX_AGE_DAYS" || { [ "$DRY_RUN" -eq 1 ] || rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
-        resume_is_resumable "$rid" "$troot" || { [ "$DRY_RUN" -eq 1 ] || rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
+        resume_within_age "$rts" "$now" "$RESUME_MAX_AGE_DAYS" || { [ "$PRUNE_STALE" -eq 1 ] && rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
+        resume_is_resumable "$rid" "$troot" || { [ "$PRUNE_STALE" -eq 1 ] && rm -f "$(resume_dir)/$rid.json" 2>/dev/null; continue; }
         resume_is_autonomous "$rid" "$troot" && continue
         printf '%s\n' "$live_ids" | grep -qx "$rid" && continue
         proj=$(project_of_dir "$rcwd")
@@ -427,19 +456,20 @@ if [ "$RESUME" -eq 1 ]; then
 fi
 
 if [ "$JSON_MODE" -eq 1 ]; then
-    if [ ${#RESUME_IDS[@]} -eq 0 ]; then
-        printf '[]\n'
-        exit 0
-    fi
-    for i in "${!RESUME_IDS[@]}"; do
-        jq -cn \
-            --arg id "${RESUME_IDS[i]}" \
-            --arg cwd "${RESUME_CWDS[i]}" \
-            --arg project "${RESUME_PROJECT[i]}" \
-            --argjson ts_end "${RESUME_TS[i]}" \
-            --arg reason "${RESUME_REASON[i]}" \
-            '{session_id:$id, cwd:$cwd, project:$project, ts_end:$ts_end, reason:$reason}'
-    done | jq -sc '.'
+    {
+        if [ ${#RESUME_IDS[@]} -gt 0 ]; then
+            for i in "${!RESUME_IDS[@]}"; do
+                jq -cn \
+                    --arg id "${RESUME_IDS[i]}" \
+                    --arg cwd "${RESUME_CWDS[i]}" \
+                    --arg project "${RESUME_PROJECT[i]}" \
+                    --argjson ts_end "${RESUME_TS[i]}" \
+                    --arg reason "${RESUME_REASON[i]}" \
+                    '{session_id:$id, cwd:$cwd, project:$project, ts_end:$ts_end, reason:$reason, status:"ended"}'
+            done
+        fi
+        live_sessions_json
+    } | jq -sc '.'
     exit 0
 fi
 
