@@ -105,6 +105,32 @@ class CountTurns(unittest.TestCase):
         self.assertEqual(web.count_turns(p), 1)
 
 
+class LastActivity(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+
+    def test_returns_latest_timestamp_epoch(self):
+        p = os.path.join(self.d, "a.jsonl")
+        _write(p, ['{"type":"user","timestamp":"1970-01-01T00:00:10Z"}',
+                   '{"type":"assistant","timestamp":"1970-01-01T00:00:42Z"}',
+                   '{"type":"summary"}'])
+        self.assertEqual(web.last_activity(p), 42.0)
+
+    def test_takes_max_even_if_out_of_order(self):
+        p = os.path.join(self.d, "b.jsonl")
+        _write(p, ['{"type":"user","timestamp":"1970-01-01T00:01:00Z"}',
+                   '{"type":"assistant","timestamp":"1970-01-01T00:00:30Z"}'])
+        self.assertEqual(web.last_activity(p), 60.0)
+
+    def test_none_when_no_timestamps(self):
+        p = os.path.join(self.d, "c.jsonl")
+        _write(p, ['{"type":"user","message":{"content":"hi"}}'])
+        self.assertIsNone(web.last_activity(p))
+
+    def test_missing_file(self):
+        self.assertIsNone(web.last_activity(os.path.join(self.d, "nope.jsonl")))
+
+
 class GroupAndSort(unittest.TestCase):
     def test_groups_and_sorts(self):
         sessions = [
@@ -117,6 +143,15 @@ class GroupAndSort(unittest.TestCase):
         self.assertEqual([g["project"] for g in groups], ["/p2", "/p1"])
         p1 = [g for g in groups if g["project"] == "/p1"][0]
         self.assertEqual([s["session_id"] for s in p1["sessions"]], ["c", "a"])
+
+    def test_sorts_by_last_activity_over_ts_end(self):
+        # last_activity wins over ts_end for ordering.
+        sessions = [
+            {"session_id": "a", "project": "/p1", "ts_end": 100, "last_activity": 5},
+            {"session_id": "b", "project": "/p2", "ts_end": 1, "last_activity": 99},
+        ]
+        groups = web.group_and_sort(sessions)
+        self.assertEqual([g["project"] for g in groups], ["/p2", "/p1"])
 
 
 class Enrich(unittest.TestCase):
@@ -131,6 +166,7 @@ class Enrich(unittest.TestCase):
         return p
 
     def test_enrich_sets_fields(self):
+        # No timestamp in the transcript -> last_activity falls back to ts_end.
         self._transcript("s1", ['{"type":"user","message":{"content":"Hello"}}'])
         cache = {}
         s = web.enrich({"session_id": "s1", "cwd": "/tmp/x", "project": "/p", "ts_end": 1},
@@ -138,20 +174,30 @@ class Enrich(unittest.TestCase):
         self.assertEqual(s["title"], "Hello")
         self.assertEqual(s["turns"], 1)
         self.assertEqual(s["copy_command"], "cd /tmp/x && claude -r s1")
+        self.assertEqual(s["last_activity"], 1)
         self.assertEqual(len(cache), 1)
+
+    def test_enrich_reads_last_activity(self):
+        self._transcript("sa", [
+            '{"type":"user","message":{"content":"Hi"},"timestamp":"1970-01-01T00:00:10Z"}',
+            '{"type":"assistant","message":{"content":"Yo"},"timestamp":"1970-01-01T00:00:20Z"}'])
+        s = web.enrich({"session_id": "sa", "cwd": "/tmp/x", "project": "/p", "ts_end": 999},
+                       self.root, {})
+        self.assertEqual(s["last_activity"], 20.0)
 
     def test_enrich_uses_cache(self):
         self._transcript("s2", ['{"type":"user","message":{"content":"First"}}'])
         cache = {}
         web.enrich({"session_id": "s2", "cwd": "/tmp/x", "project": "/p", "ts_end": 1},
                    self.root, cache)
-        # Pre-seed the cache entry with a different title; enrich must reuse it.
+        # Pre-seed the cache entry with different values; enrich must reuse them.
         key = list(cache.keys())[0]
-        cache[key] = ("CACHED", 99)
+        cache[key] = ("CACHED", 99, 12345)
         s = web.enrich({"session_id": "s2", "cwd": "/tmp/x", "project": "/p", "ts_end": 1},
                        self.root, cache)
         self.assertEqual(s["title"], "CACHED")
         self.assertEqual(s["turns"], 99)
+        self.assertEqual(s["last_activity"], 12345)
 
     def test_enrich_missing_transcript_falls_back(self):
         cache = {}
@@ -159,6 +205,7 @@ class Enrich(unittest.TestCase):
                        self.root, cache)
         self.assertEqual(s["title"], "bar")
         self.assertIsNone(s["turns"])
+        self.assertEqual(s["last_activity"], 1)
 
 
 class LoadSessions(unittest.TestCase):

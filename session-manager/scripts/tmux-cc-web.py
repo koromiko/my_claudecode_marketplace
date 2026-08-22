@@ -7,6 +7,7 @@ single-page browser UI whose Copy buttons put `cd <cwd> && claude -r <id>` on
 the clipboard. Python 3 stdlib only.
 """
 import argparse
+import datetime
 import glob
 import json
 import os
@@ -93,6 +94,44 @@ def count_turns(transcript_path):
     return n
 
 
+def _iso_to_epoch(ts):
+    """Parse an ISO-8601 transcript timestamp (trailing 'Z' allowed) to epoch seconds."""
+    try:
+        return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def last_activity(transcript_path):
+    """Epoch seconds of the most recent transcript record carrying a `timestamp`.
+
+    True last-activity time (the last message written), not the session's close
+    time. Returns None when no timestamped record exists or the file is unreadable.
+    """
+    latest = None
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                ts = rec.get("timestamp")
+                if not isinstance(ts, str):
+                    continue
+                epoch = _iso_to_epoch(ts)
+                if epoch is not None and (latest is None or epoch > latest):
+                    latest = epoch
+    except OSError:
+        return None
+    return latest
+
+
 def _find_transcript(session_id, projects_root):
     hits = glob.glob(os.path.join(projects_root, "*", session_id + ".jsonl"))
     return hits[0] if hits else None
@@ -109,6 +148,7 @@ def enrich(session, projects_root, cache):
     if not path:
         session["title"] = _cwd_basename(session["cwd"])
         session["turns"] = None
+        session["last_activity"] = session.get("ts_end")
         return session
     try:
         mtime = os.path.getmtime(path)
@@ -116,14 +156,20 @@ def enrich(session, projects_root, cache):
         mtime = None
     key = (sid, mtime)
     if key in cache:
-        title, turns = cache[key]
+        title, turns, activity = cache[key]
     else:
         title = extract_title(path)
         turns = count_turns(path)
-        cache[key] = (title, turns)
+        activity = last_activity(path)
+        cache[key] = (title, turns, activity)
     session["title"] = title or _cwd_basename(session["cwd"])
     session["turns"] = turns
+    session["last_activity"] = activity if activity is not None else session.get("ts_end")
     return session
+
+
+def _activity_ts(s):
+    return s.get("last_activity") or s.get("ts_end") or 0
 
 
 def group_and_sort(sessions):
@@ -131,10 +177,10 @@ def group_and_sort(sessions):
     for s in sessions:
         groups.setdefault(s.get("project") or "(unknown)", []).append(s)
     for items in groups.values():
-        items.sort(key=lambda s: s.get("ts_end") or 0, reverse=True)
+        items.sort(key=_activity_ts, reverse=True)
     ordered = sorted(
         groups.keys(),
-        key=lambda p: max((s.get("ts_end") or 0) for s in groups[p]),
+        key=lambda p: max(_activity_ts(s) for s in groups[p]),
         reverse=True)
     return [{"project": p, "sessions": groups[p]} for p in ordered]
 
@@ -193,7 +239,7 @@ main { padding:16px 20px; max-width:1000px; margin:0 auto; }
 <header>
   <h1>Resumable sessions</h1>
   <input id="search" type="search" placeholder="Filter title / cwd / id…" autocomplete="off">
-  <button id="sort">Sort: recent</button>
+  <button id="sort">Sort: project</button>
   <button id="refresh">Refresh</button>
 </header>
 <main id="app">
@@ -203,7 +249,7 @@ main { padding:16px 20px; max-width:1000px; margin:0 auto; }
 </main>
 <script>
 let GROUPS = [];
-let SORT = "recent"; // "recent" | "project"
+let SORT = "project"; // "recent" | "project"
 const $ = (s) => document.querySelector(s);
 
 function ago(ts) {
@@ -214,6 +260,7 @@ function ago(ts) {
   return s+"s ago";
 }
 function when(ts) { return ts ? new Date(ts*1000).toLocaleString() : ""; }
+const actTs = (s) => s.last_activity || s.ts_end || 0;
 
 async function copy(text, btn) {
   try { await navigator.clipboard.writeText(text); }
@@ -244,7 +291,8 @@ function row(s, project) {
   const el = document.createElement("div");
   el.className = "session";
   const metaBits = [];
-  if (s.ts_end) metaBits.push('<span title="'+escapeHtml(when(s.ts_end))+'">'+ago(s.ts_end)+"</span>");
+  const ts = actTs(s);
+  if (ts) metaBits.push('<span title="Last activity: '+escapeHtml(when(ts))+'">'+ago(ts)+"</span>");
   if (s.turns != null) metaBits.push(s.turns + " turns");
   if (s.reason) metaBits.push(escapeHtml(s.reason));
   metaBits.push(escapeHtml(project ? project : s.cwd));
@@ -267,7 +315,7 @@ function render() {
     let flat = [];
     for (const g of GROUPS) for (const s of g.sessions) flat.push([g.project, s]);
     flat = flat.filter(([, s]) => matches(s, q))
-               .sort((a, b) => (b[1].ts_end||0) - (a[1].ts_end||0));
+               .sort((a, b) => actTs(b[1]) - actTs(a[1]));
     for (const [project, s] of flat) { list.appendChild(row(s, project)); shown++; }
   } else {
     for (const g of GROUPS) {
@@ -276,7 +324,9 @@ function render() {
       const d = document.createElement("details");
       d.className = "group"; d.open = true;
       const sum = document.createElement("summary");
-      sum.innerHTML = escapeHtml(g.project) + '<span class="count">' + kids.length + "</span>";
+      const groupTs = Math.max(...kids.map(actTs));
+      sum.innerHTML = escapeHtml(g.project) + '<span class="count">' + kids.length + "</span>"
+        + '<span class="count" title="Last activity: ' + escapeHtml(when(groupTs)) + '">' + ago(groupTs) + "</span>";
       d.appendChild(sum);
       for (const s of kids) { d.appendChild(row(s)); shown++; }
       list.appendChild(d);
