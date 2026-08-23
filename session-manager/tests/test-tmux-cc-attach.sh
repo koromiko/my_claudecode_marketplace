@@ -123,7 +123,7 @@ STUB="$TMP/locstub.py"
 cat > "$STUB" <<'PY'
 import json
 print(json.dumps([
-    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive"},
+    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive", "leader_pid": 4242},
     {"session_id": "childproc", "cwd": "/tmp/child", "role": "child"},
     {"session_id": "notxsid", "cwd": "/tmp/notx", "role": "interactive"},
     {"session_id": "livesid", "cwd": "/tmp/live", "role": "interactive"},
@@ -134,6 +134,8 @@ check "--json live is valid array" \
     "printf '%s' \"\$ljout\" | jq -e 'type==\"array\"' >/dev/null"
 check "--json includes live interactive session" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").status')\" = 'live' ]"
+check "--json live carries leader pid" \
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").pid')\" = '4242' ]"
 check "--json omits child role session" \
     "printf '%s' \"\$ljout\" | jq -e '[.[]|select(.session_id==\"childproc\")]|length==0' >/dev/null"
 check "--json omits transcript-less live session" \

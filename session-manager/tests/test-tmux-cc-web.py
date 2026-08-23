@@ -193,6 +193,27 @@ class GroupAndSort(unittest.TestCase):
         self.assertEqual([g["project"] for g in groups], ["/p2", "/p1"])
 
 
+class DedupeLiveByPid(unittest.TestCase):
+    def test_keeps_most_recent_per_pid(self):
+        sessions = [
+            {"session_id": "old", "status": "live", "pid": "100", "last_activity": 10},
+            {"session_id": "new", "status": "live", "pid": "100", "last_activity": 50},
+            {"session_id": "solo", "status": "live", "pid": "200", "last_activity": 5},
+        ]
+        out = web.dedupe_live_by_pid(sessions)
+        ids = {s["session_id"] for s in out}
+        self.assertEqual(ids, {"new", "solo"})
+
+    def test_leaves_ended_and_pidless_untouched(self):
+        sessions = [
+            {"session_id": "e1", "status": "ended", "ts_end": 1},
+            {"session_id": "e2", "status": "ended", "ts_end": 2},
+            {"session_id": "lv", "status": "live", "last_activity": 3},  # no pid
+        ]
+        out = web.dedupe_live_by_pid(sessions)
+        self.assertEqual(len(out), 3)
+
+
 class Enrich(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()

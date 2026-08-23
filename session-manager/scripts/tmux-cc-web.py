@@ -179,6 +179,24 @@ def _activity_ts(s):
     return s.get("last_activity") or s.get("ts_end") or 0
 
 
+def dedupe_live_by_pid(sessions):
+    """Collapse live sessions that share one process to that process's most
+    recently active session. A long-lived `claude` REPL can carry several past
+    session ids; only its current one is meaningfully live."""
+    best = {}
+    for s in sessions:
+        if s.get("status") == "live" and s.get("pid"):
+            pid = s["pid"]
+            if pid not in best or _activity_ts(s) > _activity_ts(best[pid]):
+                best[pid] = s
+    out = []
+    for s in sessions:
+        if s.get("status") == "live" and s.get("pid") and best.get(s["pid"]) is not s:
+            continue
+        out.append(s)
+    return out
+
+
 def group_and_sort(sessions):
     groups = {}
     for s in sessions:
@@ -219,6 +237,9 @@ def load_sessions(attach_cmd, projects_root, cache, days=None):
     data = json.loads(proc.stdout.decode("utf-8", "replace") or "[]")
     for s in data:
         enrich(s, projects_root, cache)
+    data = dedupe_live_by_pid(data)
+    for s in data:
+        s.pop("pid", None)  # internal dedup key; not part of the served shape
     return group_and_sort(data)
 
 
@@ -377,13 +398,14 @@ function row(s, project) {
   return el;
 }
 
-// Sessions passing the active-within window. Live sessions are active now, so
-// they always pass regardless of the window.
+// Sessions whose last activity falls within the active-within window. Applies
+// to live sessions too: a running-but-idle REPL untouched beyond the window
+// drops off the list (widen the window or pick "All time" to see it).
 function windowed() {
   const cutoff = Date.now()/1000 - WINDOW_DAYS*86400;
   const out = [];
   for (const g of GROUPS) for (const s of g.sessions) {
-    if (isLive(s) || actTs(s) >= cutoff) out.push([g.project, s]);
+    if (actTs(s) >= cutoff) out.push([g.project, s]);
   }
   return out;
 }

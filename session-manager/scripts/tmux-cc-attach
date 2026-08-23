@@ -269,17 +269,17 @@ live_session_ids() {
 live_sessions_json() {
     local sid cwd proj root
     root=$(transcript_root)
-    while IFS='|' read -r sid cwd; do
+    while IFS='|' read -r sid cwd pid; do
         [ -n "$sid" ] || continue
         resume_is_resumable "$sid" "$root" || continue
         proj=$(project_of_dir "$cwd")
         if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$proj" "${PROJECT_GLOBS[@]}"; then
             continue
         fi
-        jq -cn --arg id "$sid" --arg cwd "$cwd" --arg project "$proj" \
-            '{session_id:$id, cwd:$cwd, project:$project, status:"live"}'
+        jq -cn --arg id "$sid" --arg cwd "$cwd" --arg project "$proj" --arg pid "$pid" \
+            '{session_id:$id, cwd:$cwd, project:$project, pid:$pid, status:"live"}'
     done < <(printf '%s' "$LOCATOR_JSON" \
-        | jq -r '.[] | select(.role=="interactive") | [.session_id, (.cwd // "")] | join("|")' 2>/dev/null)
+        | jq -r '.[] | select(.role=="interactive") | [.session_id, (.cwd // ""), ((.leader_pid // "")|tostring)] | join("|")' 2>/dev/null)
 }
 
 attach_command_for() {
