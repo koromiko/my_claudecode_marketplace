@@ -263,11 +263,15 @@ live_session_ids() {
 }
 
 # One compact JSON object per interactive live session, tagged status:"live",
-# honoring the same --project filter as the resumable list.
+# honoring the same --project filter as the resumable list. A live process with
+# no transcript on disk (e.g. a `claude -r` picker that never started a session)
+# has nothing to resume or fork, so it is omitted.
 live_sessions_json() {
-    local sid cwd proj
+    local sid cwd proj root
+    root=$(transcript_root)
     while IFS='|' read -r sid cwd; do
         [ -n "$sid" ] || continue
+        resume_is_resumable "$sid" "$root" || continue
         proj=$(project_of_dir "$cwd")
         if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$proj" "${PROJECT_GLOBS[@]}"; then
             continue

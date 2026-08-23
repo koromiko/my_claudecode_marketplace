@@ -113,15 +113,19 @@ check "--json no report text" \
 check "--json ended carries status ended" \
     "[ \"\$(printf '%s' \"\$jout\" | jq -r '.[]|select(.session_id==\"livesid\").status')\" = 'ended' ]"
 
-# --json with a live locator: interactive sessions are emitted as status:"live",
-# child (subagent) sessions are omitted, and a live id also present in the resume
-# store appears once (live wins, no double-list).
+# --json with a live locator: interactive sessions with a transcript are emitted
+# as status:"live"; child (subagent) sessions and transcript-less live processes
+# are omitted; and a live id also present in the resume store appears once (live
+# wins, no double-list).
+mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-liveproc"
+touch "$CLAUDE_PROJECTS_DIR/-tmp-liveproc/liveproc.jsonl"
 STUB="$TMP/locstub.py"
 cat > "$STUB" <<'PY'
 import json
 print(json.dumps([
     {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive"},
     {"session_id": "childproc", "cwd": "/tmp/child", "role": "child"},
+    {"session_id": "notxsid", "cwd": "/tmp/notx", "role": "interactive"},
     {"session_id": "livesid", "cwd": "/tmp/live", "role": "interactive"},
 ]))
 PY
@@ -132,6 +136,8 @@ check "--json includes live interactive session" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").status')\" = 'live' ]"
 check "--json omits child role session" \
     "printf '%s' \"\$ljout\" | jq -e '[.[]|select(.session_id==\"childproc\")]|length==0' >/dev/null"
+check "--json omits transcript-less live session" \
+    "printf '%s' \"\$ljout\" | jq -e '[.[]|select(.session_id==\"notxsid\")]|length==0' >/dev/null"
 check "--json live id not double-listed" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '[.[]|select(.session_id==\"livesid\")]|length')\" = '1' ]"
 check "--json live id resolves to live status" \
