@@ -155,7 +155,7 @@ tags: [travel, japan, drive, ...]
 opening-hours quirks, seasonal/pop-up status, access notes
 
 ### 景點實拍圖（取自各網誌）
-one `![name](image-url)` per stop that has one, with a note for any that don't
+one `![name](image-url)` per stop that has one, each followed by a `**name**` line, with a note for any that don't
 
 ### 時間軸行程表
 | 時間 | 行程 |
@@ -227,6 +227,7 @@ After both files exist, add a `> [!tip]` callout to each pointing at the other, 
 - **Never fabricate** a link, image, address, driving time, or opening hour. Where something can't be verified, say so in the file.
 - **Tables must be flush-left at top level.** A markdown table indented under a bullet list does **not** render as a table in Obsidian. If a table belongs to a bulleted item, promote it to its own `###` heading instead.
 - **Image captions are the stop's name and nothing else.** The caption must be **exactly** the stop/area name as it appears in 景點總覽 or the 結論表 — never a description of what is visible in the photo (which bridge, which towers, which skyline, what time of day). Naming the wrong landmark in a caption is the most common content error this skill produces, and a caption that only restates a name **cannot** make that error. If you can't attribute a photo to a specific named stop with confidence, drop it rather than caption it vaguely. Anything worth saying about the view goes in the body text, sourced to the page that says it — not in the caption.
+- **The caption must be VISIBLE, not only alt text.** Obsidian and Quartz do not render `![alt](url)` alt text as an on-page caption — a note that puts the name only in the alt renders as a wall of unlabeled photos (this shipped once). Every image in a 景點實拍圖-style gallery section gets a `**name**` line on its own paragraph directly below the embed (images that already sit under a `###` heading bearing the name, as in 延伸推薦 sections, need no extra line). Keep the same name in the alt text too, but **strip `[` `]` from alt text** — nested brackets like `![Beasty Coffee [cafe laboratory]](url)` can break markdown parsing; the visible `**name**` line keeps the exact name including brackets.
 - **Re-read any numbered list you insert into.** Appending items mid-list, or inserting a heading between two items, silently breaks the ordering and the list continuity. If a block needs its own heading, move it out of the list entirely.
 - **Run the lint gate after every `Write`/`Edit` of the note** (see Step 3.9). Do not rely on remembering these rules — run the command.
 
