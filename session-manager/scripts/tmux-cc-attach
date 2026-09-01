@@ -119,14 +119,6 @@ resume_is_autonomous() {
     return 1
 }
 
-# The command that recreates + attaches a session in a fresh tmux -CC session.
-resume_attach_command() {
-    local ec ei
-    ec=$(escape_shell_single "$1")
-    ei=$(escape_shell_single "$2")
-    printf "tmux -CC new-session -c '%s' \"claude -r '%s'\"" "$ec" "$ei"
-}
-
 # Emit one line per resume record: id|cwd|ts_end|reason
 read_resume_records() {
     local d f
@@ -199,7 +191,15 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$JSON_MODE" -eq 0 ]; then
-    exec python3 "$(cd "$(dirname "$0")" && pwd)/tmux-cc-web.py" ${WEB_ARGS[@]+"${WEB_ARGS[@]}"}
+    # Resolve through symlinks (README installs this via ~/.local/bin symlink).
+    _src="$0"
+    while [ -L "$_src" ]; do
+        _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+        _src="$(readlink "$_src")"
+        case "$_src" in /*) ;; *) _src="$_dir/$_src" ;; esac
+    done
+    _selfdir="$(cd -P "$(dirname "$_src")" && pwd)"
+    exec python3 "$_selfdir/tmux-cc-web.py" ${WEB_ARGS[@]+"${WEB_ARGS[@]}"}
 fi
 command -v jq >/dev/null 2>&1 || die "jq required for --json"
 

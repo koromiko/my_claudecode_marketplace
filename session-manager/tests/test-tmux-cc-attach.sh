@@ -32,10 +32,6 @@ check "autonomous true"    "resume_is_autonomous autosid \"\$(transcript_root)\"
 check "autonomous false"   "! resume_is_autonomous humansid \"\$(transcript_root)\""
 check "autonomous missing" "! resume_is_autonomous nope \"\$(transcript_root)\""
 
-cmd=$(resume_attach_command "/tmp/my proj" "id'x")
-check "attach cmd cwd"  "printf '%s' \"\$cmd\" | grep -q \"new-session -c '/tmp/my proj'\""
-check "attach cmd id"   "printf '%s' \"\$cmd\" | grep -q \"claude -r 'id'\\\\\\\\''x'\""
-
 mkdir -p "$(resume_dir)"
 printf '{"session_id":"s1","cwd":"/tmp/a","ts_start":1,"ts_end":100,"reason":"logout"}\n' > "$(resume_dir)/s1.json"
 line=$(read_resume_records)
