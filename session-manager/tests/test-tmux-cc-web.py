@@ -360,5 +360,84 @@ class LiveServer(unittest.TestCase):
             srv.shutdown(); srv.server_close()
 
 
+class LiveActions(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        d = os.path.join(self.root, "-proj"); os.makedirs(d, exist_ok=True)
+        _write(os.path.join(d, "e1.jsonl"), ['{"type":"user","message":{"content":"hi"}}'])
+        _write(os.path.join(d, "l1.jsonl"),
+               ['{"type":"user","message":{"content":"live"},"timestamp":"1970-01-01T00:00:30Z"}'])
+        self.argfile = os.path.join(self.root, "args.txt")
+        self.stub = os.path.join(self.root, "session-open.sh")
+        _write(self.stub, ["#!/bin/bash", 'printf "%s\\n" "$*" >> ' + shlex.quote(self.argfile), "echo ok"])
+        os.chmod(self.stub, 0o755)
+        payload = ('[{"session_id":"e1","cwd":"/tmp/a","project":"/pa","ts_end":5,'
+                   '"reason":"x","status":"ended"},'
+                   '{"session_id":"l1","cwd":"/tmp/b","project":"/pb","pid":"7",'
+                   '"pane":"iterm:GUID","host":"iterm","status":"live"}]')
+        self.attach = ["bash", "-c", "printf '%s' " + shlex.quote(payload)]
+
+    def _serve(self):
+        srv = web.WebServer(("127.0.0.1", 0), self.attach, self.root)
+        srv.session_open = self.stub
+        t = threading.Thread(target=srv.serve_forever, daemon=True); t.start()
+        return srv, srv.server_address[1]
+
+    def _post(self, port, path, body, origin=None):
+        data = json.dumps(body).encode()
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if origin: req.add_header("Origin", origin)
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_open_runs_executor(self):
+        srv, port = self._serve()
+        try:
+            r = self._post(port, "/api/open", {"session_id": "e1"},
+                           origin="http://127.0.0.1:%d" % port)
+            self.assertEqual(json.loads(r.read())["ok"], True)
+            self.assertIn("open /tmp/a e1", open(self.argfile).read())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_unknown_id_404(self):
+        srv, port = self._serve()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self._post(port, "/api/open", {"session_id": "nope"},
+                           origin="http://127.0.0.1:%d" % port)
+            self.assertEqual(cm.exception.code, 404)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_cross_origin_403(self):
+        srv, port = self._serve()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self._post(port, "/api/open", {"session_id": "e1"}, origin="http://evil.example")
+            self.assertEqual(cm.exception.code, 403)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_focus_resolves_pane(self):
+        srv, port = self._serve()
+        try:
+            self._post(port, "/api/focus", {"session_id": "l1"},
+                       origin="http://127.0.0.1:%d" % port)
+            self.assertIn("focus iterm:GUID", open(self.argfile).read())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_attach_requires_tmux_host(self):
+        srv, port = self._serve()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:  # l1 is host=iterm
+                self._post(port, "/api/attach", {"session_id": "l1"},
+                           origin="http://127.0.0.1:%d" % port)
+            self.assertIn(cm.exception.code, (400, 409))
+        finally:
+            srv.shutdown(); srv.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()

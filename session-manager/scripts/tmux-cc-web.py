@@ -489,6 +489,35 @@ load();
 """
 
 
+def find_session(groups, session_id):
+    for g in groups:
+        for s in g["sessions"]:
+            if s.get("session_id") == session_id:
+                return s
+    return None
+
+
+def _same_origin(headers, host, port):
+    origin = headers.get("Origin")
+    expected = {"http://127.0.0.1:%d" % port, "http://localhost:%d" % port}
+    if origin is not None:
+        return origin in expected
+    h = headers.get("Host") or ""
+    return h in {"127.0.0.1:%d" % port, "localhost:%d" % port}
+
+
+def default_session_open_path():
+    return os.environ.get("SESSION_OPEN") or \
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "session-open.sh")
+
+
+def run_action(session_open, argv):
+    proc = subprocess.run([session_open] + argv,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip() or "action failed")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "tmux-cc-web"
 
@@ -520,6 +549,41 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(404, b"not found", "text/plain; charset=utf-8")
 
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        port = self.server.server_address[1]
+        if not _same_origin(self.headers, self.server.server_address[0], port):
+            self._send(403, json.dumps({"error": "cross-origin"}).encode(), "application/json")
+            return
+        routes = {"/api/open", "/api/focus", "/api/attach"}
+        if parsed.path not in routes:
+            self._send(404, b"not found", "text/plain; charset=utf-8"); return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, TypeError):
+            self._send(400, json.dumps({"error": "bad body"}).encode(), "application/json"); return
+        sid = body.get("session_id")
+        groups = load_sessions(self.server.attach_cmd, self.server.projects_root, self.server.cache)
+        s = find_session(groups, sid)
+        if s is None:
+            self._send(404, json.dumps({"error": "unknown session"}).encode(), "application/json"); return
+        try:
+            if parsed.path == "/api/open":
+                argv = ["open", s["cwd"], sid] + (["--fork"] if body.get("fork") else [])
+            elif parsed.path == "/api/focus":
+                if not s.get("pane"):
+                    self._send(400, json.dumps({"error": "no pane"}).encode(), "application/json"); return
+                argv = ["focus", s["pane"]]
+            else:  # /api/attach
+                if s.get("host") != "tmux":
+                    self._send(400, json.dumps({"error": "not a tmux session"}).encode(), "application/json"); return
+                argv = ["attach", sid]
+            run_action(self.server.session_open, argv)
+            self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+        except Exception as exc:
+            self._send(500, json.dumps({"error": str(exc)}).encode(), "application/json")
+
 
 class WebServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -530,6 +594,7 @@ class WebServer(ThreadingHTTPServer):
         self.attach_cmd = attach_cmd
         self.projects_root = projects_root
         self.cache = {}
+        self.session_open = default_session_open_path()
 
 
 def default_attach_path():
