@@ -41,7 +41,18 @@ printf '{"session_id":"s1","cwd":"/tmp/a","ts_start":1,"ts_end":100,"reason":"lo
 line=$(read_resume_records)
 check "read record joined" "[ \"\$line\" = 's1|/tmp/a|100|logout' ]"
 
-# Integration: --resume-only -n prints a resume command for a fresh, resumable record.
+# Default (non-json) invocation execs the web server, passing recognized
+# web-launch flags through untouched.
+cat > "$TMP/python3" <<'FAKE'
+#!/bin/bash
+echo "$@" > "$PY_CAPTURE"
+FAKE
+chmod +x "$TMP/python3"; export PY_CAPTURE="$TMP/py.txt"
+PATH="$TMP:$PATH" bash "$SCRIPT" --port 8790 --no-open >/dev/null 2>&1
+check "no-json execs web server" "grep -q 'tmux-cc-web.py' \"\$PY_CAPTURE\""
+check "web-launch passes flags through" "grep -q -- '--port 8790 --no-open' \"\$PY_CAPTURE\""
+check "removed --resume-only errors" "! bash \"\$SCRIPT\" --resume-only >/dev/null 2>&1"
+
 NOW2=$(date +%s)
 rm -f "$(resume_dir)"/*.json
 mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-live"
@@ -58,43 +69,9 @@ mkdir -p "$CLAUDE_PROJECTS_DIR/-tmp-auto2"
 printf '{"type":"agent-setting"}\n' > "$CLAUDE_PROJECTS_DIR/-tmp-auto2/autosid2.jsonl"
 printf '{"session_id":"autosid2","cwd":"/tmp/auto2","ts_start":1,"ts_end":%s,"reason":"other"}\n' "$NOW2" \
     > "$(resume_dir)/autosid2.json"
-out=$(TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --resume-only -n 2>/dev/null)
-check "dry-run shows resumable" "printf '%s' \"\$out\" | grep -q \"claude -r 'livesid'\""
-check "dry-run drops stale age" "! printf '%s' \"\$out\" | grep -q oldsid"
-check "dry-run drops no-transcript" "! printf '%s' \"\$out\" | grep -q ghostsid"
-check "dry-run drops autonomous" "! printf '%s' \"\$out\" | grep -q autosid2"
-check "dry-run has no selection prompt" "! printf '%s' \"\$out\" | grep -q 'Select projects'"
-check "dry-run does not prune stale record" "[ -f \"\$(resume_dir)/oldsid.json\" ]"
-check "dry-run does not prune no-transcript record" "[ -f \"\$(resume_dir)/ghostsid.json\" ]"
 
-# Report: the resumable session must appear under its project group. Anchor
-# on the report's own numbered group-header line ("  [N] <group>", nothing
-# else) so this doesn't pass merely because the dry-run commands list also
-# mentions the project (it prints "# resume ... @ <group>" regardless of the
-# report loop).
-live_group=$(project_of_dir /tmp/live)
-check "report shows project group for /tmp/live" \
-    "printf '%s\n' \"\$out\" | grep -E '^  \[[0-9]+\] ' | sed -E 's/^  \[[0-9]+\] //' | grep -qxF \"\$live_group\""
-check "report shows resume marker line for livesid" \
-    "printf '%s' \"\$out\" | grep -q '^ *livesid ' && printf '%s' \"\$out\" | grep -q '\\[resume'"
-
-bash "$SCRIPT" --since foo --resume-only -n >/dev/null 2>&1; rc=$?
+bash "$SCRIPT" --since foo --json >/dev/null 2>&1; rc=$?
 check "--since non-numeric dies" "[ $rc -ne 0 ]"
-
-# parse_group_selection: empty=all, subset, comma form, none(rc2), bad(rc1)
-check "sel empty = all" "[ \"\$(parse_group_selection '' 3 | tr '\n' ' ')\" = '1 2 3 ' ]"
-check "sel subset"      "[ \"\$(parse_group_selection '1 3' 3 | tr '\n' ' ')\" = '1 3 ' ]"
-check "sel comma"       "[ \"\$(parse_group_selection '2,3' 3 | tr '\n' ' ')\" = '2 3 ' ]"
-parse_group_selection 'n' 3 >/dev/null; check "sel none rc2" "[ $? -eq 2 ]"
-parse_group_selection '5' 3 >/dev/null; check "sel oob rc1"  "[ $? -eq 1 ]"
-parse_group_selection 'x' 3 >/dev/null; check "sel nonnum rc1" "[ $? -eq 1 ]"
-
-# parse_group_selection: leading-zero tokens must normalize to decimal, not
-# be read as octal (bash treats a leading-0 numeric literal as octal in
-# arithmetic context, e.g. array subscripts).
-check "sel zero-padded 008 = 8"  "[ \"\$(parse_group_selection '008' 10 | tr '\n' ' ')\" = '8 ' ]"
-check "sel zero-padded 010 = 10" "[ \"\$(parse_group_selection '010' 10 | tr '\n' ' ')\" = '10 ' ]"
-check "sel mixed zero-padded"    "[ \"\$(parse_group_selection '01 03' 5 | tr '\n' ' ')\" = '1 3 ' ]"
 
 # --json emits a JSON array of resumable sessions, honoring the same filters.
 jout=$(TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --json 2>/dev/null)
@@ -157,8 +134,5 @@ printf '{"session_id":"keepsid","cwd":"/tmp/keep","ts_start":1,"ts_end":%s,"reas
     > "$(resume_dir)/keepsid.json"
 TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --json --since 1 >/dev/null 2>&1
 check "--json --since does not prune out-of-window record" "[ -f \"$(resume_dir)/keepsid.json\" ]"
-# The interactive resume path still prunes it.
-TMUX_CC_LOCATOR=/nonexistent bash "$SCRIPT" --resume-only --since 1 </dev/null >/dev/null 2>&1
-check "--resume-only prunes out-of-window record" "[ ! -f \"$(resume_dir)/keepsid.json\" ]"
 
 [ "$fails" -eq 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }

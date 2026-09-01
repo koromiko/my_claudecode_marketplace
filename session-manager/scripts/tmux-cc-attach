@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
 #
-# tmux-cc-attach — attach tmux sessions in iTerm2 control mode (tmux -CC),
-# grouping each session into a per-project iTerm window.
+# tmux-cc-attach — launches the sessions web UI, and serves as its
+# machine-readable backend.
+#
+# With no --json flag (the default), execs the web server (tmux-cc-web.py),
+# which lists live tmux sessions and resumable ended sessions grouped by
+# project, in the browser.
+#
+# --json prints resumable/live sessions as a JSON array and exits; it is the
+# backend tmux-cc-web.py (and other tooling) consumes, not a UI of its own.
 #
 # A session's project is the parent of its `git rev-parse --git-common-dir`,
-# which maps git worktrees back onto their main repo. Sessions are assigned by
-# majority vote across their panes, ties broken by the active pane.
-#
-# Grouping requires iTerm's OpenTmuxWindowsIn=2 (tmux windows open as tabs in
-# the gateway's window). The pref is set for the duration of the run and
-# restored on exit; iTerm binds placement at attach time, so restoring it does
-# not un-group already-attached sessions.
-#
-# Sessions are targeted by session_id ($N), never by name: `tmux -t 2`
-# prefix-matches a session named "28", which would attach the wrong session.
+# which maps git worktrees back onto their main repo.
 
 set -uo pipefail
-
-readonly ITERM_APP="/Applications/iTerm.app"
-readonly ITERM_DOMAIN="com.googlecode.iterm2"
-readonly PREF_KEY="OpenTmuxWindowsIn"
-readonly PREF_TABS=2
 
 readonly RESUME_MAX_AGE_DAYS_DEFAULT=14
 RESUME_MAX_AGE_DAYS="${RESUME_MAX_AGE_DAYS:-$RESUME_MAX_AGE_DAYS_DEFAULT}"
@@ -28,48 +21,29 @@ SM_HOME="${CLAUDE_SM_HOME:-$HOME/.claude/session-manager}"
 PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 
 DRY_RUN=0
-ASSUME_YES=0
-INCLUDE_ATTACHED=0
-GROUP=1
 RESUME=1
 RESUME_ONLY=0
 JSON_MODE=0
-DELAY=0.4
-ONLY_GLOBS=()
-EXCLUDE_GLOBS=()
 PROJECT_GLOBS=()
-
-PREF_SAVED=""
-PREF_TOUCHED=0
-PANE_DATA=""
 
 usage() {
     cat <<'EOF'
 Usage: tmux-cc-attach [options]
 
-Attaches detached tmux sessions in iTerm2 control mode, one iTerm window per
-project directory.
+With no options (other than the web-launch ones below), execs the sessions
+web UI (tmux-cc-web.py), which lists live and resumable sessions grouped by
+project in the browser.
 
 Options:
-  -n, --dry-run           Show what would be attached; change nothing
-  -y, --yes               Skip the confirmation prompt
-  -a, --all               Include already-attached sessions (as grouped
-                          sessions, so existing clients keep their own size)
-  -o, --only GLOB         Attach only sessions whose name matches (repeatable)
-  -x, --exclude GLOB      Skip sessions whose name matches (repeatable)
-  -p, --project GLOB      Attach only project groups whose path matches
-                          (repeatable; matched against the full project path)
-      --no-group          One window for all gateways; leave tmux window
-                          placement to your existing iTerm preference
-  -d, --delay SEC         Delay between attaches (default 0.4)
-      --json              Print resumable sessions as JSON and exit (implies
-                          --resume-only; skips iTerm/tmux preflight)
+  --port PORT             Web server port (passed through to tmux-cc-web.py)
+  --host HOST             Web server bind host (passed through)
+  --no-open               Don't auto-open a browser tab (passed through)
+      --json              Print resumable/live sessions as JSON and exit
+                          (the machine-readable backend; no web server)
+  -p, --project GLOB      (--json only) restrict to project paths matching
+                          GLOB (repeatable)
+      --since DAYS        (--json only) recency window override (default 14)
   -h, --help              This message
-
-Examples:
-  tmux-cc-attach -n                            # preview
-  tmux-cc-attach -p '*mobile-app-platform'
-  tmux-cc-attach -x 28 -x 41 -y
 EOF
 }
 
@@ -77,36 +51,6 @@ die() {
     printf 'tmux-cc-attach: %s\n' "$1" >&2
     exit 1
 }
-
-warn() {
-    printf 'tmux-cc-attach: %s\n' "$1" >&2
-}
-
-# --- iTerm preference handling ------------------------------------------------
-
-save_pref() {
-    PREF_SAVED=$(defaults read "$ITERM_DOMAIN" "$PREF_KEY" 2>/dev/null) || PREF_SAVED=""
-}
-
-set_pref_tabs() {
-    if ! defaults write "$ITERM_DOMAIN" "$PREF_KEY" -int "$PREF_TABS" 2>/dev/null; then
-        warn "could not set $PREF_KEY; windows may not group"
-        return 1
-    fi
-    PREF_TOUCHED=1
-}
-
-restore_pref() {
-    [ "$PREF_TOUCHED" -eq 1 ] || return 0
-    if [ -n "$PREF_SAVED" ]; then
-        defaults write "$ITERM_DOMAIN" "$PREF_KEY" -int "$PREF_SAVED" 2>/dev/null
-    else
-        defaults delete "$ITERM_DOMAIN" "$PREF_KEY" 2>/dev/null
-    fi
-    PREF_TOUCHED=0
-}
-
-trap restore_pref EXIT INT TERM
 
 # --- project resolution -------------------------------------------------------
 
@@ -125,64 +69,12 @@ project_of_dir() {
     fi
 }
 
-# Majority project across a session's panes; the active pane breaks ties.
-# Reads from PANE_DATA (one `tmux list-panes -a` sweep) rather than per-session
-# targets. Argument is a session_id.
-project_of_session() {
-    local sid="$1"
-    local projects=() active_project="" is_active path proj
-
-    while IFS='|' read -r is_active path; do
-        [ -n "$path" ] || continue
-        proj=$(project_of_dir "$path")
-        [ "$proj" = "(unknown)" ] && continue
-        projects+=("$proj")
-        [ "$is_active" = "1" ] && active_project="$proj"
-    done < <(printf '%s\n' "$PANE_DATA" \
-        | awk -F'|' -v s="$sid" '$1 == s { print $2 "|" $3 }')
-
-    if [ ${#projects[@]} -eq 0 ]; then
-        printf '%s\n' "(unknown)"
-        return
-    fi
-
-    local counted best="" best_count=0 count candidate active_count=0
-    counted=$(printf '%s\n' "${projects[@]}" | sort | uniq -c | sort -rn)
-
-    while read -r count candidate; do
-        [ -n "$candidate" ] || continue
-        if [ "$count" -gt "$best_count" ]; then
-            best="$candidate"
-            best_count="$count"
-        fi
-        [ "$candidate" = "$active_project" ] && active_count="$count"
-    done <<EOF
-$counted
-EOF
-
-    # Tie between the leader and the active pane's project: active pane wins.
-    if [ -n "$active_project" ] && [ "$active_count" -eq "$best_count" ]; then
-        best="$active_project"
-    fi
-
-    printf '%s\n' "$best"
-}
-
 matches_any() {
     local value="$1"; shift
     local glob
     for glob in "$@"; do
         # shellcheck disable=SC2053
         [[ $value == $glob ]] && return 0
-    done
-    return 1
-}
-
-contains_exact() {
-    local needle="$1"; shift
-    local item
-    for item in "$@"; do
-        [ "$item" = "$needle" ] && return 0
     done
     return 1
 }
@@ -285,70 +177,6 @@ live_sessions_json() {
                     (.pane // ""), (.host // "")] | join("|")' 2>/dev/null)
 }
 
-attach_command_for() {
-    local sid="$1" attached="$2" escaped
-    escaped=$(escape_shell_single "$sid")
-    if [ "$attached" = "1" ]; then
-        # Grouped session: shares windows without resizing the existing client.
-        printf "tmux -CC new-session -t '%s'" "$escaped"
-    else
-        printf "tmux -CC attach -t '%s'" "$escaped"
-    fi
-}
-
-create_group_window() {
-    local cmd="$1" escaped
-    escaped=$(escape_applescript "$cmd")
-    osascript 2>/dev/null <<OSA
-tell application "iTerm"
-  activate
-  set w to (create window with default profile)
-  tell current session of w to write text "$escaped"
-  return (id of w) as string
-end tell
-OSA
-}
-
-add_gateway_tab() {
-    local window_id="$1" cmd="$2" escaped
-    escaped=$(escape_applescript "$cmd")
-    osascript 2>/dev/null <<OSA
-tell application "iTerm"
-  set w to (first window whose id = $window_id)
-  tell w
-    set t to (create tab with default profile)
-    tell current session of t to write text "$escaped"
-  end tell
-  return "ok"
-end tell
-OSA
-}
-
-# --- group selection ---------------------------------------------------------
-
-# Parse a group-selection reply against a group count.
-#   empty reply         -> print 1..count (all), return 0
-#   n / none            -> return 2 (abort)
-#   space/comma numbers -> print those indices, return 0
-#   any bad token / oob -> return 1 (caller re-prompts)
-parse_group_selection() {
-    local reply="$1" count="$2" tok i out=()
-    reply="${reply//,/ }"
-    reply="$(printf '%s' "$reply" | tr -s ' ')"
-    case "$reply" in
-        ''|' ') for ((i = 1; i <= count; i++)); do printf '%s\n' "$i"; done; return 0 ;;
-        n|N|none|NONE) return 2 ;;
-    esac
-    for tok in $reply; do
-        case "$tok" in ''|*[!0-9]*) return 1 ;; esac
-        tok=$((10#$tok))
-        { [ "$tok" -ge 1 ] && [ "$tok" -le "$count" ]; } || return 1
-        out+=("$tok")
-    done
-    printf '%s\n' ${out[@]+"${out[@]}"}
-    return 0
-}
-
 # When sourced by tests, stop here with all helpers defined.
 if [ -n "${TMUX_CC_LIB_ONLY:-}" ]; then
     return 0 2>/dev/null || exit 0
@@ -356,75 +184,24 @@ fi
 
 # --- argument parsing ---------------------------------------------------------
 
+JSON_MODE=0
+WEB_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        -n|--dry-run)   DRY_RUN=1; shift ;;
-        -y|--yes)       ASSUME_YES=1; shift ;;
-        -a|--all)       INCLUDE_ATTACHED=1; shift ;;
-        --no-group)     GROUP=0; shift ;;
-        -o|--only)      [ $# -ge 2 ] || die "--only needs a glob"; ONLY_GLOBS+=("$2"); shift 2 ;;
-        -x|--exclude)   [ $# -ge 2 ] || die "--exclude needs a glob"; EXCLUDE_GLOBS+=("$2"); shift 2 ;;
-        -p|--project)   [ $# -ge 2 ] || die "--project needs a glob"; PROJECT_GLOBS+=("$2"); shift 2 ;;
-        -d|--delay)     [ $# -ge 2 ] || die "--delay needs seconds"; DELAY="$2"; shift 2 ;;
-        --no-resume)    RESUME=0; shift ;;
-        --resume-only)  RESUME_ONLY=1; RESUME=1; shift ;;
         --json)         JSON_MODE=1; RESUME_ONLY=1; RESUME=1; shift ;;
+        -p|--project)   [ $# -ge 2 ] || die "--project needs a glob"; PROJECT_GLOBS+=("$2"); shift 2 ;;
         --since)        [ $# -ge 2 ] || die "--since needs days"; case "$2" in ''|*[!0-9]*) die "--since needs a non-negative integer" ;; esac; RESUME_MAX_AGE_DAYS="$2"; shift 2 ;;
+        --port|--host)  WEB_ARGS+=("$1" "$2"); shift 2 ;;
+        --no-open)      WEB_ARGS+=("$1"); shift ;;
         -h|--help)      usage; exit 0 ;;
         *)              die "unknown option: $1 (try --help)" ;;
     esac
 done
 
-# --- preflight ----------------------------------------------------------------
-
-if [ "$JSON_MODE" -eq 1 ]; then
-    command -v jq >/dev/null 2>&1 || die "jq required for --json"
-else
-    command -v tmux >/dev/null 2>&1 || die "tmux not found on PATH"
-    command -v osascript >/dev/null 2>&1 || die "osascript not found (macOS only)"
-    [ -d "$ITERM_APP" ] || die "iTerm2 not installed at $ITERM_APP"
-    if [ "$RESUME_ONLY" -eq 0 ]; then
-        tmux list-sessions >/dev/null 2>&1 || die "no tmux server running"
-    fi
+if [ "$JSON_MODE" -eq 0 ]; then
+    exec python3 "$(cd "$(dirname "$0")" && pwd)/tmux-cc-web.py" ${WEB_ARGS[@]+"${WEB_ARGS[@]}"}
 fi
-
-# --- build the work list ------------------------------------------------------
-
-SESSION_IDS=()
-SESSION_NAMES=()
-SESSION_ATTACHED=()
-SESSION_WINDOWS=()
-SESSION_PROJECT=()
-
-if [ "$RESUME_ONLY" -eq 0 ]; then
-PANE_DATA=$(tmux list-panes -a \
-    -F '#{session_id}|#{?#{&&:#{window_active},#{pane_active}},1,0}|#{pane_current_path}' 2>/dev/null)
-
-while IFS='|' read -r sid name attached windows; do
-    [ -n "$sid" ] || continue
-    if [ "$attached" = "1" ] && [ "$INCLUDE_ATTACHED" -eq 0 ]; then
-        continue
-    fi
-    if [ ${#ONLY_GLOBS[@]} -gt 0 ] && ! matches_any "$name" "${ONLY_GLOBS[@]}"; then
-        continue
-    fi
-    if [ ${#EXCLUDE_GLOBS[@]} -gt 0 ] && matches_any "$name" "${EXCLUDE_GLOBS[@]}"; then
-        continue
-    fi
-
-    project=$(project_of_session "$sid")
-    if [ ${#PROJECT_GLOBS[@]} -gt 0 ] && ! matches_any "$project" "${PROJECT_GLOBS[@]}"; then
-        continue
-    fi
-
-    SESSION_IDS+=("$sid")
-    SESSION_NAMES+=("$name")
-    SESSION_ATTACHED+=("$attached")
-    SESSION_WINDOWS+=("$windows")
-    SESSION_PROJECT+=("$project")
-done < <(tmux list-sessions \
-    -F '#{session_id}|#{session_name}|#{session_attached}|#{session_windows}' 2>/dev/null)
-fi
+command -v jq >/dev/null 2>&1 || die "jq required for --json"
 
 # --- resume work list --------------------------------------------------------
 
@@ -436,9 +213,9 @@ RESUME_TS=()
 
 if [ "$RESUME" -eq 1 ]; then
     now=$(date +%s)
-    # Stale/dead records are pruned only when actually resuming. Dry-run and
-    # --json (the read-only web view) must never delete records — otherwise a
-    # narrower --since window would permanently drop resumable sessions.
+    # Stale/dead records are pruned only when actually resuming. --json (the
+    # read-only web view) must never delete records — otherwise a narrower
+    # --since window would permanently drop resumable sessions.
     PRUNE_STALE=1
     { [ "$DRY_RUN" -eq 1 ] || [ "$JSON_MODE" -eq 1 ]; } && PRUNE_STALE=0
     LOCATOR_JSON=$(run_locator_list)
@@ -478,172 +255,4 @@ if [ "$JSON_MODE" -eq 1 ]; then
         live_sessions_json
     } | jq -sc '.'
     exit 0
-fi
-
-if [ ${#SESSION_IDS[@]} -eq 0 ] && [ ${#RESUME_IDS[@]} -eq 0 ]; then
-    echo "Nothing to attach or resume (no sessions matched)."
-    exit 0
-fi
-
-# Group key per session, then the distinct groups in first-seen order.
-SESSION_GROUP=()
-for project in ${SESSION_PROJECT[@]+"${SESSION_PROJECT[@]}"}; do
-    if [ "$GROUP" -eq 0 ]; then
-        SESSION_GROUP+=("(all)")
-    else
-        SESSION_GROUP+=("$project")
-    fi
-done
-
-PROJECT_GROUPS=()
-for group in ${SESSION_GROUP[@]+"${SESSION_GROUP[@]}"}; do
-    contains_exact "$group" ${PROJECT_GROUPS[@]+"${PROJECT_GROUPS[@]}"} \
-        || PROJECT_GROUPS+=("$group")
-done
-for group in ${RESUME_PROJECT[@]+"${RESUME_PROJECT[@]}"}; do
-    contains_exact "$group" ${PROJECT_GROUPS[@]+"${PROJECT_GROUPS[@]}"} \
-        || PROJECT_GROUPS+=("$group")
-done
-
-# --- report -------------------------------------------------------------------
-
-total_tabs=0
-for i in "${!SESSION_IDS[@]}"; do
-    total_tabs=$((total_tabs + 1 + SESSION_WINDOWS[i]))
-done
-total_tabs=$(( total_tabs + ${#RESUME_IDS[@]} ))
-
-printf '\n'
-printf 'Attaching/resuming %d session(s) into %d iTerm window(s), ~%d tabs total:\n\n' \
-    "$(( ${#SESSION_IDS[@]} + ${#RESUME_IDS[@]} ))" "${#PROJECT_GROUPS[@]}" "$total_tabs"
-
-gi=0
-for group in "${PROJECT_GROUPS[@]}"; do
-    gi=$((gi + 1))
-    printf '  [%d] %s\n' "$gi" "$group"
-    for i in "${!SESSION_IDS[@]}"; do
-        [ "${SESSION_GROUP[i]}" = "$group" ] || continue
-        marker=""
-        [ "${SESSION_ATTACHED[i]}" = "1" ] && marker="  [already attached -> grouped]"
-        printf '      %-12s (%s)  %s window(s)%s\n' \
-            "${SESSION_NAMES[i]}" "${SESSION_IDS[i]}" "${SESSION_WINDOWS[i]}" "$marker"
-    done
-    for i in ${RESUME_IDS[@]+"${!RESUME_IDS[@]}"}; do
-        [ "${RESUME_PROJECT[i]}" = "$group" ] || continue
-        printf '      %-12s (%s)  [resume: %s]\n' \
-            "${RESUME_IDS[i]:0:8}" "${RESUME_IDS[i]}" "${RESUME_REASON[i]:-ended}"
-    done
-done
-printf '\n'
-
-if [ "$DRY_RUN" -eq 1 ]; then
-    echo "Commands that would run:"
-    for i in "${!SESSION_IDS[@]}"; do
-        printf '  %s\n' \
-            "$(attach_command_for "${SESSION_IDS[i]}" "${SESSION_ATTACHED[i]}")   # ${SESSION_NAMES[i]} @ ${SESSION_GROUP[i]}"
-    done
-    for i in "${!RESUME_IDS[@]}"; do
-        printf '  %s\n' \
-            "$(resume_attach_command "${RESUME_CWDS[i]}" "${RESUME_IDS[i]}")   # resume ${RESUME_IDS[i]} @ ${RESUME_PROJECT[i]}"
-    done
-    if [ "$GROUP" -eq 1 ]; then
-        printf '\nWould set %s=%d for the run, then restore to %s\n' \
-            "$PREF_KEY" "$PREF_TABS" "${PREF_SAVED:-<unset>}"
-    fi
-    exit 0
-fi
-
-SELECTED_GROUPS=()
-if [ "$ASSUME_YES" -eq 1 ]; then
-    SELECTED_GROUPS=(${PROJECT_GROUPS[@]+"${PROJECT_GROUPS[@]}"})
-else
-    while :; do
-        printf "Select projects [Enter=all, e.g. '1 3', 'n'=none]: "
-        read -r reply || { echo "Aborted."; exit 0; }
-        sel=$(parse_group_selection "$reply" "${#PROJECT_GROUPS[@]}"); rc=$?
-        [ "$rc" -eq 2 ] && { echo "Aborted."; exit 0; }
-        if [ "$rc" -eq 0 ]; then
-            for idx in $sel; do
-                SELECTED_GROUPS+=("${PROJECT_GROUPS[idx-1]}")
-            done
-            break
-        fi
-        printf '  Invalid selection; enter numbers 1-%d, Enter for all, or n.\n' "${#PROJECT_GROUPS[@]}"
-    done
-fi
-
-# --- attach -------------------------------------------------------------------
-
-if [ "$GROUP" -eq 1 ]; then
-    save_pref
-    set_pref_tabs || true
-fi
-
-attached_count=0
-failed_count=0
-FAILED=()
-
-for group in "${PROJECT_GROUPS[@]}"; do
-    contains_exact "$group" ${SELECTED_GROUPS[@]+"${SELECTED_GROUPS[@]}"} || continue
-    window_id=""
-    for i in "${!SESSION_IDS[@]}"; do
-        [ "${SESSION_GROUP[i]}" = "$group" ] || continue
-
-        name="${SESSION_NAMES[i]}"
-        cmd=$(attach_command_for "${SESSION_IDS[i]}" "${SESSION_ATTACHED[i]}")
-
-        if [ -z "$window_id" ]; then
-            window_id=$(create_group_window "$cmd")
-            if [ -z "$window_id" ]; then
-                warn "failed to create iTerm window for group $group"
-                FAILED+=("$name")
-                failed_count=$((failed_count + 1))
-                continue
-            fi
-            printf '  %-12s -> new window %s   %s\n' "$name" "$window_id" "$group"
-        else
-            if [ "$(add_gateway_tab "$window_id" "$cmd")" != "ok" ]; then
-                warn "failed to open gateway tab for session $name"
-                FAILED+=("$name")
-                failed_count=$((failed_count + 1))
-                continue
-            fi
-            printf '  %-12s -> tab in window %s\n' "$name" "$window_id"
-        fi
-
-        attached_count=$((attached_count + 1))
-        sleep "$DELAY"
-    done
-
-    for i in ${RESUME_IDS[@]+"${!RESUME_IDS[@]}"}; do
-        [ "${RESUME_PROJECT[i]}" = "$group" ] || continue
-        name="${RESUME_IDS[i]:0:8}"
-        cmd=$(resume_attach_command "${RESUME_CWDS[i]}" "${RESUME_IDS[i]}")
-        if [ -z "$window_id" ]; then
-            window_id=$(create_group_window "$cmd")
-            if [ -z "$window_id" ]; then
-                warn "failed to create iTerm window for group $group"
-                FAILED+=("$name"); failed_count=$((failed_count + 1)); continue
-            fi
-            printf '  %-12s -> new window %s   %s [resume]\n' "$name" "$window_id" "$group"
-        else
-            if [ "$(add_gateway_tab "$window_id" "$cmd")" != "ok" ]; then
-                warn "failed to open resume tab for $name"
-                FAILED+=("$name"); failed_count=$((failed_count + 1)); continue
-            fi
-            printf '  %-12s -> tab in window %s [resume]\n' "$name" "$window_id"
-        fi
-        attached_count=$((attached_count + 1))
-        sleep "$DELAY"
-    done
-done
-
-# Let the last control-mode handshake finish before restoring the pref.
-sleep 1
-restore_pref
-
-printf '\nAttached %d, failed %d.\n' "$attached_count" "$failed_count"
-if [ "$failed_count" -gt 0 ]; then
-    printf 'Failed sessions: %s\n' "${FAILED[*]}"
-    exit 1
 fi
