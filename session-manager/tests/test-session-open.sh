@@ -22,8 +22,10 @@ check "open uses a new iTerm window" "grep -q 'create window with default profil
 bash "$SCRIPT" open "/tmp/p" "id2" --fork >/dev/null
 check "open --fork adds --fork-session" "grep -q \"claude -r 'id2' --fork-session\" \"$TMP/osa.txt\""
 
-bash "$SCRIPT" attach "id3" >/dev/null
-check "attach builds tmux -CC attach" "grep -q \"tmux -CC attach -t 'id3'\" \"$TMP/osa.txt\""
+# attach takes a tmux -L socket basename and the tmux SESSION NAME.
+bash "$SCRIPT" attach "default" "mysess" >/dev/null
+check "attach builds tmux -L -CC attach with session name" \
+    "grep -q \"tmux -L 'default' -CC attach -t 'mysess'\" \"$TMP/osa.txt\""
 
 # focus tests: set up fake tmux
 cat > "$TMP/tmux" <<'FAKE'
@@ -33,14 +35,17 @@ FAKE
 chmod +x "$TMP/tmux"
 export TMUX_CAPTURE="$TMP/tmux.txt"
 
-bash "$SCRIPT" focus "iterm:GUID-9" >/dev/null
-check "focus iterm selects by GUID" "grep -q 'GUID-9' \"$TMP/osa.txt\" && grep -qi 'select' \"$TMP/osa.txt\""
+# focus-iterm matches on tty (locator's iTerm GUID is not an AppleScript id).
+bash "$SCRIPT" focus-iterm "/dev/ttys009" >/dev/null
+check "focus-iterm matches by tty" "grep -q '/dev/ttys009' \"$TMP/osa.txt\" && grep -qi 'tty of s' \"$TMP/osa.txt\""
 
-bash "$SCRIPT" focus "tmux:/tmp/sock:%3" >/dev/null
-check "focus tmux selects the pane" "grep -q '%3' \"$TMUX_CAPTURE\""
-check "focus tmux uses the socket" "grep -q '/tmp/sock' \"$TMUX_CAPTURE\""
+# focus-tmux uses -L <socket> (basename), not -S, against the pane id.
+bash "$SCRIPT" focus-tmux "default" "%3" >/dev/null
+check "focus-tmux uses -L socket basename" "grep -q -- '-L default' \"$TMUX_CAPTURE\""
+check "focus-tmux selects the pane id" "grep -q '%3' \"$TMUX_CAPTURE\""
+check "focus-tmux does not use -S" "! grep -q -- '-S ' \"$TMUX_CAPTURE\""
 
-bash "$SCRIPT" focus "term:xyz" >/dev/null 2>&1; rc=$?
-check "focus unsupported host errors" "[ $rc -ne 0 ]"
+bash "$SCRIPT" bogus-cmd >/dev/null 2>&1; rc=$?
+check "unknown subcommand errors" "[ $rc -ne 0 ]"
 
 [ "$fails" -eq 0 ] && { echo ALL PASS; exit 0; } || { echo "$fails FAILED"; exit 1; }

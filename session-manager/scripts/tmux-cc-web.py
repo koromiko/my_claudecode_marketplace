@@ -521,6 +521,20 @@ def find_session(groups, session_id):
     return None
 
 
+def _parse_tmux_pane(pane):
+    """Split a locator tmux pane "tmux:<socket>:<pane_id>" into (socket, pane_id).
+
+    socket is a `tmux -L` basename; pane_id a tmux target like "%3". Returns
+    (None, None) when the string isn't a well-formed tmux pane.
+    """
+    if not pane or not pane.startswith("tmux:"):
+        return None, None
+    socket, sep, pane_id = pane[len("tmux:"):].partition(":")
+    if not sep or not socket or not pane_id:
+        return None, None
+    return socket, pane_id
+
+
 def _same_origin(headers, host, port):
     origin = headers.get("Origin")
     expected = {"http://127.0.0.1:%d" % port, "http://localhost:%d" % port}
@@ -600,13 +614,27 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/open":
                 argv = ["open", s["cwd"], sid] + (["--fork"] if body.get("fork") else [])
             elif parsed.path == "/api/focus":
-                if not s.get("pane"):
-                    self._send(400, json.dumps({"error": "no pane"}).encode(), "application/json"); return
-                argv = ["focus", s["pane"]]
+                host = s.get("host")
+                if host == "tmux":
+                    socket, pane_id = _parse_tmux_pane(s.get("pane"))
+                    if not socket:
+                        self._send(400, json.dumps({"error": "no tmux pane"}).encode(), "application/json"); return
+                    argv = ["focus-tmux", socket, pane_id]
+                elif host == "iterm":
+                    tty = s.get("tty")
+                    if not tty:
+                        self._send(400, json.dumps({"error": "no tty"}).encode(), "application/json"); return
+                    argv = ["focus-iterm", tty]
+                else:
+                    self._send(400, json.dumps({"error": "cannot focus this host"}).encode(), "application/json"); return
             else:  # /api/attach
                 if s.get("host") != "tmux":
                     self._send(400, json.dumps({"error": "not a tmux session"}).encode(), "application/json"); return
-                argv = ["attach", sid]
+                socket, _ = _parse_tmux_pane(s.get("pane"))
+                tsession = s.get("tmux_session")
+                if not socket or not tsession:
+                    self._send(400, json.dumps({"error": "missing tmux socket/session"}).encode(), "application/json"); return
+                argv = ["attach", socket, tsession]
             run_action(self.server.session_open, argv)
             self._send(200, json.dumps({"ok": True}).encode(), "application/json")
         except Exception as exc:

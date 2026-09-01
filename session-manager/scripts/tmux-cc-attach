@@ -153,7 +153,7 @@ live_session_ids() {
 live_sessions_json() {
     local sid cwd proj root
     root=$(transcript_root)
-    while IFS='|' read -r sid cwd pid pane host; do
+    while IFS='|' read -r sid cwd pid pane host tty tsession; do
         [ -n "$sid" ] || continue
         resume_is_resumable "$sid" "$root" || continue
         proj=$(project_of_dir "$cwd")
@@ -162,11 +162,13 @@ live_sessions_json() {
         fi
         jq -cn --arg id "$sid" --arg cwd "$cwd" --arg project "$proj" \
             --arg pid "$pid" --arg pane "$pane" --arg host "$host" \
-            '{session_id:$id, cwd:$cwd, project:$project, pid:$pid, pane:$pane, host:$host, status:"live"}'
+            --arg tty "$tty" --arg tmux_session "$tsession" \
+            '{session_id:$id, cwd:$cwd, project:$project, pid:$pid, pane:$pane, host:$host, tty:$tty, tmux_session:$tmux_session, status:"live"}'
     done < <(printf '%s' "$LOCATOR_JSON" \
         | jq -r '.[] | select(.role=="interactive")
                  | [.session_id, (.cwd // ""), ((.leader_pid // "")|tostring),
-                    (.pane // ""), (.host // "")] | join("|")' 2>/dev/null)
+                    (.pane // ""), (.host // ""), (.tty // ""),
+                    (.tmux.session // "")] | join("|")' 2>/dev/null)
 }
 
 # When sourced by tests, stop here with all helpers defined.

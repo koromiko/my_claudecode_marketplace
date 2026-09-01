@@ -369,6 +369,8 @@ class LiveActions(unittest.TestCase):
         _write(os.path.join(d, "e1.jsonl"), ['{"type":"user","message":{"content":"hi"}}'])
         _write(os.path.join(d, "l1.jsonl"),
                ['{"type":"user","message":{"content":"live"},"timestamp":"1970-01-01T00:00:30Z"}'])
+        _write(os.path.join(d, "l2.jsonl"),
+               ['{"type":"user","message":{"content":"tmux live"},"timestamp":"1970-01-01T00:00:40Z"}'])
         self.argfile = os.path.join(self.root, "args.txt")
         self.stub = os.path.join(self.root, "session-open.sh")
         _write(self.stub, ["#!/bin/bash", 'printf "%s\\n" "$*" >> ' + shlex.quote(self.argfile), "echo ok"])
@@ -376,7 +378,10 @@ class LiveActions(unittest.TestCase):
         payload = ('[{"session_id":"e1","cwd":"/tmp/a","project":"/pa","ts_end":5,'
                    '"reason":"x","status":"ended"},'
                    '{"session_id":"l1","cwd":"/tmp/b","project":"/pb","pid":"7",'
-                   '"pane":"iterm:GUID","host":"iterm","status":"live"}]')
+                   '"pane":"iterm:GUID","host":"iterm","tty":"/dev/ttys001","status":"live"},'
+                   '{"session_id":"l2","cwd":"/tmp/c","project":"/pc","pid":"8",'
+                   '"pane":"tmux:default:%3","host":"tmux","tty":"/dev/ttys009",'
+                   '"tmux_session":"mysess","status":"live"}]')
         self.attach = ["bash", "-c", "printf '%s' " + shlex.quote(payload)]
 
     def _serve(self):
@@ -437,12 +442,32 @@ class LiveActions(unittest.TestCase):
         finally:
             srv.shutdown(); srv.server_close()
 
-    def test_focus_resolves_pane(self):
+    def test_focus_iterm_uses_tty(self):
         srv, port = self._serve()
         try:
             self._post(port, "/api/focus", {"session_id": "l1"},
                        origin="http://127.0.0.1:%d" % port)
-            self.assertIn("focus iterm:GUID", open(self.argfile).read())
+            self.assertIn("focus-iterm /dev/ttys001", open(self.argfile).read())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_focus_tmux_uses_socket_and_pane(self):
+        # End-to-end contract: a realistic locator pane "tmux:<basename>:%N"
+        # must reach the executor as `focus-tmux <basename> %N`.
+        srv, port = self._serve()
+        try:
+            self._post(port, "/api/focus", {"session_id": "l2"},
+                       origin="http://127.0.0.1:%d" % port)
+            self.assertIn("focus-tmux default %3", open(self.argfile).read())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_attach_uses_socket_and_session(self):
+        srv, port = self._serve()
+        try:
+            self._post(port, "/api/attach", {"session_id": "l2"},
+                       origin="http://127.0.0.1:%d" % port)
+            self.assertIn("attach default mysess", open(self.argfile).read())
         finally:
             srv.shutdown(); srv.server_close()
 

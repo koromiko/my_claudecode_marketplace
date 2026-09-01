@@ -32,22 +32,28 @@ cmd_open() {
     open_iterm_window "$line" && echo ok
 }
 
+# Attach a live tmux session in a fresh iTerm control-mode window.
+# The socket is a tmux -L basename and the target is the tmux session NAME
+# (not the Claude session id), both as emitted by locator via --json.
 cmd_attach() {
-    local sid="$1" esid
-    esid=$(escape_shell_single "$sid")
-    open_iterm_window "tmux -CC attach -t '$esid'" && echo ok
+    local socket="$1" sess="$2" esock esess
+    esock=$(escape_shell_single "$socket"); esess=$(escape_shell_single "$sess")
+    open_iterm_window "tmux -L '$esock' -CC attach -t '$esess'" && echo ok
 }
 
-focus_iterm() {   # $1 = iTerm session GUID
-    local guid="$1" escaped
-    escaped=$(escape_applescript "$guid")
-    osascript 2>/dev/null <<OSA >/dev/null || die "iTerm session not found: $guid"
+# Focus the iTerm session serving a given tty. locator's iTerm GUID is not an
+# AppleScript session id, so match on tty (which locator does emit) instead.
+focus_iterm() {   # <tty>
+    local tty="$1" escaped
+    [ -n "$tty" ] || die "usage: focus-iterm <tty>"
+    escaped=$(escape_applescript "$tty")
+    osascript 2>/dev/null <<OSA >/dev/null || die "iTerm session not found for tty: $tty"
 tell application "iTerm"
   activate
   repeat with w in windows
     repeat with t in tabs of w
       repeat with s in sessions of t
-        if (id of s) is "$escaped" then
+        if (tty of s) is "$escaped" then
           tell s to select
           tell t to select
           set index of w to 1
@@ -62,25 +68,15 @@ OSA
     echo ok
 }
 
-focus_tmux() {    # $1 = "<socket>:<pane_id>"
-    local rest="$1" socket pane_id
-    socket="${rest%%:*}"; pane_id="${rest#*:}"
-    [ -n "$socket" ] && [ -n "$pane_id" ] || die "bad tmux pane: $rest"
-    tmux -S "$socket" select-window -t "$pane_id" 2>/dev/null || \
-        die "tmux window not found: $pane_id"
-    tmux -S "$socket" select-pane   -t "$pane_id" 2>/dev/null || true
-    tmux -S "$socket" switch-client -t "$pane_id" 2>/dev/null || true
+# Focus a tmux pane. socket is a -L basename; pane_id is a tmux pane target.
+focus_tmux() {    # <socket> <pane_id>
+    local socket="$1" pane_id="$2"
+    [ -n "$socket" ] && [ -n "$pane_id" ] || die "usage: focus-tmux <socket> <pane_id>"
+    tmux -L "$socket" select-window -t "$pane_id" 2>/dev/null || \
+        die "tmux window not found: $pane_id (socket $socket)"
+    tmux -L "$socket" select-pane   -t "$pane_id" 2>/dev/null || true
+    tmux -L "$socket" switch-client -t "$pane_id" 2>/dev/null || true
     echo ok
-}
-
-cmd_focus() {
-    local pane="${1:-}"
-    [ -n "$pane" ] || die "usage: focus <pane>"
-    case "$pane" in
-        iterm:*) focus_iterm "${pane#iterm:}" ;;
-        tmux:*)  focus_tmux  "${pane#tmux:}" ;;
-        *)       die "cannot focus host for pane: $pane" ;;
-    esac
 }
 
 # When sourced by tests, stop here with all helpers defined.
@@ -89,9 +85,10 @@ if [ -n "${SESSION_OPEN_LIB_ONLY:-}" ]; then
 fi
 
 case "${1:-}" in
-    open)   shift; [ $# -ge 2 ] || die "usage: open <cwd> <id> [--fork]"; cmd_open "$@" ;;
-    attach) shift; [ $# -ge 1 ] || die "usage: attach <id>"; cmd_attach "$@" ;;
-    focus)  shift; cmd_focus "$@" ;;          # defined in Task 3
-    "")     die "usage: session-open.sh {open|attach|focus} …" ;;
-    *)      die "unknown subcommand: $1" ;;
+    open)        shift; [ $# -ge 2 ] || die "usage: open <cwd> <id> [--fork]"; cmd_open "$@" ;;
+    attach)      shift; [ $# -ge 2 ] || die "usage: attach <socket> <session>"; cmd_attach "$@" ;;
+    focus-tmux)  shift; [ $# -ge 2 ] || die "usage: focus-tmux <socket> <pane_id>"; focus_tmux "$@" ;;
+    focus-iterm) shift; [ $# -ge 1 ] || die "usage: focus-iterm <tty>"; focus_iterm "$@" ;;
+    "")          die "usage: session-open.sh {open|attach|focus-tmux|focus-iterm} …" ;;
+    *)           die "unknown subcommand: $1" ;;
 esac

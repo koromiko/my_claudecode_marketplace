@@ -138,10 +138,13 @@ read-only machine interface `tmux-cc-web.py` (and other tooling) consumes —
 it never attaches, resumes, or deletes anything itself:
 - Ended entries: `{session_id, cwd, project, ts_end, reason, status:"ended"}`.
 - Live entries (from `locator.py`, `role=="interactive"` only):
-  `{session_id, cwd, project, pid, pane, host, status:"live"}`. `pane` is the
-  socket-qualified pane id (`tmux:<socket>:<pane_id>` or `iterm:<guid>`);
-  `host` is `"tmux"` or `"iterm"`. A live process with no transcript on disk
-  is omitted (nothing to resume/fork). The locator is scanned once per run.
+  `{session_id, cwd, project, pid, pane, host, tty, tmux_session, status:"live"}`.
+  `pane` is the socket-qualified pane id (`tmux:<socket>:<pane_id>` or
+  `iterm:<guid>`); `host` is `"tmux"` or `"iterm"`; `tty` is the session's
+  controlling tty (how iTerm focus is matched — the locator iTerm GUID is not
+  an AppleScript session id); `tmux_session` is the tmux session name for
+  `tmux -CC attach` (empty for non-tmux). A live process with no transcript on
+  disk is omitted (nothing to resume/fork). The locator is scanned once per run.
 - `-p`/`--project <glob>` — restrict to matching project paths (repeatable).
 - `--since <days>` — recency window override for ended entries; validated as
   a non-negative integer (dies otherwise).
@@ -168,13 +171,17 @@ duplicating them. Subcommands:
   `cd '<cwd>' && claude -r '<id>'` (appends `--fork-session` with `--fork`)
   via `osascript`/`create window with default profile`. Backs the ended-row
   **Launch** button and the live-row **Fork** button.
-- `attach <session_id>` — opens a new iTerm window running
-  `tmux -CC attach -t '<id>'`. Backs the live-row **Attach ‑CC** button
-  (tmux-hosted sessions only).
-- `focus <pane>` — brings the pane housing a live session to the foreground:
-  `iterm:<guid>` selects that iTerm session/tab/window by id; `tmux:<socket>:
-  <pane_id>` runs `select-window`/`select-pane`/`switch-client` on that
-  socket. Backs the live-row **Go to pane** button.
+- `attach <socket> <session_name>` — opens a new iTerm window running
+  `tmux -L '<socket>' -CC attach -t '<session_name>'`. The socket is a
+  `tmux -L` basename and the target is the tmux session NAME (both from
+  locator via `--json`), not the Claude session id. Backs the live-row
+  **Attach ‑CC** button (tmux-hosted sessions only).
+- `focus-tmux <socket> <pane_id>` — `tmux -L '<socket>' select-window` /
+  `select-pane` / `switch-client` on that pane. Backs **Go to pane** for
+  tmux-hosted sessions.
+- `focus-iterm <tty>` — selects the iTerm session whose `tty` matches (the
+  locator iTerm GUID is not an AppleScript session id, so tty is the reliable
+  key). Backs **Go to pane** for iTerm-hosted sessions.
 
 Prints `ok` on success, dies (non-zero, message on stderr) on failure. It has
 no `--json` or serving mode of its own — a pure action executor.
@@ -225,8 +232,10 @@ before any action runs:
    freshly-loaded `tmux-cc-attach --json` listing, else `404`. This also
    supplies the `cwd`/`pane`/`host` the action needs — the client never sends
    them directly.
-3. Route-specific guards: `/api/focus` `400`s with no `pane`; `/api/attach`
-   `400`s when `host != "tmux"`.
+3. Route-specific guards and dispatch: `/api/focus` resolves by `host` — a
+   `tmux` session focuses via its socket-qualified `pane`, an `iterm` session
+   via its `tty`; `400` if neither is available. `/api/attach` `400`s when
+   `host != "tmux"` or the tmux socket/session name is missing.
 
 The server binds loopback only (`127.0.0.1` by default). `GET /api/sessions`
 remains a pure read; nothing is resumed or deleted outside the three POST
