@@ -123,7 +123,7 @@ STUB="$TMP/locstub.py"
 cat > "$STUB" <<'PY'
 import json
 print(json.dumps([
-    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive", "leader_pid": 4242},
+    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive", "leader_pid": 4242, "pane": "iterm:GUID-1", "host": "iterm"},
     {"session_id": "childproc", "cwd": "/tmp/child", "role": "child"},
     {"session_id": "notxsid", "cwd": "/tmp/notx", "role": "interactive"},
     {"session_id": "livesid", "cwd": "/tmp/live", "role": "interactive"},
@@ -144,6 +144,10 @@ check "--json live id not double-listed" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '[.[]|select(.session_id==\"livesid\")]|length')\" = '1' ]"
 check "--json live id resolves to live status" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"livesid\").status')\" = 'live' ]"
+check "--json live carries pane" \
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").pane')\" = 'iterm:GUID-1' ]"
+check "--json live carries host" \
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").host')\" = 'iterm' ]"
 
 # --json is a read-only view: it must never prune resume records, even when a
 # narrow --since window excludes them (regression: --since deleted stale files).
