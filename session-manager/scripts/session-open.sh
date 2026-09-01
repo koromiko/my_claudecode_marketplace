@@ -43,10 +43,13 @@ cmd_attach() {
 
 # Focus the iTerm session serving a given tty. locator's iTerm GUID is not an
 # AppleScript session id, so match on tty (which locator does emit) instead.
-focus_iterm() {   # <tty>
-    local tty="$1" escaped
+focus_iterm() {   # <tty>  (bare "ttysNNN" from locator, or "/dev/ttysNNN")
+    local tty="$1" want escaped
     [ -n "$tty" ] || die "usage: focus-iterm <tty>"
-    escaped=$(escape_applescript "$tty")
+    # locator strips /dev/; iTerm's AppleScript `tty of s` is the full device
+    # path — normalize to that so the comparison matches.
+    want="/dev/${tty#/dev/}"
+    escaped=$(escape_applescript "$want")
     osascript 2>/dev/null <<OSA >/dev/null || die "iTerm session not found for tty: $tty"
 tell application "iTerm"
   activate

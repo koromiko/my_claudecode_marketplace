@@ -36,8 +36,11 @@ chmod +x "$TMP/tmux"
 export TMUX_CAPTURE="$TMP/tmux.txt"
 
 # focus-iterm matches on tty (locator's iTerm GUID is not an AppleScript id).
-bash "$SCRIPT" focus-iterm "/dev/ttys009" >/dev/null
-check "focus-iterm matches by tty" "grep -q '/dev/ttys009' \"$TMP/osa.txt\" && grep -qi 'tty of s' \"$TMP/osa.txt\""
+# locator emits a BARE tty ("ttysNNN"); AppleScript `tty of s` is the full
+# device path, so focus-iterm must normalize to "/dev/ttysNNN" for the compare.
+bash "$SCRIPT" focus-iterm "ttys009" >/dev/null
+check "focus-iterm matches by tty" "grep -qi 'tty of s' \"$TMP/osa.txt\""
+check "focus-iterm normalizes bare tty to /dev path" "grep -q '/dev/ttys009' \"$TMP/osa.txt\""
 
 # focus-tmux uses -L <socket> (basename), not -S, against the pane id.
 bash "$SCRIPT" focus-tmux "default" "%3" >/dev/null

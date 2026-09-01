@@ -378,9 +378,9 @@ class LiveActions(unittest.TestCase):
         payload = ('[{"session_id":"e1","cwd":"/tmp/a","project":"/pa","ts_end":5,'
                    '"reason":"x","status":"ended"},'
                    '{"session_id":"l1","cwd":"/tmp/b","project":"/pb","pid":"7",'
-                   '"pane":"iterm:GUID","host":"iterm","tty":"/dev/ttys001","status":"live"},'
+                   '"pane":"iterm:GUID","host":"iterm","tty":"ttys001","status":"live"},'
                    '{"session_id":"l2","cwd":"/tmp/c","project":"/pc","pid":"8",'
-                   '"pane":"tmux:default:%3","host":"tmux","tty":"/dev/ttys009",'
+                   '"pane":"tmux:default:%3","host":"tmux","tty":"ttys009",'
                    '"tmux_session":"mysess","status":"live"}]')
         self.attach = ["bash", "-c", "printf '%s' " + shlex.quote(payload)]
 
@@ -447,7 +447,7 @@ class LiveActions(unittest.TestCase):
         try:
             self._post(port, "/api/focus", {"session_id": "l1"},
                        origin="http://127.0.0.1:%d" % port)
-            self.assertIn("focus-iterm /dev/ttys001", open(self.argfile).read())
+            self.assertIn("focus-iterm ttys001", open(self.argfile).read())
         finally:
             srv.shutdown(); srv.server_close()
 

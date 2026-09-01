@@ -98,8 +98,8 @@ STUB="$TMP/locstub.py"
 cat > "$STUB" <<'PY'
 import json
 print(json.dumps([
-    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive", "leader_pid": 4242, "pane": "iterm:GUID-1", "host": "iterm", "tty": "/dev/ttys001"},
-    {"session_id": "livetmux", "cwd": "/tmp/livetmux", "role": "interactive", "leader_pid": 5555, "pane": "tmux:default:%3", "host": "tmux", "tty": "/dev/ttys009", "tmux": {"session": "mysess", "socket": "default"}},
+    {"session_id": "liveproc", "cwd": "/tmp/liveproc", "role": "interactive", "leader_pid": 4242, "pane": "iterm:GUID-1", "host": "iterm", "tty": "ttys001"},
+    {"session_id": "livetmux", "cwd": "/tmp/livetmux", "role": "interactive", "leader_pid": 5555, "pane": "tmux:default:%3", "host": "tmux", "tty": "ttys009", "tmux": {"session": "mysess", "socket": "default"}},
     {"session_id": "childproc", "cwd": "/tmp/child", "role": "child"},
     {"session_id": "notxsid", "cwd": "/tmp/notx", "role": "interactive"},
     {"session_id": "livesid", "cwd": "/tmp/live", "role": "interactive"},
@@ -125,7 +125,7 @@ check "--json live carries pane" \
 check "--json live carries host" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").host')\" = 'iterm' ]"
 check "--json live carries tty" \
-    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").tty')\" = '/dev/ttys001' ]"
+    "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"liveproc\").tty')\" = 'ttys001' ]"
 check "--json tmux live carries tmux_session" \
     "[ \"\$(printf '%s' \"\$ljout\" | jq -r '.[]|select(.session_id==\"livetmux\").tmux_session')\" = 'mysess' ]"
 check "--json tmux live carries socket-qualified pane" \
