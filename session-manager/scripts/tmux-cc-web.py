@@ -564,7 +564,11 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             self._send(400, json.dumps({"error": "bad body"}).encode(), "application/json"); return
         sid = body.get("session_id")
-        groups = load_sessions(self.server.attach_cmd, self.server.projects_root, self.server.cache)
+        try:
+            groups = load_sessions(self.server.attach_cmd, self.server.projects_root, self.server.cache)
+        except Exception as exc:
+            self._send(500, json.dumps({"error": str(exc)}).encode(), "application/json")
+            return
         s = find_session(groups, sid)
         if s is None:
             self._send(404, json.dumps({"error": "unknown session"}).encode(), "application/json"); return

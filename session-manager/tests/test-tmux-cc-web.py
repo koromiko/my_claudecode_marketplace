@@ -390,6 +390,22 @@ class LiveActions(unittest.TestCase):
         if origin: req.add_header("Origin", origin)
         return urllib.request.urlopen(req, timeout=5)
 
+    def _post_raw(self, port, path, data, origin=None):
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if origin: req.add_header("Origin", origin)
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_malformed_body_400(self):
+        srv, port = self._serve()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self._post_raw(port, "/api/open", b"{not json",
+                               origin="http://127.0.0.1:%d" % port)
+            self.assertEqual(cm.exception.code, 400)
+        finally:
+            srv.shutdown(); srv.server_close()
+
     def test_open_runs_executor(self):
         srv, port = self._serve()
         try:
