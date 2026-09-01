@@ -25,4 +25,22 @@ check "open --fork adds --fork-session" "grep -q \"claude -r 'id2' --fork-sessio
 bash "$SCRIPT" attach "id3" >/dev/null
 check "attach builds tmux -CC attach" "grep -q \"tmux -CC attach -t 'id3'\" \"$TMP/osa.txt\""
 
+# focus tests: set up fake tmux
+cat > "$TMP/tmux" <<'FAKE'
+#!/bin/bash
+echo "$@" >> "$TMUX_CAPTURE"
+FAKE
+chmod +x "$TMP/tmux"
+export TMUX_CAPTURE="$TMP/tmux.txt"
+
+bash "$SCRIPT" focus "iterm:GUID-9" >/dev/null
+check "focus iterm selects by GUID" "grep -q 'GUID-9' \"$TMP/osa.txt\" && grep -qi 'select' \"$TMP/osa.txt\""
+
+bash "$SCRIPT" focus "tmux:/tmp/sock:%3" >/dev/null
+check "focus tmux selects the pane" "grep -q '%3' \"$TMUX_CAPTURE\""
+check "focus tmux uses the socket" "grep -q '/tmp/sock' \"$TMUX_CAPTURE\""
+
+bash "$SCRIPT" focus "term:xyz" >/dev/null 2>&1; rc=$?
+check "focus unsupported host errors" "[ $rc -ne 0 ]"
+
 [ "$fails" -eq 0 ] && { echo ALL PASS; exit 0; } || { echo "$fails FAILED"; exit 1; }

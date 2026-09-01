@@ -38,6 +38,51 @@ cmd_attach() {
     open_iterm_window "tmux -CC attach -t '$esid'" && echo ok
 }
 
+focus_iterm() {   # $1 = iTerm session GUID
+    local guid="$1" escaped
+    escaped=$(escape_applescript "$guid")
+    osascript 2>/dev/null <<OSA >/dev/null || die "iTerm session not found: $guid"
+tell application "iTerm"
+  activate
+  repeat with w in windows
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        if (id of s) is "$escaped" then
+          tell s to select
+          tell t to select
+          set index of w to 1
+          return "ok"
+        end if
+      end repeat
+    end repeat
+  end repeat
+  error "not found"
+end tell
+OSA
+    echo ok
+}
+
+focus_tmux() {    # $1 = "<socket>:<pane_id>"
+    local rest="$1" socket pane_id
+    socket="${rest%%:*}"; pane_id="${rest#*:}"
+    [ -n "$socket" ] && [ -n "$pane_id" ] || die "bad tmux pane: $rest"
+    tmux -S "$socket" select-window -t "$pane_id" 2>/dev/null || \
+        die "tmux window not found: $pane_id"
+    tmux -S "$socket" select-pane   -t "$pane_id" 2>/dev/null || true
+    tmux -S "$socket" switch-client -t "$pane_id" 2>/dev/null || true
+    echo ok
+}
+
+cmd_focus() {
+    local pane="${1:-}"
+    [ -n "$pane" ] || die "usage: focus <pane>"
+    case "$pane" in
+        iterm:*) focus_iterm "${pane#iterm:}" ;;
+        tmux:*)  focus_tmux  "${pane#tmux:}" ;;
+        *)       die "cannot focus host for pane: $pane" ;;
+    esac
+}
+
 # When sourced by tests, stop here with all helpers defined.
 if [ -n "${SESSION_OPEN_LIB_ONLY:-}" ]; then
     return 0 2>/dev/null || exit 0
