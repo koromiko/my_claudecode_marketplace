@@ -344,6 +344,8 @@ class LiveServer(unittest.TestCase):
             self.assertEqual(flat["s2"]["fork_command"], "cd /tmp/b && claude -r s2 --fork-session")
             html = urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=5).read().decode()
             self.assertIn('id="app"', html)
+            self.assertIn("/api/open", html)
+            self.assertIn("/api/focus", html)
         finally:
             srv.shutdown(); srv.server_close()
 

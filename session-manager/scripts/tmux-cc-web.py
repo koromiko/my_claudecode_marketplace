@@ -364,11 +364,25 @@ function escapeHtml(s) {
 
 const isLive = (s) => (s.status || "ended") === "live";
 
-function actionButton(label, cmd, title) {
-  const btn = document.createElement("button");
-  btn.className = "copy"; btn.textContent = label; btn.title = title;
-  btn.addEventListener("click", () => copy(cmd, btn));
-  return btn;
+async function action(path, body, btn, okLabel) {
+  const old = btn.textContent;
+  try {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                                 body: JSON.stringify(body)});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+    btn.textContent = okLabel; btn.classList.add("copied");
+  } catch (e) {
+    btn.textContent = "Failed"; btn.title = String(e.message);
+  }
+  setTimeout(() => { btn.textContent = old; btn.classList.remove("copied"); }, 1400);
+}
+
+function actionButton(label, onClick, title) {
+  const b = document.createElement("button");
+  b.className = "copy"; b.textContent = label; if (title) b.title = title;
+  b.addEventListener("click", () => onClick(b));
+  return b;
 }
 
 function row(s, project) {
@@ -387,13 +401,23 @@ function row(s, project) {
   const actions = document.createElement("div");
   actions.className = "actions";
   if (isLive(s)) {
-    actions.appendChild(actionButton("Fork", s.fork_command,
-      "Copy: fork this live session into a new one"));
-    actions.appendChild(actionButton("Resume", s.copy_command,
-      "Copy: resume this session anyway (a live one is already running)"));
+    actions.appendChild(actionButton("Go to pane",
+      (b) => action("/api/focus", {session_id: s.session_id}, b, "Focused ✓"),
+      "Focus the pane where this session is running"));
+    if (s.host === "tmux")
+      actions.appendChild(actionButton("Attach ‑CC",
+        (b) => action("/api/attach", {session_id: s.session_id}, b, "Attaching ✓"),
+        "Attach the tmux session in a new iTerm window (tmux -CC)"));
+    actions.appendChild(actionButton("Fork",
+      (b) => action("/api/open", {session_id: s.session_id, fork: true}, b, "Forked ✓"),
+      "Fork this session into a new one"));
   } else {
-    actions.appendChild(actionButton("Resume", s.copy_command, "Copy resume command"));
+    actions.appendChild(actionButton("Launch",
+      (b) => action("/api/open", {session_id: s.session_id}, b, "Opened ✓"),
+      "Resume this session in a new iTerm window"));
   }
+  actions.appendChild(actionButton("Copy",
+    (b) => copy(isLive(s) ? s.fork_command : s.copy_command, b), "Copy the command"));
   el.appendChild(actions);
   return el;
 }
