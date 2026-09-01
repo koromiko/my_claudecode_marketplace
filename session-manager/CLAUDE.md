@@ -134,6 +134,12 @@ Resume-specific flags:
 - `--resume-only` — ended sessions only; skips the tmux-server preflight.
 - `--since <days>` — recency window override; validated as a non-negative
   integer (dies otherwise).
+- `--json` — print the session list as a JSON array and exit (implies
+  `--resume-only`); the read-only machine interface the web UI consumes. Emits
+  ended entries as `{session_id, cwd, project, ts_end, reason, status:"ended"}`
+  plus live interactive sessions from `locator.py` as `{session_id, cwd,
+  project, pid, status:"live"}`. A live process with no transcript on disk is
+  omitted (nothing to resume/fork). The locator is scanned once per run.
 - `RESUME_MAX_AGE_DAYS` (env, default `14`) — default recency window.
 
 `-o`/`--only` (name glob) applies to live sessions only. `-p`/`--project`
@@ -145,8 +151,9 @@ entries whose transcript is an autonomous teammate/agent session (carries a
 `"type":"agent-setting"` record), and entries whose `session_id` is currently
 live (per `locator.py list`) are omitted from the list. Autonomous entries are
 skipped, not deleted; they age out via the window prune. Under `-n` (dry-run)
-the omission still happens, but the stale/no-transcript record files are not
-deleted.
+**and `--json`** the omission still happens, but the stale/no-transcript record
+files are not deleted — `--json` is a read-only view, so a narrow `--since`
+window filters without ever destroying records.
 
 Selection is per project group. After the report (each group numbered
 `[1]`, `[2]`, …), the prompt `Select projects [Enter=all, e.g. '1 3',
@@ -159,6 +166,31 @@ Each picked resume entry launches via `resume_attach_command`:
 in the owning cwd, attached in iTerm control mode.
 
 Tests: `bash session-manager/tests/test-tmux-cc-attach.sh`.
+
+### tmux-cc-web.py (web UI for live + resumable sessions)
+
+`scripts/tmux-cc-web.py` serves a single-page browser UI (Python 3 stdlib,
+loopback only) listing both live and resumable sessions grouped by project.
+Ownership split: `tmux-cc-attach --json` owns **which** sessions; the server
+owns **serve + enrich**. Per session it adds `title`/`turns`/`last_activity`
+(parsed from the transcript; `last_activity` is the last timestamped record,
+i.e. true activity time — not the store's close time), a `copy_command`
+(`cd <cwd> && claude -r <id>`) and a `fork_command` (`… --fork-session`).
+
+Live sessions sharing one process are collapsed to that process's most
+recently active session (`dedupe_live_by_pid`, keyed on the `pid` the `--json`
+output carries; the key is stripped before serving) — a long-lived REPL can
+report several past session ids as live.
+
+`/api/sessions?days=N` maps to `tmux-cc-attach --since N` (clamped, `parse_days`).
+The page defaults to a 7-day "Active within" window applied **client-side** by
+`last_activity` (live sessions included, so an idle-beyond-window REPL drops
+off), plus an All/Live/Ended filter. Live rows show a green ● LIVE badge with
+Fork + Resume buttons; ended rows a single Resume. Nothing is resumed or
+deleted server-side.
+
+Run directly: `python3 scripts/tmux-cc-web.py [--port N] [--host H] [--no-open]`.
+Tests: `python3 session-manager/tests/test-tmux-cc-web.py`.
 
 ### fork-active-pane.sh (fork the focused pane — tmux key-binding)
 
@@ -251,6 +283,12 @@ Tests: `bash session-manager/tests/test-fork-snapshot.sh`.
 Two signals were tried and **rejected** because the terminal observation is ambiguous: (a) watching for the forked transcript `.jsonl` — an *interactive* fork doesn't write it until the first prompt (only `--print` flushes it at startup); (b) "a non-shell process took over the terminal" alone — a *failed* resume keeps `node` in the foreground showing an error rather than exiting. Hence resolve resumability up front, then confirm the process launched and survived.
 
 Tunables (env vars): `FORK_VERIFY_TIMEOUT`, `FORK_STABILIZE_CHECKS`, `FORK_SNAPSHOT_TTL`. Helper functions can be unit-tested by sourcing with `FORK_LIB_ONLY=1` (see `tests/test-fork-verify.sh`, `tests/test-fork-snapshot.sh`).
+
+### /session-manager:list-resumable-web
+Open the local web UI (`tmux-cc-web.py`) listing live and resumable sessions
+grouped by project, with an All/Live/Ended filter and a 7-day "Active within"
+window. Read-only: buttons copy `claude -r` commands; nothing is resumed or
+deleted server-side. See the `tmux-cc-web.py` component section above.
 
 ### /session-manager:run-in-pane
 Run a bash command in a new tmux pane or iTerm tab with automatic tracking. Returns a managed ID for subsequent operations.
