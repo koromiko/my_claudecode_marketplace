@@ -122,72 +122,116 @@ only at read time by `tmux-cc-attach` (below), never by the locator.
 
 Tests: `bash session-manager/tests/test-record-session.sh`.
 
-### tmux-cc-attach (attach live sessions, resume ended ones)
+### tmux-cc-attach (opens the web UI; `--json` is its read-only backend)
 
 `scripts/tmux-cc-attach` is the vendored copy of the former
-`~/.local/bin/tmux-cc-attach` global script. Resume is **on by default**: a
-plain run lists both live tmux sessions to attach and recent resumable ended
-sessions from the `resume/` store, grouped by project (`project_of_dir`).
+`~/.local/bin/tmux-cc-attach` global script. The interactive TUI — project
+picker, group selection, tmux-server preflight, `resume_attach_command` — has
+been **removed**.
 
-Resume-specific flags:
-- `--no-resume` — live sessions only.
-- `--resume-only` — ended sessions only; skips the tmux-server preflight.
-- `--since <days>` — recency window override; validated as a non-negative
-  integer (dies otherwise).
-- `--json` — print the session list as a JSON array and exit (implies
-  `--resume-only`); the read-only machine interface the web UI consumes. Emits
-  ended entries as `{session_id, cwd, project, ts_end, reason, status:"ended"}`
-  plus live interactive sessions from `locator.py` as `{session_id, cwd,
-  project, pid, status:"live"}`. A live process with no transcript on disk is
-  omitted (nothing to resume/fork). The locator is scanned once per run.
+With no `--json` flag, a plain run execs `tmux-cc-web.py` (below); `--port`,
+`--host`, and `--no-open` are passed straight through to it. There is no
+other non-JSON mode.
+
+`--json` prints the session list as a JSON array and exits; it is the
+read-only machine interface `tmux-cc-web.py` (and other tooling) consumes —
+it never attaches, resumes, or deletes anything itself:
+- Ended entries: `{session_id, cwd, project, ts_end, reason, status:"ended"}`.
+- Live entries (from `locator.py`, `role=="interactive"` only):
+  `{session_id, cwd, project, pid, pane, host, status:"live"}`. `pane` is the
+  socket-qualified pane id (`tmux:<socket>:<pane_id>` or `iterm:<guid>`);
+  `host` is `"tmux"` or `"iterm"`. A live process with no transcript on disk
+  is omitted (nothing to resume/fork). The locator is scanned once per run.
+- `-p`/`--project <glob>` — restrict to matching project paths (repeatable).
+- `--since <days>` — recency window override for ended entries; validated as
+  a non-negative integer (dies otherwise).
 - `RESUME_MAX_AGE_DAYS` (env, default `14`) — default recency window.
 
-`-o`/`--only` (name glob) applies to live sessions only. `-p`/`--project`
-and `--since` filter resume entries too.
-
-Read-time hygiene runs on every listing: entries past the age window,
-entries whose transcript (`~/.claude/projects/*/<session_id>.jsonl`) is gone,
-entries whose transcript is an autonomous teammate/agent session (carries a
-`"type":"agent-setting"` record), and entries whose `session_id` is currently
-live (per `locator.py list`) are omitted from the list. Autonomous entries are
-skipped, not deleted; they age out via the window prune. Under `-n` (dry-run)
-**and `--json`** the omission still happens, but the stale/no-transcript record
-files are not deleted — `--json` is a read-only view, so a narrow `--since`
-window filters without ever destroying records.
-
-Selection is per project group. After the report (each group numbered
-`[1]`, `[2]`, …), the prompt `Select projects [Enter=all, e.g. '1 3',
-'n'=none]` toggles whole groups: a deselected group skips both its live-attach
-and resume entries. `-y` skips the prompt and takes all groups; `-n` previews
-all groups without prompting.
-
-Each picked resume entry launches via `resume_attach_command`:
-`tmux -CC new-session -c '<cwd>' "claude -r '<id>'"` — a fresh tmux session
-in the owning cwd, attached in iTerm control mode.
+Read-time hygiene runs on every `--json` listing: ended entries past the age
+window, entries whose transcript (`~/.claude/projects/*/<session_id>.jsonl`)
+is gone, entries whose transcript is an autonomous teammate/agent session
+(carries a `"type":"agent-setting"` record), and entries whose `session_id`
+is currently live (per `locator.py list`) are omitted. `--json` never deletes
+the underlying `resume/*.json` record files — it is a pure read — so a narrow
+`--since` window filters the view without ever destroying records.
 
 Tests: `bash session-manager/tests/test-tmux-cc-attach.sh`.
+
+### session-open.sh (terminal actions: open, focus, attach)
+
+`scripts/session-open.sh` is the bash helper `tmux-cc-web.py` shells out to
+for every web UI action button. It sources `tmux-cc-attach`'s AppleScript/
+shell-escaping helpers (`TMUX_CC_LIB_ONLY=1 . tmux-cc-attach`) instead of
+duplicating them. Subcommands:
+
+- `open <cwd> <session_id> [--fork]` — opens a new iTerm window running
+  `cd '<cwd>' && claude -r '<id>'` (appends `--fork-session` with `--fork`)
+  via `osascript`/`create window with default profile`. Backs the ended-row
+  **Launch** button and the live-row **Fork** button.
+- `attach <session_id>` — opens a new iTerm window running
+  `tmux -CC attach -t '<id>'`. Backs the live-row **Attach ‑CC** button
+  (tmux-hosted sessions only).
+- `focus <pane>` — brings the pane housing a live session to the foreground:
+  `iterm:<guid>` selects that iTerm session/tab/window by id; `tmux:<socket>:
+  <pane_id>` runs `select-window`/`select-pane`/`switch-client` on that
+  socket. Backs the live-row **Go to pane** button.
+
+Prints `ok` on success, dies (non-zero, message on stderr) on failure. It has
+no `--json` or serving mode of its own — a pure action executor.
+
+Sourcing with `SESSION_OPEN_LIB_ONLY=1` stops after the helpers are defined,
+for lib-only unit tests against faked `osascript`/`tmux` on `PATH`.
+
+Tests: `bash session-manager/tests/test-session-open.sh`.
 
 ### tmux-cc-web.py (web UI for live + resumable sessions)
 
 `scripts/tmux-cc-web.py` serves a single-page browser UI (Python 3 stdlib,
 loopback only) listing both live and resumable sessions grouped by project.
 Ownership split: `tmux-cc-attach --json` owns **which** sessions; the server
-owns **serve + enrich**. Per session it adds `title`/`turns`/`last_activity`
-(parsed from the transcript; `last_activity` is the last timestamped record,
-i.e. true activity time — not the store's close time), a `copy_command`
-(`cd <cwd> && claude -r <id>`) and a `fork_command` (`… --fork-session`).
+owns **serve + enrich + act**. Per session it adds `title`/`turns`/
+`last_activity` (parsed from the transcript; `last_activity` is the last
+timestamped record, i.e. true activity time — not the store's close time), a
+`copy_command` (`cd <cwd> && claude -r <id>`) and a `fork_command`
+(`… --fork-session`).
 
 Live sessions sharing one process are collapsed to that process's most
 recently active session (`dedupe_live_by_pid`, keyed on the `pid` the `--json`
 output carries; the key is stripped before serving) — a long-lived REPL can
 report several past session ids as live.
 
-`/api/sessions?days=N` maps to `tmux-cc-attach --since N` (clamped, `parse_days`).
-The page defaults to a 7-day "Active within" window applied **client-side** by
-`last_activity` (live sessions included, so an idle-beyond-window REPL drops
-off), plus an All/Live/Ended filter. Live rows show a green ● LIVE badge with
-Fork + Resume buttons; ended rows a single Resume. Nothing is resumed or
-deleted server-side.
+`GET /api/sessions?days=N` maps to `tmux-cc-attach --since N` (clamped,
+`parse_days`). The page defaults to a 7-day "Active within" window applied
+**client-side** by `last_activity` (live sessions included, so an
+idle-beyond-window REPL drops off), plus an All/Live/Ended filter.
+
+Per-status action buttons (each row also gets a Copy button for the
+underlying command):
+- Live rows: **Go to pane** (`POST /api/focus`), **Attach ‑CC** (`POST
+  /api/attach`, tmux-hosted sessions only — hidden when `host != "tmux"`),
+  **Fork** (`POST /api/open` with `fork:true`).
+- Ended rows: **Launch** (`POST /api/open`) — opens a new iTerm window
+  resuming the session.
+
+All three POST endpoints take `{"session_id": ...}` (`/api/open` also takes
+`fork: true`) and shell out to `session-open.sh` (above) for the actual
+terminal action; the server never touches iTerm/tmux directly. Safety checks
+before any action runs:
+1. **Origin/Host check** (`_same_origin`): the request's `Origin` header
+   (falling back to `Host` when `Origin` is absent) must match
+   `127.0.0.1:<port>` or `localhost:<port>` for the server's own bound port,
+   else `403` — the CSRF guard for a loopback server with no auth.
+2. **id-in-list validation** (`find_session`): `session_id` must appear in a
+   freshly-loaded `tmux-cc-attach --json` listing, else `404`. This also
+   supplies the `cwd`/`pane`/`host` the action needs — the client never sends
+   them directly.
+3. Route-specific guards: `/api/focus` `400`s with no `pane`; `/api/attach`
+   `400`s when `host != "tmux"`.
+
+The server binds loopback only (`127.0.0.1` by default). `GET /api/sessions`
+remains a pure read; nothing is resumed or deleted outside the three POST
+action endpoints, and those never touch session records — only the caller's
+own terminal.
 
 Run directly: `python3 scripts/tmux-cc-web.py [--port N] [--host H] [--no-open]`.
 Tests: `python3 session-manager/tests/test-tmux-cc-web.py`.
@@ -287,8 +331,11 @@ Tunables (env vars): `FORK_VERIFY_TIMEOUT`, `FORK_STABILIZE_CHECKS`, `FORK_SNAPS
 ### /session-manager:list-resumable-web
 Open the local web UI (`tmux-cc-web.py`) listing live and resumable sessions
 grouped by project, with an All/Live/Ended filter and a 7-day "Active within"
-window. Read-only: buttons copy `claude -r` commands; nothing is resumed or
-deleted server-side. See the `tmux-cc-web.py` component section above.
+window. This is also what a bare `tmux-cc-attach` (no args) opens. Per-row
+action buttons (Go to pane / Attach ‑CC / Fork on live rows, Launch on ended
+rows) run through `session-open.sh`; a Copy button on every row copies the
+equivalent `claude -r` command instead. See the `tmux-cc-web.py` and
+`session-open.sh` component sections above.
 
 ### /session-manager:run-in-pane
 Run a bash command in a new tmux pane or iTerm tab with automatic tracking. Returns a managed ID for subsequent operations.
