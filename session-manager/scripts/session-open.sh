@@ -2,13 +2,13 @@
 # session-open.sh — terminal actions for the sessions web UI (macOS/iTerm/tmux).
 set -uo pipefail
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Reuse escaping helpers from tmux-cc-attach's lib section.
 TMUX_CC_LIB_ONLY=1 . "$SELF_DIR/tmux-cc-attach"
 
 die() { echo "$*" >&2; exit 1; }
 
-# Open a command in a fresh iTerm window; returns nonzero on failure.
+# Open a command in a fresh iTerm window; dies on failure.
 open_iterm_window() {
     local cmd="$1" escaped out
     escaped=$(escape_applescript "$cmd")
@@ -37,6 +37,11 @@ cmd_attach() {
     esid=$(escape_shell_single "$sid")
     open_iterm_window "tmux -CC attach -t '$esid'" && echo ok
 }
+
+# When sourced by tests, stop here with all helpers defined.
+if [ -n "${SESSION_OPEN_LIB_ONLY:-}" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 case "${1:-}" in
     open)   shift; [ $# -ge 2 ] || die "usage: open <cwd> <id> [--fork]"; cmd_open "$@" ;;
