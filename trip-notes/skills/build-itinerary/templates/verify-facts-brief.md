@@ -22,11 +22,11 @@ For each, find the **current official source** (the venue's own site, the operat
 
 ## Verify these carefully, in this priority order
 
-1. **Opening hours and closing times, broken down by day of week.** A venue listed as closing at 23:00 is very often 23:00 on Fridays only. If the claim in the note gives a single figure, check whether that figure holds every day, and report the per-day breakdown.
+1. **Opening hours and closing times, broken down by day of week.** The per-weekday hours in the note came from the Google Maps Places API, so this is a **confirmation** pass, not a discovery one — and only for venues whose hours decide the plan (the finale, the one place open late, anything the timeline depends on). Check those against the venue's **own site or official social account**, which is where Maps goes stale for small independent places. Report agreement explicitly, and report any disagreement with both figures and their dates. Do not spend time re-confirming hours for venues the plan does not hinge on.
 2. **定休日 / periodic closures** (第三個週一, seasonal shutdowns, 年末年始).
 3. **Time-limited walkways, bridges, observation decks, parks** — opening hours and closure days. If the operator's page 404s or omits the hours, that is an `UNVERIFIABLE`, and flag it as high-risk if the note's plan depends on it.
 4. **Last train / last bus times.** State explicitly whether the figure you found is the last or the second-to-last departure — timetable sites frequently surface the latter.
-5. **Walking minutes from station gate to destination**, and **driving distance/time between stops**. Check the distance figure, not just the minutes: an implausible km value is the cheapest error to catch.
+5. **Walking minutes and driving distances — skip these.** They came from the Routes API. Searching for a second opinion on a routed distance produces worse numbers, not better ones.
 6. **Parking hours and fees**, including any weekday-vs-holiday split and any recent fee revision.
 7. **Prices** quoted in the note.
 

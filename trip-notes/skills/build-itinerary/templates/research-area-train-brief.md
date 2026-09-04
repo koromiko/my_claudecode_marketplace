@@ -4,15 +4,27 @@ Area to evaluate: **{{AREA_NAME}}**
 Region / theme of the overall note: {{THEME}}
 Criteria this area is being screened against: {{CRITERIA_LIST}}
 
+## Already established — treat as given, do not re-derive
+
+From the Google Maps Places/Routes API, not from search results:
+
+- Focal point: {{MAPS_NAME}} — {{MAPS_LATLNG}} — {{MAPS_URL}}
+- Nearest station: {{MAPS_STATION}}
+- **Gate-to-start walking time: {{MAPS_WALK_MIN}} min / {{MAPS_WALK_KM}} km** (Routes API, walking mode)
+- Venues found on the route, with per-weekday hours and 定休日 already attached: {{MAPS_NEARBY}}
+
+Do not re-measure the walking time and do not re-look-up hours that are listed above. Your value is in what those numbers hide.
+
 This area is a **candidate**, not a confirmed pick. Your job is to gather what's needed to rate it against each criterion — including the evidence that would disqualify it. A well-sourced "this fails criterion ③" is as valuable as a pass.
 
 Find and return:
 
-1. **Access** — nearest station(s), which lines serve them, and **walking minutes from the ticket gate to the start of the walking route**. Not "near X station" — the actual gate-to-start figure, with the source. If it's over ~15 minutes, say so plainly; that usually fails a "convenient by train" criterion regardless of how good the destination is.
+1. **Access — the qualitative half.** The gate-to-start minutes are given above. What the number does not say: which exit actually works, whether the walk is lit and populated, whether it crosses a highway or an industrial yard, whether there are steps/no lift. A 12-minute walk can fail a "convenient by train" criterion for reasons a routing engine cannot see. Also name the lines serving the station.
 
-2. **Shops and restaurants actually along the walking route** (not merely in the same district). For each: name, genre, and **closing time broken down by day of week**, plus 定休日 (regular closing days).
-   - The weekday breakdown is mandatory. A venue advertised as "open until 23:00" very often means 23:00 **on Fridays only** and 22:00 the rest of the week. Report the per-day figures, not the maximum.
-   - Prefer the venue's own site or its official social account over aggregator listings, which go stale.
+2. **Shops and restaurants actually along the walking route.** Start from the `{{MAPS_NEARBY}}` list above — those already carry per-weekday hours and 定休日. Your work on it:
+   - **Confirm each is genuinely on the walking line**, not 300 m away across a river or a highway. Maps radius search cannot tell the difference; you can.
+   - **Add anything missing** that the route obviously passes and Maps did not return.
+   - **Check the plan-critical ones against their own site or official social account** — whichever venue the evening depends on. Maps hours go stale for small independent places, and a venue advertised as "open until 23:00" very often means 23:00 **on Fridays only**. Where the venue's own source contradicts the Maps hours above, report both and say which you trust and why.
 
 3. **Seating** — are there benches, ledges, or steps to rest on along the route? Roughly how many and where (continuous along the promenade / only at one plaza / none)?
 
