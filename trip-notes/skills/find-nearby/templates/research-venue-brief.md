@@ -25,19 +25,21 @@ not silently substitute your own number.
 
    `<QUESTIONS>`
 
-   For each, one line in this exact format:
-   `<question> — <answer> :: <source URL> :: CONFIRMED|UNVERIFIABLE`
+   For each, one line in this exact format, with every field separated by `::`:
+   `<question> :: <answer> :: <source URL> :: CONFIRMED|UNVERIFIABLE`
 
-   The last two fields, separated by `::`, are always the source URL and the
-   verdict, in that fixed order. ` — ` only ever separates the question from
-   the answer; `::` never appears in a question or an answer, so parse the
-   line by splitting on `::` first, then take everything before the first
-   ` — ` as the question and the rest as the answer.
+   `::` must never appear inside a question or an answer — Chinese and
+   Japanese prose commonly uses an em dash (「——」), which is fine, just
+   never `::`. Parse it positionally, not by counting fields: field 1 is
+   the question, field 2 is the answer, the **last** field is the verdict,
+   and everything between field 2 and the verdict — rejoined if it was
+   split further — is the source URL. This keeps the line parseable even
+   if the URL itself contains `::` (e.g. an IPv6-literal host).
 
    Example:
    ```
-   是否全席禁菸？ — 是，全店禁菸 :: https://example.com/notice :: CONFIRMED
-   是否有陽台座位？ — 找不到獨立來源證實 :: （無） :: UNVERIFIABLE
+   是否全席禁菸？ :: 是，全店禁菸 :: https://example.com/notice :: CONFIRMED
+   是否供應甜點——如提拉米蘇？ :: 找不到獨立來源證實 :: （無） :: UNVERIFIABLE
    ```
 
    `UNVERIFIABLE` is a correct and expected answer — a fabricated plausible one
