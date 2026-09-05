@@ -1,7 +1,7 @@
 {
   "name": "trip-notes",
-  "version": "1.0.2",
-  "description": "Build a verified travel itinerary as an Obsidian note \u2014 self-drive route, train/walk-accessible plan, or both (Google Maps links, driving or station-walk times, per-weekday opening hours, local blog references, photos, and nearby extra spots), browser-verified before delivery",
+  "version": "1.1.0",
+  "description": "Travel notes as verified Obsidian markdown: build-itinerary produces self-drive or train/walk itineraries; find-nearby finds restaurants, caf\u00e9s, shops or parks within a real travel-time budget of a place and ranks them against your own saved preferences. Both are browser-verified before delivery.",
   "author": {
     "name": "Neo"
   },
@@ -12,6 +12,10 @@
     "drive",
     "train",
     "walk",
+    "nearby",
+    "restaurants",
+    "cafe",
+    "preferences",
     "google-maps",
     "agent-browser"
   ]
