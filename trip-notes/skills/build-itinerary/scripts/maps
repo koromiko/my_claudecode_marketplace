@@ -422,9 +422,16 @@ dispatch() {
 
     jq -n --argjson m "$merged" --argjson r "$rows" --argjson lim "$max_min" \
        --arg origin "$origin" --arg mode "$mode" '
+      # A leg is usable only if it BOTH resolved and carries a duration. There
+      # used to be a `.duration // "0s"` default here; a leg that reported
+      # ROUTE_EXISTS (or, on the TRANSIT path, returned a route object) but no
+      # duration then rendered as a 0-minute trip and SORTED FIRST — the nearest
+      # candidate in the list, with no error anywhere. A missing duration is a
+      # leg that did not resolve; it belongs in `unroutable`, never in `places`.
       ( $r | map({ (.destinationIndex | tostring):
-                   { ok: (.condition == "ROUTE_EXISTS"),
-                     travel_min: ((.duration // "0s") | rtrimstr("s") | tonumber / 60 | round),
+                   { ok: (.condition == "ROUTE_EXISTS" and .duration != null),
+                     travel_min: (if .duration == null then null
+                                  else (.duration | rtrimstr("s") | tonumber / 60 | round) end),
                      distance_km: (((.distanceMeters // 0) / 100 | round) / 10) } })
            | add // {} ) as $by
       | [ $m | to_entries[]

@@ -221,6 +221,26 @@ assert_eq "a computeRoutes 200 with no route counts as unroutable" \
 assert_eq "an unresolved TRANSIT route is never reported as a 0-minute walk" \
   "0" "$(jq -r '.returned' <<<"$out")"
 
+echo "== reachable treats a missing duration as unroutable, not 0 minutes =="
+
+# A leg with a resolved condition but NO duration is the same failure class as
+# an unresolved one, and a worse-looking one: `.duration // "0s"` renders it as
+# 0 min / 0 km, which sorts FIRST and reads as the nearest candidate. A leg is
+# only usable if it resolved AND carries a duration.
+out=$(run_maps_in "$FIXTURES/matrix-noduration" reachable \
+        --from "35.681,139.767" --mode WALK --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a matrix leg with ROUTE_EXISTS but no duration counts as unroutable" \
+  "4" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "a matrix leg with no duration never reaches places as a 0-minute trip" \
+  "0" "$(jq -r '.places | length' <<<"$out")"
+
+out=$(run_maps_in "$FIXTURES/transit-noduration" reachable \
+        --from "35.681,139.767" --mode TRANSIT --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a TRANSIT route present but without a duration counts as unroutable" \
+  "4" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "a TRANSIT route with no duration never reaches places as a 0-minute trip" \
+  "0" "$(jq -r '.places | length' <<<"$out")"
+
 echo "== reachable batching re-bases destinationIndex =="
 
 # The stub replays the SAME canned response for every call, so a chunked run is
