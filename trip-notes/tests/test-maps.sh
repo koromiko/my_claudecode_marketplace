@@ -171,6 +171,16 @@ assert_eq "search sorts by review count like nearby" \
 assert_eq "search honours --out" \
   "2" "$(t=$(mktemp); run_maps search --limit 20 --out "$t" "35.681,139.767" 1500 "タイ料理" >/dev/null; jq -r '.places|length' "$t"; rm -f "$t")"
 
+# SKILL.md tells the agent to give `search` a WIDER --limit than `nearby`,
+# because search's circle is only a bias and part of the pool is spent out of
+# range. searchText is capped at 20 all the same, so --limit 30 quietly returns
+# 20. `nearby` prints a cap note in exactly this situation; `search` must too.
+cap=$(run_maps search --limit 30 "35.681,139.767" 1500 "タイ料理" 2>&1 >/dev/null)
+case "$cap" in
+  *"capped to 20"*) assert_pass "search warns on stderr when --limit exceeds the API cap" ;;
+  *) assert_fail "search warns on stderr when --limit exceeds the API cap" "stderr was [$cap]" ;;
+esac
+
 echo "== reachable (merge + dedupe + travel-time filter) =="
 
 pool_a=$(mktemp); pool_b=$(mktemp)
@@ -257,6 +267,98 @@ assert_eq "a TRANSIT route present but without a duration counts as unroutable" 
   "4" "$(jq -r '.unroutable' <<<"$out")"
 assert_eq "a TRANSIT route with no duration never reaches places as a 0-minute trip" \
   "0" "$(jq -r '.places | length' <<<"$out")"
+
+echo "== reachable rejects a numeric duration, which rtrimstr cannot clean =="
+
+# `.duration | rtrimstr("s") | tonumber` looks like it validates, but rtrimstr is
+# a NO-OP on a non-string: a raw JSON number sails straight into tonumber and
+# becomes a real leg. `duration: 0` then renders as a 0-minute trip that SORTS
+# FIRST — the nearest candidate in the list. The type must be checked, not the
+# suffix.
+out=$(run_maps_in "$FIXTURES/matrix-numduration" reachable \
+        --from "35.681,139.767" --mode WALK --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a matrix leg whose duration is a number counts as unroutable" \
+  "4" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "a numeric duration never reaches places as a 0-minute trip" \
+  "0" "$(jq -r '.places | length' <<<"$out")"
+
+out=$(run_maps_in "$FIXTURES/transit-numduration" reachable \
+        --from "35.681,139.767" --mode TRANSIT --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a TRANSIT route whose duration is a number counts as unroutable" \
+  "4" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "a numeric TRANSIT duration never reaches places as a 0-minute trip" \
+  "0" "$(jq -r '.places | length' <<<"$out")"
+
+echo "== a missing distance is null, never a confident 0.0 km =="
+
+# A leg that resolves and carries a duration but no distanceMeters used to
+# render as "0.0 km" beside a real travel time — a plausible number with
+# nothing behind it, the same failure shape as the 0-minute leg above.
+out=$(run_maps_in "$FIXTURES/matrix-nodistance" reachable \
+        --from "35.681,139.767" --mode WALK --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a matrix leg with no distanceMeters still resolves on duration" \
+  "0" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "a matrix leg with no distanceMeters reports distance_km null, not 0" \
+  "null" "$(jq -r '[.places[].distance_km] | unique | .[0] | tostring' <<<"$out")"
+
+out=$(run_maps_in "$FIXTURES/transit-nodistance" reachable \
+        --from "35.681,139.767" --mode TRANSIT --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a TRANSIT route with no distanceMeters reports distance_km null, not 0" \
+  "null" "$(jq -r '[.places[].distance_km] | unique | .[0] | tostring' <<<"$out")"
+
+echo "== reachable merges same-place records field-wise, whatever the file order =="
+
+# `unique_by(.place_id)` kept only the FIRST record for a repeated id. `search`
+# calls place_row({}) and carries no `amenities` key at all, and under SKILL.md's
+# own file naming `pool-text-*.json` sorts BEFORE `pool-<type>.json` under the
+# documented `pool-*.json` glob — so the amenity-less record won and a confirmed
+# `true` silently became "Google has no data". File order must not decide that.
+amen_pool=$(mktemp); plain_pool=$(mktemp)
+run_maps nearby --limit 20 --fields outdoorSeating --out "$amen_pool" \
+  "35.681,139.767" 1500 cafe >/dev/null
+run_maps search --limit 20 --out "$plain_pool" "35.681,139.767" 1500 "タイ料理" >/dev/null
+
+# The amenity-LESS pool is listed FIRST here on purpose. That is the ordering the
+# old code got wrong; with a single pool, or with the amenity pool first, the bug
+# is invisible.
+out=$(run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 \
+        "$plain_pool" "$amen_pool" 2>&1)
+assert_eq "an amenity survives when the amenity-less pool is listed FIRST" \
+  "true" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .amenities.outdoor_seating' <<<"$out")"
+# The merge must still SORT by place_id — unique_by did, and every
+# destinationIndex sent to computeRouteMatrix is an index into THAT order. If the
+# merged order became file order instead, the legs would still all be consumed,
+# but each would attach to the wrong place: silently wrong travel times rather
+# than an error. The observable is the leg each place ends up with, checked with
+# the two pools in BOTH orders — a file-order merge gives different answers.
+legs() { jq -r '[.places[] | "\(.place_id)=\(.travel_min)"] | sort | join(" ")'; }
+fwd=$(run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 \
+        "$plain_pool" "$amen_pool" 2>&1 | legs)
+rev=$(run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 \
+        "$amen_pool" "$plain_pool" 2>&1 | legs)
+assert_eq "each place keeps its own leg: the merged order is sorted by place_id" \
+  "PLACE_A=3 PLACE_B=9" "$fwd"
+assert_eq "the merged order does not depend on the file order" "$fwd" "$rev"
+
+echo "== reachable carries the POOL's fetch date, not this run's =="
+
+# nearby/search cache for 7 days, so a pool file can be a week old while the
+# reachable run is today. `emit` stamps `fetched` = now on reachable's own
+# output; without a separate key the note would quote today and overstate the
+# freshness of opening hours. pool_fetched is the MINIMUM across the inputs —
+# the oldest datum governs.
+old_pool=$(mktemp); older_pool=$(mktemp)
+jq '.fetched = "2020-01-02T00:00:00Z"' "$amen_pool" > "$old_pool"
+jq '.fetched = "2019-05-06T00:00:00Z"' "$plain_pool" > "$older_pool"
+out=$(run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 \
+        "$old_pool" "$older_pool" 2>&1)
+assert_eq "pool_fetched reflects the pool, not the run" \
+  "2019-05-06T00:00:00Z" "$(jq -r '.pool_fetched' <<<"$out")"
+assert_eq "pool_fetched is the OLDEST of the pools, not the newest" \
+  "true" "$(jq -r '(.pool_fetched == "2019-05-06T00:00:00Z")
+                   and (.pool_fetched != "2020-01-02T00:00:00Z")
+                   and (.pool_fetched < .fetched)' <<<"$out")"
+rm -f "$amen_pool" "$plain_pool" "$old_pool" "$older_pool"
 
 echo "== reachable batching re-bases destinationIndex =="
 

@@ -21,9 +21,13 @@
 #                                               ask for them only when a condition needs one.
 #                                               An amenity absent from the output means Google
 #                                               has no data — NOT "no". Never filter on absence.
+#                                               Values land under `amenities` in SNAKE_CASE:
+#                                               outdoorSeating -> amenities.outdoor_seating.
 #   maps search  [--limit N] <lat,lng> <r_m> <text...>
 #                                               Text Search near a point -> same shape as
-#                                               `nearby`. Use for cuisine/style/theme words
+#                                               `nearby`. Capped at 20 like `nearby`; a larger
+#                                               --limit prints a note to stderr.
+#                                               Use for cuisine/style/theme words
 #                                               that no includedType covers (タイ料理, 古著).
 #                                               The circle is a BIAS, not a restriction:
 #                                               results overflow the radius and are cut later
@@ -34,6 +38,15 @@
 #                                               call per batch, drop anything over --max-min.
 #                                               Reports considered / dropped_over_limit /
 #                                               unroutable so nothing vanishes silently.
+#                                               Records for the same place_id from different
+#                                               pools are MERGED field-wise, not deduped to the
+#                                               first — `search` carries no `amenities` key, so
+#                                               keeping only the first would discard a present
+#                                               amenity whenever both channels found a place.
+#                                               `pool_fetched` carries the OLDEST `fetched` of
+#                                               the input pools; the output's own `fetched` is
+#                                               this run's clock and says nothing about the age
+#                                               of the merged data (pools cache for 7 days).
 #                                               TRANSIT does NOT use the matrix endpoint: that
 #                                               endpoint answers HTTP 200 for TRANSIT and then
 #                                               reports "condition": "ROUTE_NOT_FOUND" on EVERY
@@ -356,11 +369,33 @@ dispatch() {
     # one error this skill cannot self-correct.
     if [[ "$batch" -eq 0 ]]; then batch=600; fi
 
-    # Merge every pool, keeping the first record for a repeated place_id.
-    # unique_by SORTS its output; the merged order is therefore place_id order,
-    # and every destinationIndex below is an index into THAT array.
-    merged=$(jq -s '[ .[] | (.places // [])[] ] | unique_by(.place_id)' "$@")
+    # Merge every pool by place_id, FIELD-WISE. `unique_by(.place_id)` used to
+    # live here and it kept only the FIRST record for a repeated id — which
+    # silently threw away a present amenity value whenever the same place was
+    # found by both channels. `search` calls place_row({}) and so carries no
+    # `amenities` key at all; with the documented pool naming, `pool-text-*.json`
+    # sorts before `pool-<type>.json`, so the amenity-less record won and a
+    # confirmed true/false became "Google has no data". File order must not
+    # decide that, so every record for an id is merged instead of one being
+    # dropped. `*` (not `+`) so a nested `amenities` object from one pool is
+    # filled in from another rather than replaced wholesale; the accumulator is
+    # on the right, so an earlier file still wins any key both actually set —
+    # first-wins is preserved, only the discarding is gone.
+    #
+    # group_by SORTS its output by the grouping key, exactly as unique_by did,
+    # so the merged order is still deterministic place_id order and every
+    # destinationIndex below is still an index into THAT array.
+    merged=$(jq -s '[ .[] | (.places // [])[] ]
+                    | group_by(.place_id) | map(reduce .[] as $x ({}; $x * .))' "$@")
     considered=$(jq 'length' <<<"$merged")
+
+    # The pools' own provenance. Each pool file carries the `fetched` stamp of
+    # the response it came from — which, on a cache hit, can be up to 7 days
+    # old. `emit` will stamp this run's own `fetched` on the output, so without
+    # carrying the pools' date separately every downstream consumer would read
+    # today's date and overstate the freshness of opening hours. The MINIMUM
+    # across the inputs: the oldest datum governs what the note may claim.
+    pool_fetched=$(jq -s -r '[ .[] | .fetched // empty ] | if length == 0 then "" else min end' "$@")
 
     origin_wp=$(waypoint "$origin")
     rows="[]"
@@ -422,7 +457,7 @@ dispatch() {
     fi
 
     jq -n --argjson m "$merged" --argjson r "$rows" --argjson lim "$max_min" \
-       --arg origin "$origin" --arg mode "$mode" '
+       --arg origin "$origin" --arg mode "$mode" --arg pf "$pool_fetched" '
       # A leg is usable only if it BOTH resolved and carries a duration. There
       # used to be a `.duration // "0s"` default here; a leg that reported
       # ROUTE_EXISTS (or, on the TRANSIT path, returned a route object) but no
@@ -430,10 +465,19 @@ dispatch() {
       # candidate in the list, with no error anywhere. A missing duration is a
       # leg that did not resolve; it belongs in `unroutable`, never in `places`.
       ( $r | map({ (.destinationIndex | tostring):
-                   { ok: (.condition == "ROUTE_EXISTS" and .duration != null),
-                     travel_min: (if .duration == null then null
+                   # `.duration` must be a STRING like "150s". rtrimstr is a
+                   # no-op on a non-string, so a raw JSON number (e.g. 0) used
+                   # to sail through tonumber and render as a real 0-minute leg
+                   # that SORTED FIRST — the same nearest-candidate lie the
+                   # null case above was fixed for. Type-check it; do not guess.
+                   { ok: (.condition == "ROUTE_EXISTS" and (.duration | type) == "string"),
+                     travel_min: (if (.duration | type) != "string" then null
                                   else (.duration | rtrimstr("s") | tonumber / 60 | round) end),
-                     distance_km: (((.distanceMeters // 0) / 100 | round) / 10) } })
+                     # A missing distance is NOT zero. `// 0` here rendered an
+                     # absent distanceMeters as a confident "0.0 km" beside a
+                     # real travel time. No data means null.
+                     distance_km: (if .distanceMeters == null then null
+                                   else ((.distanceMeters / 100 | round) / 10) end) } })
            | add // {} ) as $by
       | [ $m | to_entries[]
           | . as $e
@@ -441,6 +485,7 @@ dispatch() {
           | $e.value + {travel_min: $leg.travel_min, distance_km: $leg.distance_km}
             + {_ok: $leg.ok} ] as $all
       | { origin: $origin, mode: $mode, max_min: $lim,
+          pool_fetched: (if $pf == "" then null else $pf end),
           considered: ($all | length),
           unroutable: ([$all[] | select(._ok | not)] | length),
           dropped_over_limit: ([$all[] | select(._ok and .travel_min > $lim)] | length),
@@ -514,6 +559,16 @@ dispatch() {
     while [[ "${1:-}" == "--limit" ]]; do
       limit="${2:?--limit needs a number}"; shift 2
     done
+    # searchText is capped at 20 results by maxResultCount below, exactly as
+    # searchNearby is. SKILL.md tells the agent to give `search` a WIDER
+    # --limit than `nearby` (its circle is only a bias, so some of the pool is
+    # spent out of range) — advice this ceiling cannot honour. Say so on stderr
+    # rather than letting --limit 30 look like it worked, the same way `nearby`
+    # does.
+    if [[ "$limit" -gt 20 ]]; then
+      echo "note: searchText returns at most 20 results; --limit $limit capped to 20." >&2
+      limit=20
+    fi
     [[ $# -ge 3 ]] || { echo "usage: maps search [--limit N] <lat,lng> <radius_m> <text...>" >&2; exit 64; }
     lat="${1%%,*}"; lng="${1##*,}"; radius="$2"; shift 2
     # A circle can only be a locationBias for searchText, not a hard restriction,

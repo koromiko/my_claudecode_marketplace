@@ -77,16 +77,60 @@ done < <(grep -oE '`[a-z_]+_restaurant`|`(restaurant|cafe|bakery|home_goods_stor
      | tr -d '`' | sort -u)
 assert_eq "every includedType SKILL.md cites appears in api-facts.md" "" "$missing"
 
+echo "== SKILL.md's --fields list matches the script's allowlist =="
+
+# SKILL.md used to advertise ten layer-2 field names while `scripts/maps` accepted
+# six. Asking for one of the other four exits 64 and aborts Step 2 — a user typing
+# 「有供早餐的咖啡廳」 got an error, not a result. Nothing compared the two lists,
+# so the drift was invisible. Pin them to each other.
+MAPS_SCRIPT="$SKILLS/build-itinerary/scripts/maps"
+script_fields=$(grep -o 'AMENITY_ALLOWED="[^"]*"' "$MAPS_SCRIPT" \
+  | head -1 | sed 's/AMENITY_ALLOWED="//; s/"$//' | tr ' ' '\n' | sort | tr '\n' ' ')
+# The prose list is the run of backticked names on the "Validated layer-2 field
+# names" line, up to the sentence that closes it.
+skill_fields=$(grep '^Validated layer-2 field names' "$FN/SKILL.md" \
+  | sed 's/\*\*These six.*//' | grep -o '`[a-zA-Z]*`' | tr -d '`' | sort -u | tr '\n' ' ')
+assert_eq "SKILL.md advertises exactly the --fields names the script accepts" \
+  "$script_fields" "$skill_fields"
+
 echo "== three-state rule covers status, not only amenities =="
 
-if grep -q 'UNKNOWN' "$FN/SKILL.md"; then assert_pass "SKILL.md documents status: UNKNOWN as the no-data case"
-else assert_fail "SKILL.md documents status: UNKNOWN as the no-data case" "not mentioned"; fi
-
-if grep -q 'UNKNOWN' "$FN/templates/score-candidates-brief.md"; then
-  assert_pass "score-candidates-brief documents status: UNKNOWN as the no-data case"
+# A bare `grep -q UNKNOWN` passed on ANY mention of the token, including prose
+# saying the opposite. These two assertions guard a Critical — a filter on
+# `status != "OPERATIONAL"` silently culls every venue Google holds no status for
+# — so they pin the CLAIM, not the word.
+if grep -q '`UNKNOWN` is not a closure' "$FN/SKILL.md" \
+   && grep -q '`UNKNOWN` survives' "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states UNKNOWN is not a closure and survives"
 else
-  assert_fail "score-candidates-brief documents status: UNKNOWN as the no-data case" "not mentioned"
+  assert_fail "SKILL.md states UNKNOWN is not a closure and survives" \
+    "the claim itself is missing (a bare mention of the token is not enough)"
 fi
+if grep -q 'Reject only the two explicit closure values' "$FN/SKILL.md"; then
+  assert_pass "SKILL.md names the only two values that may reject"
+else
+  assert_fail "SKILL.md names the only two values that may reject" "rule text missing"
+fi
+
+if grep -q '`UNKNOWN` is its no-data value' "$FN/templates/score-candidates-brief.md" \
+   && grep -q '`OPERATIONAL` and `UNKNOWN` both survive' "$FN/templates/score-candidates-brief.md"; then
+  assert_pass "score-candidates-brief states UNKNOWN is no-data and survives"
+else
+  assert_fail "score-candidates-brief states UNKNOWN is no-data and survives" \
+    "the claim itself is missing (a bare mention of the token is not enough)"
+fi
+
+echo "== the preference skeleton carries every maintenance rule the skill relies on =="
+
+# This file is copied VERBATIM into the user's real ~/.config/trip-notes/preferences.md,
+# so its rule comment is the version that persists on disk. SKILL.md declares it
+# authoritative for preference maintenance; a rule missing here is a rule the user's
+# own file will never carry.
+# Match the RULE, not the 「最後更新：」 field itself — the field is present in the
+# skeleton either way, so a bare token grep would pass with the rule missing.
+if grep -q '必須同時更新檔案開頭的「最後更新：」' "$PE"; then
+  assert_pass "preference skeleton's rules include updating 最後更新"
+else assert_fail "preference skeleton's rules include updating 最後更新" "rule missing from the comment"; fi
 
 echo
 echo "-- $PASSED passed, $FAILED failed --"

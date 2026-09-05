@@ -42,6 +42,13 @@ Four rules govern what you may do with them:
 
 ## Structured fields are three-state — this applies to `status` and `hours`, not just `amenities`
 
+`amenities` keys are **snake_case**: the Google field `outdoorSeating` arrives as
+`amenities.outdoor_seating`, `goodForChildren` as `amenities.good_for_children`.
+Read the keys that are actually in the record; a camelCase guess finds nothing and
+would be misread as no-data. `distance_km` may also be `null` — that means Google
+returned no distance for the leg, not that the place is 0 km away; the travel time
+is the number to trust.
+
 For any structured field (`status`, `hours`, and every key in `amenities`):
 
 | Value | What it means | What you do |

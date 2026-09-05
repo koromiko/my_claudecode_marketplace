@@ -32,6 +32,24 @@ occurred.
 Probed via `places:searchNearby` at Tokyo Station (radius 500m, `maxResultCount: 20`),
 one field at a time in the field mask alongside `places.id`.
 
+**The pool records rename these to snake_case.** `--fields outdoorSeating` puts
+the value at `amenities.outdoor_seating`, not `amenities.outdoorSeating`; the
+script lowercases the name and inserts an underscore before each capital
+(`goodForChildren` → `good_for_children`, `servesVegetarianFood` →
+`serves_vegetarian_food`). Anything reading a pool, a `reachable` output, or
+`top12.json` — every brief included — must use the snake_case key. A condition
+mapping written against the camelCase name would find nothing and read as
+"Google has no data", which is precisely the three-state misfire this design
+exists to prevent.
+
+**Only six of the ten below are accepted by `maps nearby --fields`**:
+`outdoorSeating`, `allowsDogs`, `servesVegetarianFood`, `goodForChildren`,
+`restroom`, `goodForGroups`. "Valid" in the table means *valid in a field mask*
+— `servesBreakfast`, `liveMusic`, `accessibilityOptions` and `parkingOptions`
+are object- or enum-valued rather than plain booleans, so the script's
+allowlist (`AMENITY_ALLOWED`) excludes them and passing one exits 64. Conditions
+those would have answered belong in layer 3.
+
 | Field | Valid | Set on N of 20 sampled | Notes |
 |---|---|---|---|
 | outdoorSeating | yes | 1/20 | |
