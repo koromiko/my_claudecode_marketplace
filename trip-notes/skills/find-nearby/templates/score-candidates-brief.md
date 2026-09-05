@@ -10,7 +10,8 @@ do not edit any file, and do not delegate to further subagents.
   `rating`, `reviews`, `hours`, and sometimes `amenities`.
 - Reviews: `<REVIEWS_PATH>` — output of `trip-maps reviews`, up to 5 reviews per place.
 - Preferences: `~/.config/trip-notes/preferences.md` — read it if it exists.
-  If it does not exist, say so and rank neutrally (see "Neutral mode").
+  If it does not exist, **or it exists but every section is empty** (the
+  cold-start skeleton), say so and rank neutrally (see "Neutral mode").
 - This run's extra conditions: `<CONDITIONS>`
 - Requested count: `<N>` (usually 8–12)
 
