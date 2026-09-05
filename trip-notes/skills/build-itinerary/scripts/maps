@@ -55,13 +55,52 @@ REGION="${MAPS_REGION:-JP}"
 PLACES="https://places.googleapis.com/v1"
 ROUTES="https://routes.googleapis.com/directions/v2:computeRoutes"
 
+# --- test seam -----------------------------------------------------------
+# When TRIP_MAPS_STUB_DIR is set, every API call replays a canned response
+# from that directory instead of reaching Google. This exists so the test
+# suite can exercise the parsing and filtering logic — which is where the
+# bugs actually live — without spending money or depending on the network.
+# Unset (the normal case) it costs one string comparison per call.
+stub_read() {
+  local f="${TRIP_MAPS_STUB_DIR}/$1.json"
+  if [[ ! -f "$f" ]]; then
+    echo "error: stub response not found: $f" >&2
+    exit 70
+  fi
+  cat "$f"
+}
+
+# stub_name_for_url <url> — the fixture basename a POST endpoint maps to.
+stub_name_for_url() {
+  local last="${1##*/}"   # "places:searchNearby" | "v2:computeRouteMatrix"
+  printf '%s' "${last##*:}"
+}
+
 # post <url> <fieldmask> <json-body>
 post() {
+  if [[ -n "${TRIP_MAPS_STUB_DIR:-}" ]]; then
+    stub_read "$(stub_name_for_url "$1")"
+    return
+  fi
   curl -sS --max-time 20 -X POST "$1" \
     -H "Content-Type: application/json" \
     -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
     -H "X-Goog-FieldMask: $2" \
     -d "$3"
+}
+
+# api_get <stub-name> <fieldmask> <url>
+# GET counterpart of post(). The stub name is explicit because `details` and
+# `reviews` hit the same URL shape and differ only by field mask.
+api_get() {
+  if [[ -n "${TRIP_MAPS_STUB_DIR:-}" ]]; then
+    stub_read "$1"
+    return
+  fi
+  curl -sS --max-time 20 \
+    -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
+    -H "X-Goog-FieldMask: $2" \
+    "$3"
 }
 
 # Fail loudly on an API error payload instead of emitting `null` downstream.
@@ -190,10 +229,7 @@ dispatch() {
   details)
     [[ $# -eq 1 ]] || { echo "usage: maps details <place_id>" >&2; exit 64; }
     mask="id,displayName,formattedAddress,location,googleMapsUri,businessStatus,regularOpeningHours,currentOpeningHours,nationalPhoneNumber,websiteUri,primaryTypeDisplayName,rating,userRatingCount,utcOffsetMinutes"
-    out=$(curl -sS --max-time 20 \
-      -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
-      -H "X-Goog-FieldMask: $mask" \
-      "${PLACES}/places/${1}?languageCode=${LANG_CODE}&regionCode=${REGION}")
+    out=$(api_get details "$mask" "${PLACES}/places/${1}?languageCode=${LANG_CODE}&regionCode=${REGION}")
     check "$out" | jq '{
       place_id: .id,
       name: .displayName.text,
@@ -278,9 +314,7 @@ dispatch() {
     # Kept out of `details` on purpose: `reviews` is an Enterprise+Atmosphere field and a
     # request is billed at its highest-tier field, so bundling it would upgrade every
     # hours lookup to the top SKU.
-    out=$(curl -sS --max-time 20 \
-      -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
-      -H "X-Goog-FieldMask: id,displayName,rating,userRatingCount,reviews" \
+    out=$(api_get reviews "id,displayName,rating,userRatingCount,reviews" \
       "${PLACES}/places/${1}?languageCode=${LANG_CODE}&regionCode=${REGION}")
     check "$out" | jq '{
       place_id: .id,
