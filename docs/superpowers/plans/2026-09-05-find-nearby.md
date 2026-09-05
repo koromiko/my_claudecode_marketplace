@@ -653,7 +653,8 @@ After the usage check, validate the requested fields against an allowlist and bu
              exit 64 ;;
         esac
         extra_mask="${extra_mask},places.${f}"
-        snake=$(printf '%s' "$f" | sed 's/\([A-Z]\)/_\L\1/g')
+        # BSD sed (macOS) has no \L, so lowercase in a second step rather than inline.
+        snake=$(printf '%s' "$f" | sed 's/\([A-Z]\)/_\1/g' | tr '[:upper:]' '[:lower:]')
         amen_build="${amen_build} + (if has(\"${f}\") then {${snake}: .${f}} else {} end)"
       done
       IFS="$OLDIFS"
@@ -1166,8 +1167,13 @@ Replace the `reviews)` branch's argument check and wrap the existing body in a l
     # `emit` counts records from.
     one_review() {
       local out
+      # bash 3.2 has no `inherit_errexit`, so `set -e` does NOT propagate a failure
+      # out of this function through the for-loop -> pipe -> dispatch() -> command
+      # substitution nesting below. Without these explicit `|| exit $?` guards a
+      # missing/failed lookup exits 0 emitting `{"count":0,"places":[]}` — a silent
+      # partial success that reads as a real empty result downstream.
       out=$(api_get reviews "id,displayName,rating,userRatingCount,reviews" \
-        "${PLACES}/places/${1}?languageCode=${LANG_CODE}&regionCode=${REGION}")
+        "${PLACES}/places/${1}?languageCode=${LANG_CODE}&regionCode=${REGION}") || exit $?
       check "$out" | jq '{
         place_id: .id,
         name: .displayName.text,
@@ -1184,7 +1190,7 @@ Replace the `reviews)` branch's argument check and wrap the existing body in a l
     if [[ $# -eq 1 ]]; then
       one_review "$1"
     else
-      { for id in "$@"; do one_review "$id"; done; } \
+      { for id in "$@"; do one_review "$id" || exit $?; done; } \
         | jq -s '{ count: length, places: . }'
     fi
     ;;
