@@ -28,6 +28,21 @@
 #                                               The circle is a BIAS, not a restriction:
 #                                               results overflow the radius and are cut later
 #                                               by `reachable`.
+#   maps reachable --from <o> [--mode M] [--max-min N] [--batch N] <pool.json>...
+#                                               Merge pool files by place_id, compute the real
+#                                               travel time from <o> to each with one matrix
+#                                               call per batch, drop anything over --max-min.
+#                                               Reports considered / dropped_over_limit /
+#                                               unroutable so nothing vanishes silently.
+#                                               TRANSIT does NOT use the matrix endpoint: that
+#                                               endpoint answers HTTP 200 for TRANSIT and then
+#                                               reports "condition": "ROUTE_NOT_FOUND" on EVERY
+#                                               element, even for a real transit-served pair, so
+#                                               routing TRANSIT through it would silently report
+#                                               "nothing is nearby". TRANSIT falls back to one
+#                                               computeRoutes call per destination. Do not
+#                                               "optimise" it back into a single matrix call.
+#                                               Uncached: its args are file paths.
 #   maps reviews <place_id>                     5 reviews -> LEADS ONLY, never a citation.
 #   maps cache   stats|purge [--all]            inspect / clear the on-disk cache
 #
@@ -67,6 +82,7 @@ LANG_CODE="${MAPS_LANG:-ja}"
 REGION="${MAPS_REGION:-JP}"
 PLACES="https://places.googleapis.com/v1"
 ROUTES="https://routes.googleapis.com/directions/v2:computeRoutes"
+ROUTES_MATRIX="https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
 
 # --- test seam -----------------------------------------------------------
 # When TRIP_MAPS_STUB_DIR is set, every API call replays a canned response
@@ -209,6 +225,10 @@ ttl_for() {
       done
       if [[ "$mode" == "DRIVE" ]]; then echo 86400; else echo 2592000; fi ;;
     place|details|nearby|search|reviews) echo 604800 ;;   # 7 days
+    # `reachable` is deliberately uncached: its arguments are file PATHS, so a
+    # cache keyed on the argument list would serve a stale result whenever the
+    # pool files changed underneath the same paths. The `nearby`/`search` calls
+    # that produced those pools are cached, which is where the savings already are.
     *) echo 0 ;;
   esac
 }
@@ -306,6 +326,119 @@ dispatch() {
          duration_min: ((.duration | rtrimstr("s") | tonumber) / 60 | round),
          via: .description})
       end'
+    ;;
+
+  reachable)
+    origin=""; mode="WALK"; max_min=15; batch=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --from)    origin="${2:?--from needs a place_id: or lat,lng}"; shift 2 ;;
+        --mode)    mode="${2:?--mode needs WALK|DRIVE|TRANSIT|BICYCLE}"; shift 2 ;;
+        --max-min) max_min="${2:?--max-min needs a number}"; shift 2 ;;
+        --batch)   batch="${2:?--batch needs a number}"; shift 2 ;;
+        *)         break ;;
+      esac
+    done
+    [[ -n "$origin" && $# -ge 1 ]] || {
+      echo "usage: maps reachable --from <place_id:…|lat,lng> [--mode M] [--max-min N] [--batch N] <pool.json>..." >&2
+      exit 64; }
+    for p in "$@"; do
+      [[ -f "$p" ]] || { echo "error: pool file not found: $p" >&2; exit 66; }
+    done
+
+    # computeRouteMatrix caps a request at 625 elements (origins × destinations)
+    # — measured, with the error text recorded in
+    # skills/find-nearby/references/api-facts.md. 600 leaves headroom under that
+    # cap while keeping every realistic pool to a single call.
+    # Batching (rather than truncating) is mandatory — a silently dropped
+    # candidate never reaches 已篩掉的候選, and an omission nobody can see is the
+    # one error this skill cannot self-correct.
+    if [[ "$batch" -eq 0 ]]; then batch=600; fi
+
+    # Merge every pool, keeping the first record for a repeated place_id.
+    # unique_by SORTS its output; the merged order is therefore place_id order,
+    # and every destinationIndex below is an index into THAT array.
+    merged=$(jq -s '[ .[] | (.places // [])[] ] | unique_by(.place_id)' "$@")
+    considered=$(jq 'length' <<<"$merged")
+
+    origin_wp=$(waypoint "$origin")
+    rows="[]"
+
+    if [[ "$mode" == "TRANSIT" ]]; then
+      # TRANSIT deliberately does NOT go through computeRouteMatrix.
+      # That endpoint ACCEPTS a TRANSIT request and returns HTTP 200, then
+      # reports "condition": "ROUTE_NOT_FOUND" on every single element — this
+      # was confirmed against a real, transit-served pair (Tokyo Station →
+      # Shibuya Station, ~6 km) as well as at n=10 and n=60. It never returns an
+      # "unsupported mode" error. Routed through the matrix, TRANSIT would mark
+      # every candidate unroutable and the skill would confidently report that
+      # nothing is nearby. So: one computeRoutes call per destination instead.
+      # Slower and more calls, and worth every one of them. Do not collapse this
+      # back into a single matrix call.
+      j=0
+      while [[ "$j" -lt "$considered" ]]; do
+        dest_id=$(jq -r --argjson j "$j" '.[$j].place_id' <<<"$merged")
+        rbody=$(jq -n --argjson o "$origin_wp" --arg id "$dest_id" \
+          --arg lang "$LANG_CODE" --arg reg "$REGION" \
+          '{origin: $o, destination: {placeId: $id}, travelMode: "TRANSIT",
+            languageCode: $lang, regionCode: $reg, units: "METRIC"}')
+        rresp=$(check "$(post "$ROUTES" "routes.duration,routes.distanceMeters" "$rbody")")
+        # The computeRoutes equivalent of `condition != ROUTE_EXISTS`: a 200
+        # with an empty `routes` array means nothing resolved. Checking the HTTP
+        # status here would call that a success and hand it a 0-minute leg.
+        rows=$(jq -c --argjson acc "$rows" --argjson j "$j" '
+          if ((.routes // []) | length) == 0
+          then $acc + [{destinationIndex: $j, condition: "ROUTE_NOT_FOUND"}]
+          else $acc + [{destinationIndex: $j, condition: "ROUTE_EXISTS",
+                        duration: .routes[0].duration,
+                        distanceMeters: .routes[0].distanceMeters}]
+          end' <<<"$rresp")
+        j=$(( j + 1 ))
+      done
+    else
+      i=0
+      while [[ "$i" -lt "$considered" ]]; do
+        chunk=$(jq -c --argjson i "$i" --argjson n "$batch" '.[$i:$i+$n]' <<<"$merged")
+        clen=$(jq 'length' <<<"$chunk")
+        dests=$(jq -c '[ .[] | {waypoint: {placeId: .place_id}} ]' <<<"$chunk")
+        body=$(jq -nc --argjson o "$origin_wp" --argjson d "$dests" --arg m "$mode" \
+          '{origins: [{waypoint: $o}], destinations: $d, travelMode: $m}')
+        resp=$(check "$(post "$ROUTES_MATRIX" \
+          "originIndex,destinationIndex,duration,distanceMeters,condition" "$body")")
+        # Re-base destinationIndex onto the merged array so chunks concatenate.
+        # A chunk's response can only describe that chunk's own destinations, so
+        # anything at or beyond its length is discarded rather than re-based into
+        # some other place's slot. This is a guard, not a tested behaviour: the
+        # real API returns exactly one element per destination sent, and on the
+        # LAST chunk a stray index would land past the merged array anyway. It is
+        # here so a malformed or over-long response cannot attach a travel time
+        # to a place that was never asked about.
+        rows=$(jq -c --argjson acc "$rows" --argjson off "$i" --argjson n "$clen" \
+          '[ .[] | select(.destinationIndex < $n) | .destinationIndex += $off ] as $r
+           | $acc + $r' <<<"$resp")
+        i=$(( i + batch ))
+      done
+    fi
+
+    jq -n --argjson m "$merged" --argjson r "$rows" --argjson lim "$max_min" \
+       --arg origin "$origin" --arg mode "$mode" '
+      ( $r | map({ (.destinationIndex | tostring):
+                   { ok: (.condition == "ROUTE_EXISTS"),
+                     travel_min: ((.duration // "0s") | rtrimstr("s") | tonumber / 60 | round),
+                     distance_km: (((.distanceMeters // 0) / 100 | round) / 10) } })
+           | add // {} ) as $by
+      | [ $m | to_entries[]
+          | . as $e
+          | ($by[($e.key | tostring)] // {ok:false}) as $leg
+          | $e.value + {travel_min: $leg.travel_min, distance_km: $leg.distance_km}
+            + {_ok: $leg.ok} ] as $all
+      | { origin: $origin, mode: $mode, max_min: $lim,
+          considered: ($all | length),
+          unroutable: ([$all[] | select(._ok | not)] | length),
+          dropped_over_limit: ([$all[] | select(._ok and .travel_min > $lim)] | length),
+          places: ([$all[] | select(._ok and .travel_min <= $lim) | del(._ok)]
+                   | sort_by(.travel_min)) }
+      | .returned = (.places | length)'
     ;;
 
   nearby)

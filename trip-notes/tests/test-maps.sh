@@ -44,6 +44,22 @@ run_maps() {
   return $rc
 }
 
+# run_maps_in <stub-dir> <args...> — same, but against an alternate fixture
+# directory. Used where a case needs a DIFFERENT canned API response from the
+# default one (batching, the TRANSIT no-route case).
+run_maps_in() {
+  local stub="$1"; shift
+  local cache
+  cache=$(mktemp -d)
+  TRIP_MAPS_STUB_DIR="$stub" \
+  TRIP_MAPS_CACHE_DIR="$cache" \
+  GOOGLE_MAPS_API_KEY="test-key-not-used" \
+    "$MAPS" "$@"
+  local rc=$?
+  rm -rf "$cache"
+  return $rc
+}
+
 echo "== stub hook =="
 
 out=$(run_maps nearby --limit 2 "35.681,139.767" 500 restaurant 2>&1)
@@ -137,6 +153,118 @@ assert_eq "search sorts by review count like nearby" \
   "PLACE_A" "$(jq -r '.places[0].place_id' <<<"$out")"
 assert_eq "search honours --out" \
   "2" "$(t=$(mktemp); run_maps search --limit 20 --out "$t" "35.681,139.767" 1500 "タイ料理" >/dev/null; jq -r '.places|length' "$t"; rm -f "$t")"
+
+echo "== reachable (merge + dedupe + travel-time filter) =="
+
+pool_a=$(mktemp); pool_b=$(mktemp)
+run_maps nearby --limit 20 --out "$pool_a" "35.681,139.767" 1500 cafe >/dev/null
+run_maps search --limit 20 --out "$pool_b" "35.681,139.767" 1500 "タイ料理" >/dev/null
+
+out=$(run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 "$pool_a" "$pool_b" 2>&1)
+
+assert_eq "duplicate place_id across pools collapses to one record" \
+  "4" "$(jq -r '.considered' <<<"$out")"
+assert_eq "candidates over the time budget are dropped" \
+  "2" "$(jq -r '.returned' <<<"$out")"
+assert_eq "the drop count is reported, not silent" \
+  "1" "$(jq -r '.dropped_over_limit' <<<"$out")"
+assert_eq "an unroutable candidate is counted separately from an over-budget one" \
+  "1" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "travel_min is rounded minutes, not seconds" \
+  "3" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .travel_min' <<<"$out")"
+assert_eq "distance_km is present and in km" \
+  "0.6" "$(jq -r '.places[] | select(.place_id=="PLACE_B") | .distance_km' <<<"$out")"
+assert_eq "results are sorted nearest-first" \
+  "PLACE_A PLACE_B" "$(jq -r '[.places[].place_id] | join(" ")' <<<"$out")"
+assert_eq "pool record fields survive the merge" \
+  "喫茶アルファ" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .name' <<<"$out")"
+assert_eq "amenities survive the merge when the pool had them" \
+  "true" "$(pa=$(mktemp); run_maps nearby --limit 20 --fields outdoorSeating --out "$pa" "35.681,139.767" 1500 cafe >/dev/null; run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 "$pa" | jq -r '.places[] | select(.place_id=="PLACE_A") | .amenities.outdoor_seating'; rm -f "$pa")"
+assert_eq "reachable honours --out" \
+  "2" "$(t=$(mktemp); run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 --out "$t" "$pool_a" "$pool_b" >/dev/null; jq -r '.places|length' "$t"; rm -f "$t")"
+assert_eq "--out record count matches the returned places, not the pool" \
+  "2" "$(t=$(mktemp); run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 --out "$t" "$pool_a" "$pool_b" | jq -r '.records'; rm -f "$t")"
+
+# A missing pool file must be an error, not an empty-but-plausible result.
+if run_maps reachable --from "35.681,139.767" --mode WALK --max-min 15 /nonexistent/pool.json >/dev/null 2>&1; then
+  assert_fail "a missing pool file is rejected" "exited 0"
+else
+  assert_pass "a missing pool file is rejected"
+fi
+
+echo "== reachable TRANSIT does not use computeRouteMatrix =="
+
+# computeRouteMatrix returns HTTP 200 for TRANSIT and then reports
+# ROUTE_NOT_FOUND on every element (see references/api-facts.md), so TRANSIT
+# must fall back to computeRoutes per destination. The two fixtures carry
+# deliberately different durations — matrix says PLACE_A is 3 min, computeRoutes
+# says 12 — so this number alone identifies which endpoint was used.
+out=$(run_maps reachable --from "35.681,139.767" --mode TRANSIT --max-min 15 "$pool_a" "$pool_b" 2>&1)
+
+assert_eq "TRANSIT reads computeRoutes, not the matrix (12m fixture, not 3m)" \
+  "12" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .travel_min' <<<"$out")"
+assert_eq "TRANSIT resolves every candidate rather than reporting none reachable" \
+  "4" "$(jq -r '.returned' <<<"$out")"
+assert_eq "TRANSIT reports no unroutable candidates when every route resolves" \
+  "0" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "TRANSIT distance comes from the computeRoutes response" \
+  "3" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .distance_km' <<<"$out")"
+assert_eq "the mode is echoed back unchanged" \
+  "TRANSIT" "$(jq -r '.mode' <<<"$out")"
+
+# HTTP 200 with an empty `routes` array is the computeRoutes equivalent of
+# condition != ROUTE_EXISTS. It must be counted, not silently treated as 0 min.
+out=$(run_maps_in "$FIXTURES/transit-noroute" reachable \
+        --from "35.681,139.767" --mode TRANSIT --max-min 15 "$pool_a" "$pool_b" 2>&1)
+assert_eq "a computeRoutes 200 with no route counts as unroutable" \
+  "4" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "an unresolved TRANSIT route is never reported as a 0-minute walk" \
+  "0" "$(jq -r '.returned' <<<"$out")"
+
+echo "== reachable batching re-bases destinationIndex =="
+
+# The stub replays the SAME canned response for every call, so a chunked run is
+# exactly the shape that exposes an off-by-one: chunk 1 must have its indices
+# shifted by the number of destinations already sent, or a leg lands on the
+# wrong place. fixtures/batch/computeRouteMatrix.json holds two elements with
+# distinct durations (60s -> 1 min, 480s -> 8 min).
+#
+# pool-batch.json holds three places, so --batch 2 sends:
+#   chunk 0 = [PLACE_A, PLACE_B] at offset 0 -> A=1min, B=8min
+#   chunk 1 = [PLACE_C]          at offset 2 -> C=1min  (only element 0 applies)
+# The expected triple 1/8/1 is unique to a correct offset:
+#   offset always 0     -> C never gets a leg (unroutable), returned 2
+#   offset i+1          -> A never gets a leg (unroutable), B=1min not 8
+#   no re-base at all   -> same as offset 0
+out=$(run_maps_in "$FIXTURES/batch" reachable --from "35.681,139.767" \
+        --mode WALK --max-min 15 --batch 2 "$FIXTURES/pool-batch.json" 2>&1)
+
+assert_eq "every place in a chunked run gets a leg" \
+  "3" "$(jq -r '.returned' <<<"$out")"
+assert_eq "no place is left unroutable by chunking" \
+  "0" "$(jq -r '.unroutable' <<<"$out")"
+assert_eq "chunk 0 element 0 lands on the first place" \
+  "1" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .travel_min' <<<"$out")"
+assert_eq "chunk 0 element 1 lands on the second place, not the first" \
+  "8" "$(jq -r '.places[] | select(.place_id=="PLACE_B") | .travel_min' <<<"$out")"
+assert_eq "chunk 1 element 0 is re-based onto the third place" \
+  "1" "$(jq -r '.places[] | select(.place_id=="PLACE_C") | .travel_min' <<<"$out")"
+assert_eq "distances are re-based with the same offset as durations" \
+  "0.1 0.8 0.1" "$(jq -r '[.places[] | {k:.place_id, d:.distance_km}] | sort_by(.k) | map(.d|tostring) | join(" ")' <<<"$out")"
+
+# Chunking must not change the candidate set — only how it is queried.
+assert_eq "chunking does not change how many candidates were considered" \
+  "3" "$(jq -r '.considered' <<<"$out")"
+
+# --batch 1 degenerates to one call per destination: three chunks, offsets 0,1,2.
+out=$(run_maps_in "$FIXTURES/batch" reachable --from "35.681,139.767" \
+        --mode WALK --max-min 15 --batch 1 "$FIXTURES/pool-batch.json" 2>&1)
+assert_eq "--batch 1 still reaches every place" \
+  "3" "$(jq -r '.returned' <<<"$out")"
+assert_eq "--batch 1 gives every place the single-element response, not a shifted one" \
+  "1 1 1" "$(jq -r '[.places[] | {k:.place_id, t:.travel_min}] | sort_by(.k) | map(.t|tostring) | join(" ")' <<<"$out")"
+
+rm -f "$pool_a" "$pool_b"
 
 echo
 echo "-- $PASSED passed, $FAILED failed --"
