@@ -105,3 +105,21 @@ expectation), so `search` cannot be made a hard-bounded query via a circular
 `locationRestriction`; it must continue to use `locationBias` (soft bias
 only) and rely on post-filtering results by distance if a hard radius bound
 is required.
+
+## End-to-end smoke run
+
+日期：2026-09-05　起點：清澄白河駅
+
+| 檢查 | 結果 |
+|---|---|
+| place → nearby → search → reachable 全鏈 | 全部成功。`place` 解出 place_id `ChIJaX6cwT2JGGARKz3KrG7DRWU`、latlng `35.6822525,139.79877779999998`；`nearby --fields outdoorSeating`（cafe，20 筆）與 `search`（"焙煎 コーヒー"，20 筆）各自成功；`reachable --mode WALK --max-min 15` 成功合併兩個 pool 並回傳 21 筆。 |
+| 去重後候選數 / 通過 15 分的數量 | `considered: 40`（= 兩個 pool 各 20 筆的 place_id 聯集，人工核對兩池無重複，聯集剛好 40，與 considered 相符）／`returned: 21` 通過 15 分鐘步行門檻。counter 恆等式核對：`returned(21) + dropped_over_limit(19) + unroutable(0) = 40 = considered`，完全吻合，沒有候選在計數中憑空消失。 |
+| amenity 三態（true / false / 缺值）是否都出現 | **三態都真實出現**：`outdoor_seating` 為 `true` 5 筆、`false` 7 筆、缺值（`has` 為 false）9 筆。進一步核對缺值的 9 筆來源：7 筆來自 `search`（該管道本來就不帶 amenities，屬結構性缺席，不算三態證據），但另外 2 筆（ChIJZy2XZNeJGGARlRcCEKxTyqE、ChIJVVVFYByJGGARTOh1_yauRZ4）來自有明確傳 `--fields outdoorSeating` 的 `nearby` 池，這 2 筆才是「Google 真的沒有這欄位資料」的證據。結論：三態規則在本次 run 中**確實被觀察到**，不是理論上的。 |
+| reviews 多 id | 對 reachable 結果前 12 筆呼叫 `maps reviews <12 ids>`，`count: 12`，與傳入的 id 數一致（≤12）。 |
+| 第二次呼叫命中快取 | 命中。`--refresh` 強制刷新後 `from_cache: false`；緊接著同樣參數再呼叫一次 `from_cache: true` 且明顯變快。另外測了關鍵情境：同座標同半徑、只換 `--fields`（`outdoorSeating` → `allowsDogs`）→ `from_cache: false`，證明 `--fields` 確實參與 cache key，不會把換了欄位遮罩的請求誤判成快取命中。 |
+
+**與 api-facts 上半部記載不符之處 / 額外發現：**
+
+1. **（非本檔案上半部記載範圍，但值得記一筆）`maps reviews` 的多 id 呼叫在 zsh 互動測試中曾多次觸發 `curl: (3) URL rejected: Malformed input to a URL function`。追查後確認這不是腳本或即時 API 的缺陷，而是測試腳本自己的 zsh 用字陷阱**：把 id 清單存進純量變數（例如 `ids=$(jq -r '... | join(" ")')`）後未加引號展開（`$ids`）在 zsh 預設行為下**不會**依空白斷字（不同於 bash），整串帶空白的字串被當成單一個引數傳給 `maps`，place_id 裡混進空白自然讓 curl 判定 URL 不合法。改用 `${=ids}`（強制斷字）或直接列出字面 id 之後，同一支 12-id 指令一次就成功（`count: 12`，見上表）。**這是操作面的坑，不是 find-nearby 或 trip-maps 程式碼的 bug**，但如果之後有人在 zsh 下手動重跑這些多 id 指令，會踩到一樣的陷阱，值得記下來提醒。
+2. `search` 回傳的紀錄形狀與 `nearby` 幾乎完全一致（`address, hours, latlng, maps_url, name, place_id, rating, reviews, status, type`），差異只有 `amenities` 這個 key：`nearby` 因為呼叫時帶了 `--fields outdoorSeating` 所以有；`search` 指令本身不支援 `--fields`（程式碼裡呼叫 `place_row({})`，傳空 amenities），所以永遠沒有這個 key。這是設計上的差異，不是 shape mismatch；`reachable` 合併兩池後兩種來源都能正常被後續程式碼消費（用 `has()` 判斷欄位存在與否本來就是三態設計的一部分）。
+3. `reachable.json` 的 `status` 欄位在本次 run 中出現 `OPERATIONAL`（20 筆）與 `CLOSED_TEMPORARILY`（1 筆）兩種值，沒有出現 `UNKNOWN`——這點在本次 12 個地點的樣本中沒被觸發到，不影響三態規則本身（`UNKNOWN` 的行為已由先前任務的離線測試涵蓋），僅記錄本次實際觀察到的分布。
