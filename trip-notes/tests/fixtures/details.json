@@ -1,0 +1,28 @@
+{
+  "id": "PLACE_A",
+  "displayName": { "text": "喫茶アルファ" },
+  "formattedAddress": "東京都千代田区丸の内1-1-1",
+  "location": { "latitude": 35.6820, "longitude": 139.7670 },
+  "googleMapsUri": "https://maps.google.com/?cid=1",
+  "businessStatus": "OPERATIONAL",
+  "primaryTypeDisplayName": { "text": "喫茶店" },
+  "rating": 4.5,
+  "userRatingCount": 320,
+  "nationalPhoneNumber": "03-1234-5678",
+  "websiteUri": "https://alpha-coffee.example.jp",
+  "regularOpeningHours": {
+    "weekdayDescriptions": [
+      "月曜日: 8:00～18:00", "火曜日: 8:00～18:00", "水曜日: 定休日",
+      "木曜日: 8:00～18:00", "金曜日: 8:00～23:00", "土曜日: 8:00～18:00",
+      "日曜日: 8:00～18:00"
+    ]
+  },
+  "currentOpeningHours": {
+    "weekdayDescriptions": [
+      "月曜日: 8:00～18:00", "火曜日: 8:00～18:00", "水曜日: 定休日",
+      "木曜日: 8:00～18:00", "金曜日: 8:00～23:00", "土曜日: 8:00～18:00",
+      "日曜日: 8:00～18:00"
+    ],
+    "openNow": true
+  }
+}

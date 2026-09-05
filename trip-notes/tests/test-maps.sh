@@ -82,6 +82,18 @@ assert_eq "--out summary does not leak place names" \
   "" "$(grep -o '喫茶アルファ' <<<"$summary")"
 rm -f "$tmp_out"
 
+echo "== details / reviews reach their own stubs =="
+
+out=$(run_maps details PLACE_A 2>&1)
+assert_eq "details reads its own stub and projects the website field" \
+  "https://alpha-coffee.example.jp" "$(jq -r '.website' <<<"$out")"
+
+out=$(run_maps reviews PLACE_A 2>&1)
+assert_eq "reviews reads its own stub" \
+  "PLACE_A" "$(jq -r '.place_id' <<<"$out")"
+assert_eq "reviews are sorted newest-first" \
+  "2026-07-01 2025-08-01" "$(jq -r '[.reviews[].date] | join(" ")' <<<"$out")"
+
 echo
 echo "-- $PASSED passed, $FAILED failed --"
 if [[ ${#FAIL_DETAILS[@]} -gt 0 ]]; then printf '%s\n' "${FAIL_DETAILS[@]}"; fi
