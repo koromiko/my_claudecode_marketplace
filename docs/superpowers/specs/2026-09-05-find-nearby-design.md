@@ -23,7 +23,7 @@ Plugin：`trip-notes`
 | 地點 | ✅ | 具體地名。沒有就問，不猜。 |
 | 類型 | ❌ | 預設 `restaurant` + `cafe`。中文詞由 skill 內的對照表映射到 Places includedType。 |
 | 範圍模式 | ❌ | **步行 15 分（預設）** / 開車 15 分 / 電車 15 分（含步行到站＋乘車） |
-| 額外條件 | ❌ | 「晚上有開」「有座位」「可久坐」等，成為篩選欄位並顯示在結論表 |
+| 額外條件 | ❌ | 「泰式」「有陽台座位」「寵物友善」「晚上有開」等，見下方三層路由 |
 
 模式與時間上限若未指定，直接採預設並在回覆中用一行說明假設，不停下來問。
 
@@ -74,9 +74,51 @@ Plugin：`trip-notes`
 
 **不提供「完全不加 type 過濾」作為預設。** `nearby` 允許省略 includedTypes，但在城市裡那樣抓回來的前 20 名會被車站、便利商店、大型商場佔滿（script 依評論數排序），對「有名的景點或店家」這種意圖幾乎無用。無過濾模式保留為明確的逃生口，使用者要求「這附近有什麼都好」時才用，並在回報中說明它會出現什麼。
 
+### 額外條件的三層路由
+
+「泰式餐廳」「有陽台座位的咖啡廳」「寵物友善的公園」表面上是同一類輸入，實際上分屬三個層次。每個條件必須被路由到**最便宜且真的能回答它**的那一層 —— 把「陽台座位」交給 scoring agent 去猜評論，而 Google 有一個布林欄位直接回答它，既浪費也比較不準。
+
+| 層 | 條件形狀 | 解法 | 成本 |
+|---|---|---|---|
+| **1. 型別細分** | 料理、風格、主題（泰式、拉麵、古著、獨立書店） | Step 0.2 解析成細分 type 或 `searchText` 查詢字串 | 免費，確定性 |
+| **2. 結構化布林欄位** | 陽台座位、寵物、素食、無障礙、兒童友善 | 加進 `nearby` 的 field mask，由 script 端過濾 | **升 SKU**，見下 |
+| **3. 無結構化來源** | 有設計感、安靜、可久坐、氣氛好 | 交給 Step 5 scoring agent（評論）＋ 待確認問題 | 已含在既有流程 |
+
+第 3 層與偏好檔走完全相同的機制 —— 兩者本來就是同一種東西，差別只在偏好是持久的、額外條件是本次的。
+
+#### 第 2 層的兩條硬規則
+
+**布林欄位只在需要時才加進 field mask。** Places API (New) 的 amenity 欄位（`outdoorSeating`、`allowsDogs`、`servesVegetarianFood`、`goodForChildren`、`restroom` 等 —— 實際欄位名與 SKU 分級待實測確認）屬於較高計費層，而請求是按其**最高階欄位**計費，跟 `reviews` 同樣的機制。使用者沒問陽台，就不要把 `outdoorSeating` 放進 mask。
+
+**欄位是三態，不是布林。** 這些欄位對很多店是 `null`，而 `null` 的意思是「Google 沒資料」，不是「沒有」。所以：
+
+| 值 | 處置 |
+|---|---|
+| `true` | 加分，可直接寫進筆記並標來源為 Google Places |
+| `false` | 刷掉，理由寫進「已篩掉的候選」 |
+| `null` / 缺欄 | **保留但降權**，並列入待確認問題交給 Step 6a |
+
+用缺資料去刷掉候選，是這份設計反覆拒絕的同一種錯誤：被刷掉的東西不會出現在筆記裡，使用者不會知道它消失了，所以這種錯誤無法自我修正。一家真的有陽台但 Google 沒記的獨立咖啡廳，正是使用者最想要的那種店。
+
+驗證狀態要記「N 家的 <欄位> 無資料，已列為待確認」。
+
+### 兩條查詢管道：`nearby` 與 `searchText`
+
+第 1 層的條件有兩種去處，因為 includedType 是封閉集合 —— `thai_restaurant` 在裡面，「有陳列館的咖啡廳」不在，而 Google 的文字索引本來就在處理後者。
+
+| 條件形狀 | 管道 |
+|---|---|
+| 純型別，且細分 type 存在（咖啡廳、公園、泰式餐廳） | `nearby`（`trip-maps nearby`） |
+| 帶料理／風格／主題詞，落不進任何 type（古著店、有陳列館的咖啡廳、深夜書店） | `searchText`（新增 `trip-maps search`） |
+| 兩者都有（「泰式餐廳，要有陽台」） | **兩邊都發**，在 `reachable` 去重合併 |
+
+**判斷不確定時的預設是「兩邊都發」，不是二選一。** 去重機制已經為多型別而存在，所以合併是免費的；代價只是一次多的 API 呼叫，遠比漏掉候選便宜。把 fallback 設成安全的那一邊，是因為「什麼時候用哪個」這種判斷規則很容易被模型略過 —— 略過時掉進的必須是完整的那條路。
+
+`searchText` 的圓形範圍只能當 `locationBias`（偏好）不能當 `locationRestriction`（硬限制），所以它的結果會溢出範圍。這不致命：`reachable` 的時間過濾本來就是唯一的硬閘門，溢出的候選在那裡被剔除。代價是部分 pool 名額浪費在範圍外的店，所以 `search` 的 `--limit` 要比 `nearby` 給得寬一些。
+
 ### 多型別 pool 的合併
 
-任何解析出多個 includedType 的查詢（公園集合、泛用、或使用者同時要餐廳和咖啡廳）：每個 type 各發一次 `nearby --limit 20 --out`，然後**在 `trip-maps reachable` 這一步依 `place_id` 去重合併**。去重必須發生在 script 裡而非 orchestrator，理由與 Step 0.7 相同 —— pool 檔不進 orchestrator 的 context。
+任何產生多個 pool 檔的查詢（公園集合、泛用類型、使用者同時要餐廳和咖啡廳、或 `nearby` + `searchText` 雙管道）：每個查詢各發一次 `--limit 20 --out`，然後**在 `trip-maps reachable` 這一步依 `place_id` 去重合併**。去重必須發生在 script 裡而非 orchestrator，理由與 Step 0.7 相同 —— pool 檔不進 orchestrator 的 context。
 
 一家店可能同時符合多個 type，合併後保留第一次出現的記錄即可（欄位內容相同）。合併後的候選數會超過 20，這正是 `reachable` 的時間過濾與後續粗排存在的原因。
 
@@ -174,16 +216,19 @@ Plugin：`trip-notes`
 
 ```
 0    解析輸入 → 類型映射、模式、時間上限、額外條件
-0.2  泛用／公園類型解析（若適用）→ 型別集合 + 額外篩選條件，一行回報解析結果
+0.2  類型與條件解析 → 型別集合、查詢管道、第 2 層布林欄位、第 3 層文字條件；
+                        一行回報解析結果
 0.5  讀 preferences.md（不存在 → 中性模式，一行告知）
 1    trip-maps place <地點>                → origin place_id / latlng
-2    型別集合中每個 type: nearby --limit 20 --out <scratch>/pool-<type>.json
+2    每個查詢各發一次 --limit 20 --out：
+     nearby（純型別，含所需的布林欄位 mask）／search（料理・風格・主題詞）
 3    trip-maps reachable <pool 檔...>      → 依 place_id 去重合併，computeRouteMatrix
                                              一次算完，剔除超時，倖存者帶 travel_min
 4    結構化粗排取前 12
      → trip-maps reviews --out <scratch>/reviews.json <place_id ×12>
-5    scoring subagent (sonnet)             → 對照 preferences.md 排序到 8–12 家；
-                                             只有「反感」命中才刷掉；
+5    scoring subagent (sonnet)             → 套用第 2 層布林三態規則、對照 preferences.md
+                                             與第 3 層文字條件排序到 8–12 家；
+                                             只有「反感」命中或布林欄位為 false 才刷掉；
                                              輸出排序理由 + 待確認問題清單
 6    分層研究
      6a 首選 3–4 家 → research + image subagent (sonnet)，附待確認清單
@@ -282,6 +327,8 @@ trip-notes/skills/find-nearby/
 `scripts/maps` 兩處新增，`build-itinerary` 既有行為不變：
 
 - **`reachable`** — 新子指令。讀入**一個或多個** pool 檔、依 `place_id` 去重合併，以 `computeRouteMatrix`（1 origin × N destinations 單次呼叫）取代 N 次 `computeRoutes`，剔除超過時間上限者、輸出帶 `travel_min` 的過濾結果。快取 TTL 沿用 `route`（WALK/TRANSIT 30 天、DRIVE 1 天）。
+- **`search`** — 新子指令，包 Places `searchText`。接受自由文字查詢 + `locationBias` 圓形 + `--limit`，輸出格式與 `nearby` 完全相同（同樣的欄位、同樣的 `compact_hours`），好讓 `reachable` 能無差別合併兩種 pool 檔。
+- **`nearby`** — 新增可選的 amenity 欄位旗標（例如 `--fields outdoorSeating,allowsDogs`），只在指定時才把這些欄位加進 field mask。預設行為與 SKU 不變，`build-itinerary` 不受影響。
 - **`reviews`** — 改為接受多個 `place_id`，並遵守既有的全域 `--out` 旗標。
 
 連帶更新：`trip-notes/.claude-plugin/plugin.json`（description、keywords）、`.claude-plugin/marketplace.json`（description）、`trip-notes/CLAUDE.md`、`trip-notes/AGENTS.md`。完成後執行 `./scripts/bump-plugin.sh trip-notes minor`。
@@ -291,6 +338,8 @@ trip-notes/skills/find-nearby/
 - **粗排的評論數偏誤**：前 12 名的門檻無法完全避免偏袒熱門店。緩解是壓低權重並在驗證狀態揭露「有 N 家未讀評論」，而不是假裝沒有這個偏誤。
 - **意向 ≠ 體驗**：偏好檔學到的是使用者對筆記描述的反應。若日後想加入到訪後的真實回饋，自然的接點是在 Step 0.5 讀檔時補問上次推薦的店 —— 但那需要維護一份待追蹤清單，本次不做。
 - **跨 skill 的 template 耦合**：`find-nearby` 依賴 `build-itinerary` 的兩份 brief。改動那兩份時要同時考慮兩個呼叫端；此約束記入 `trip-notes/CLAUDE.md`。
+- **amenity 欄位名與 SKU 分級未經實測**：`outdoorSeating`、`allowsDogs` 等欄位的確切名稱、是否存在於 `searchNearby` 的 field mask、以及各自的計費層級，都要在實作 `--fields` 之前用真實呼叫確認。與 includedType 字串同一批驗掉。
+- **雙管道的路由規則可能被略過**：「什麼時候用 `nearby`、什麼時候用 `search`」是模型判斷。緩解不是把規則寫得更嚴，而是把 fallback 設成「兩邊都發」—— 略過判斷時掉進的是完整的那條路，代價只有一次多的呼叫。
 - **泛用類型的解析是模型自由判讀**：Step 0.2 是整個流程裡唯一沒有確定性依據的環節，錯意的成本是整份筆記找錯東西。緩解只有一個 —— 強制一行回報解析結果，讓使用者在花掉時間之前看得到。不加確認提問，因為多數情況解析是對的，為少數錯誤讓每次都多一輪互動不划算。
 - **多型別讓候選數超過矩陣上限的可能**：4 個 type × 20 筆 = 80 個 destination。`computeRouteMatrix` 有元素數上限（且 TRANSIT 的上限遠低於 DRIVE），實作時要確認並在超過時分批呼叫，而不是靜默截斷候選 —— 靜默截斷會讓「已篩掉的候選」漏記，那正是這份設計要求可稽核的東西。
 - **`computeRouteMatrix` 對 TRANSIT 的支援未經實測**：實作 `reachable` 的第一步是用一次真實呼叫確認 TRANSIT 模式可用、以及 origins×destinations 的上限。若 TRANSIT 不支援矩陣，退路是電車模式改用逐筆 `computeRoutes`（20 次呼叫，可接受）或先用 WALK 矩陣粗篩再對前幾名算 TRANSIT。這條在寫程式前就要驗掉，不要等到整合階段才發現。
