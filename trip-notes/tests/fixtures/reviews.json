@@ -4,11 +4,11 @@
   "rating": 4.5,
   "userRatingCount": 320,
   "reviews": [
-    { "relativePublishTimeDescription": "2 か月前", "rating": 5,
-      "text": { "text": "全席禁煙で静か。長居しやすい。" },
-      "publishTime": "2026-07-01T00:00:00Z" },
     { "relativePublishTimeDescription": "1 年前", "rating": 4,
       "text": { "text": "テラス席あり。犬連れは不可。" },
-      "publishTime": "2025-08-01T00:00:00Z" }
+      "publishTime": "2025-08-01T00:00:00Z" },
+    { "relativePublishTimeDescription": "2 か月前", "rating": 5,
+      "text": { "text": "全席禁煙で静か。長居しやすい。" },
+      "publishTime": "2026-07-01T00:00:00Z" }
   ]
 }

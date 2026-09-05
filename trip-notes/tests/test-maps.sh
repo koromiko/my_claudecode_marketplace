@@ -91,6 +91,9 @@ assert_eq "details reads its own stub and projects the website field" \
 out=$(run_maps reviews PLACE_A 2>&1)
 assert_eq "reviews reads its own stub" \
   "PLACE_A" "$(jq -r '.place_id' <<<"$out")"
+# The fixture is deliberately stored oldest-first so this assertion is only
+# satisfied if the projection's `sort_by(.date) | reverse` actually runs — do
+# not "tidy" the fixture back into chronological order.
 assert_eq "reviews are sorted newest-first" \
   "2026-07-01 2025-08-01" "$(jq -r '[.reviews[].date] | join(" ")' <<<"$out")"
 
