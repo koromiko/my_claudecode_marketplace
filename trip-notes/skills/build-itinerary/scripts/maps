@@ -21,6 +21,13 @@
 #                                               ask for them only when a condition needs one.
 #                                               An amenity absent from the output means Google
 #                                               has no data — NOT "no". Never filter on absence.
+#   maps search  [--limit N] <lat,lng> <r_m> <text...>
+#                                               Text Search near a point -> same shape as
+#                                               `nearby`. Use for cuisine/style/theme words
+#                                               that no includedType covers (タイ料理, 古著).
+#                                               The circle is a BIAS, not a restriction:
+#                                               results overflow the radius and are cut later
+#                                               by `reachable`.
 #   maps reviews <place_id>                     5 reviews -> LEADS ONLY, never a citation.
 #   maps cache   stats|purge [--all]            inspect / clear the on-disk cache
 #
@@ -150,6 +157,27 @@ def compact_hours:
   end;
 '
 
+# The per-place projection shared by `nearby` and `search`. They feed the same
+# downstream merge in `reachable`, so a field added to one and not the other
+# would produce a pool whose records have different shapes depending on which
+# channel found them. Define it once.
+JQ_PLACE='
+def place_row($amen):
+  { place_id: .id,
+    name: .displayName.text,
+    type: .primaryTypeDisplayName.text,
+    address: .formattedAddress,
+    latlng: "\(.location.latitude),\(.location.longitude)",
+    maps_url: .googleMapsUri,
+    status: (.businessStatus // "UNKNOWN"),
+    rating: .rating, reviews: .userRatingCount,
+    hours: (.regularOpeningHours.weekdayDescriptions | compact_hours) }
+  + $amen;
+'
+
+# The field mask shared by both channels (amenity fields are appended per-call).
+PLACES_MASK="places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.businessStatus,places.regularOpeningHours.weekdayDescriptions,places.primaryTypeDisplayName,places.rating,places.userRatingCount"
+
 # ---------------------------------------------------------------- cache / --out
 
 CACHE_DIR="${TRIP_MAPS_CACHE_DIR:-${HOME}/.cache/trip-notes/maps}"
@@ -180,7 +208,7 @@ ttl_for() {
         case "$a" in WALK|TRANSIT|BICYCLE|DRIVE) mode="$a" ;; esac
       done
       if [[ "$mode" == "DRIVE" ]]; then echo 86400; else echo 2592000; fi ;;
-    place|details|nearby|reviews) echo 604800 ;;   # 7 days
+    place|details|nearby|search|reviews) echo 604800 ;;   # 7 days
     *) echo 0 ;;
   esac
 }
@@ -331,21 +359,36 @@ dispatch() {
       '{locationRestriction:{circle:{center:{latitude:$lat,longitude:$lng},radius:$r}},
         languageCode:$lang, regionCode:$reg, maxResultCount:20}
        + (if $t == "" then {} else {includedTypes:[$t]} end)')
-    mask="places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.businessStatus,places.regularOpeningHours.weekdayDescriptions,places.primaryTypeDisplayName,places.rating,places.userRatingCount${extra_mask}"
+    mask="${PLACES_MASK}${extra_mask}"
     check "$(post "${PLACES}/places:searchNearby" "$mask" "$body")" \
-      | jq --argjson lim "$limit" "$JQ_COMPACT"'
+      | jq --argjson lim "$limit" "$JQ_COMPACT$JQ_PLACE"'
       { returned: (.places // [] | length),
         shown: ([(.places // []) | length, $lim] | min),
-        places: [ (.places // [])[] | {
-          place_id: .id,
-          name: .displayName.text,
-          type: .primaryTypeDisplayName.text,
-          latlng: "\(.location.latitude),\(.location.longitude)",
-          maps_url: .googleMapsUri,
-          status: (.businessStatus // "UNKNOWN"),
-          rating: .rating, reviews: .userRatingCount,
-          hours: (.regularOpeningHours.weekdayDescriptions | compact_hours)
-        } + '"$amen_expr"' ] | sort_by(-(.reviews // 0)) | .[0:$lim] }'
+        places: [ (.places // [])[] | place_row('"$amen_expr"') ]
+                | sort_by(-(.reviews // 0)) | .[0:$lim] }'
+    ;;
+
+  search)
+    limit=20
+    while [[ "${1:-}" == "--limit" ]]; do
+      limit="${2:?--limit needs a number}"; shift 2
+    done
+    [[ $# -ge 3 ]] || { echo "usage: maps search [--limit N] <lat,lng> <radius_m> <text...>" >&2; exit 64; }
+    lat="${1%%,*}"; lng="${1##*,}"; radius="$2"; shift 2
+    # A circle can only be a locationBias for searchText, not a hard restriction,
+    # so results overflow the radius. That is tolerated on purpose: `reachable`
+    # applies the only hard gate that matters (real travel time). Ask for a wider
+    # limit here than `nearby` uses, because some of the pool is spent out of range.
+    body=$(jq -n --argjson lat "$lat" --argjson lng "$lng" --argjson r "$radius" \
+      --arg q "$*" --arg lang "$LANG_CODE" --arg reg "$REGION" \
+      '{textQuery: $q, languageCode: $lang, regionCode: $reg, maxResultCount: 20,
+        locationBias: {circle: {center: {latitude: $lat, longitude: $lng}, radius: $r}}}')
+    check "$(post "${PLACES}/places:searchText" "$PLACES_MASK" "$body")" \
+      | jq --argjson lim "$limit" "$JQ_COMPACT$JQ_PLACE"'
+      { returned: (.places // [] | length),
+        shown: ([(.places // []) | length, $lim] | min),
+        places: [ (.places // [])[] | place_row({}) ]
+                | sort_by(-(.reviews // 0)) | .[0:$lim] }'
     ;;
 
   reviews)

@@ -123,6 +123,21 @@ else
   assert_pass "an unknown --fields name is rejected"
 fi
 
+echo "== search (searchText channel) =="
+
+out=$(run_maps search --limit 20 "35.681,139.767" 1500 "タイ料理 テラス席" 2>&1)
+
+assert_eq "search returns the fixture's places" "2" "$(jq -r '.returned' <<<"$out")"
+assert_eq "search output uses the same top-level keys as nearby" \
+  "places returned shown" "$(jq -r 'del(.fetched,.from_cache) | keys | join(" ")' <<<"$out")"
+assert_eq "search output uses the same per-place keys as nearby" \
+  "$(run_maps nearby --limit 1 "35.681,139.767" 500 restaurant | jq -r '.places[0] | keys | join(" ")')" \
+  "$(jq -r '.places[0] | keys | join(" ")' <<<"$out")"
+assert_eq "search sorts by review count like nearby" \
+  "PLACE_A" "$(jq -r '.places[0].place_id' <<<"$out")"
+assert_eq "search honours --out" \
+  "2" "$(t=$(mktemp); run_maps search --limit 20 --out "$t" "35.681,139.767" 1500 "タイ料理" >/dev/null; jq -r '.places|length' "$t"; rm -f "$t")"
+
 echo
 echo "-- $PASSED passed, $FAILED failed --"
 if [[ ${#FAIL_DETAILS[@]} -gt 0 ]]; then printf '%s\n' "${FAIL_DETAILS[@]}"; fi
