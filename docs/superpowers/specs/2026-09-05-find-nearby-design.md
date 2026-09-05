@@ -43,8 +43,42 @@ Plugin：`trip-notes`
 | 藥妝 | `drugstore` |
 | 超市 | `supermarket` |
 | 便利商店 | `convenience_store` |
+| **公園・綠地** | `park`（型別集合，見下） |
+| **泛用**（自由描述） | 由 Step 0.2 解析，見下 |
 
 表未涵蓋的詞：挑最接近的 type，並在回覆一行說明用了哪個；不要靜默替換。
+
+**表中的每一個 type 字串都必須在實作時對真實 API 驗過。** Places API (New) 的 includedType 是封閉集合，打錯字或用了舊版 type 名稱會直接讓 `searchNearby` 回錯誤。實作的第一步是對每個 type 各發一次 `nearby` 確認它被接受；未通過的從表裡拿掉，不要留在 SKILL.md 裡等使用者踩到。
+
+### 公園類型 = 一個型別集合，不是單一 type
+
+「公園」在 Places 裡散在數個 type（`park` 之外還有國家公園、步道區、植物園等）。因此「公園・綠地」解析成一組 includedType，每個各發一次 `nearby`，結果**依 `place_id` 去重後合併成單一 pool**。集合的實際成員由上述 API 驗證決定；`park` 是確定成員，其餘視驗證結果納入。
+
+去重與合併規則對所有多型別查詢通用（見下節），不是公園專屬。
+
+### 泛用類型（Step 0.2）
+
+使用者可以不給類型，而給一句描述 —— 「可以散步一小時的地方」「有名的景點或店家」「適合帶長輩去的」。這種輸入沒有對應的 includedType，所以先解析成兩樣東西：
+
+1. **一組 includedType**（2–4 個），決定去抓什麼 pool
+2. **一組額外篩選條件**，原文交給 Step 5 的 scoring agent，成為結論表的欄位
+
+例：
+
+| 描述 | 型別集合 | 額外條件 |
+|---|---|---|
+| 可以散步一小時的地方 | 公園集合 + `tourist_attraction` | 「腹地或路線足夠走約一小時」「有座椅」「不需門票或門票不高」 |
+| 有名的景點或店家 | `tourist_attraction` + `restaurant` + `cafe` | 「知名度：評論數與在地報導」 |
+
+解析結果**必須用一行回報**（「泛用類型『可以散步一小時的地方』→ 抓 park／tourist_attraction，額外篩選：腹地足夠、有座椅」），因為這一步是整個流程裡唯一由模型自由判讀輸入的環節，靜默進行等於使用者無從發現它會錯意。
+
+**不提供「完全不加 type 過濾」作為預設。** `nearby` 允許省略 includedTypes，但在城市裡那樣抓回來的前 20 名會被車站、便利商店、大型商場佔滿（script 依評論數排序），對「有名的景點或店家」這種意圖幾乎無用。無過濾模式保留為明確的逃生口，使用者要求「這附近有什麼都好」時才用，並在回報中說明它會出現什麼。
+
+### 多型別 pool 的合併
+
+任何解析出多個 includedType 的查詢（公園集合、泛用、或使用者同時要餐廳和咖啡廳）：每個 type 各發一次 `nearby --limit 20 --out`，然後**在 `trip-maps reachable` 這一步依 `place_id` 去重合併**。去重必須發生在 script 裡而非 orchestrator，理由與 Step 0.7 相同 —— pool 檔不進 orchestrator 的 context。
+
+一家店可能同時符合多個 type，合併後保留第一次出現的記錄即可（欄位內容相同）。合併後的候選數會超過 20，這正是 `reachable` 的時間過濾與後續粗排存在的原因。
 
 ## 範圍語意：時間上限，不是直線半徑
 
@@ -54,6 +88,8 @@ Plugin：`trip-notes`
 2. **真實時間過濾**：`trip-maps reachable` 用 Routes API 的 `computeRouteMatrix`（1 origin × N destinations，**一次呼叫**）算出每個候選的實際分鐘數，超過上限的剔除，倖存者每筆帶 `travel_min`。
 
 這麼做的結果是結論表可以寫「步行 12 分」這種可信數字，而不是直線距離。
+
+**範圍是「過去要多久」，不是「到了要待多久」。** 這兩者在泛用類型下極易混淆：「可以散步一小時的地方」裡的一小時是**在目的地停留**的時間，跟預設的「步行 15 分可達」是兩個獨立的數字，同時成立沒有矛盾（走 12 分鐘到一個能逛一小時的公園）。停留時長屬於 Step 0.2 的額外篩選條件，永遠不會被拿去改寫範圍上限。若使用者真的要放寬範圍，那是明講的「開車 30 分內」這種輸入。
 
 過濾必須留在 script 裡，不能由 orchestrator 做：`build-itinerary` Step 0.7 明令不准 `cat` pool 檔（13 KB JSON 進 context 就抵銷了整個機制），所以 pool × route 的 join 只能發生在 shell。
 
@@ -138,11 +174,12 @@ Plugin：`trip-notes`
 
 ```
 0    解析輸入 → 類型映射、模式、時間上限、額外條件
+0.2  泛用／公園類型解析（若適用）→ 型別集合 + 額外篩選條件，一行回報解析結果
 0.5  讀 preferences.md（不存在 → 中性模式，一行告知）
 1    trip-maps place <地點>                → origin place_id / latlng
-2    每個 type: nearby --limit 20 --out <scratch>/pool-<type>.json
-3    trip-maps reachable                   → computeRouteMatrix 一次算完，剔除超時，
-                                             倖存者帶 travel_min
+2    型別集合中每個 type: nearby --limit 20 --out <scratch>/pool-<type>.json
+3    trip-maps reachable <pool 檔...>      → 依 place_id 去重合併，computeRouteMatrix
+                                             一次算完，剔除超時，倖存者帶 travel_min
 4    結構化粗排取前 12
      → trip-maps reviews --out <scratch>/reviews.json <place_id ×12>
 5    scoring subagent (sonnet)             → 對照 preferences.md 排序到 8–12 家；
@@ -244,7 +281,7 @@ trip-notes/skills/find-nearby/
 
 `scripts/maps` 兩處新增，`build-itinerary` 既有行為不變：
 
-- **`reachable`** — 新子指令。以 `computeRouteMatrix`（1 origin × N destinations 單次呼叫）取代 N 次 `computeRoutes`，讀入 pool 檔、剔除超過時間上限者、輸出帶 `travel_min` 的過濾結果。快取 TTL 沿用 `route`（WALK/TRANSIT 30 天、DRIVE 1 天）。
+- **`reachable`** — 新子指令。讀入**一個或多個** pool 檔、依 `place_id` 去重合併，以 `computeRouteMatrix`（1 origin × N destinations 單次呼叫）取代 N 次 `computeRoutes`，剔除超過時間上限者、輸出帶 `travel_min` 的過濾結果。快取 TTL 沿用 `route`（WALK/TRANSIT 30 天、DRIVE 1 天）。
 - **`reviews`** — 改為接受多個 `place_id`，並遵守既有的全域 `--out` 旗標。
 
 連帶更新：`trip-notes/.claude-plugin/plugin.json`（description、keywords）、`.claude-plugin/marketplace.json`（description）、`trip-notes/CLAUDE.md`、`trip-notes/AGENTS.md`。完成後執行 `./scripts/bump-plugin.sh trip-notes minor`。
@@ -254,4 +291,6 @@ trip-notes/skills/find-nearby/
 - **粗排的評論數偏誤**：前 12 名的門檻無法完全避免偏袒熱門店。緩解是壓低權重並在驗證狀態揭露「有 N 家未讀評論」，而不是假裝沒有這個偏誤。
 - **意向 ≠ 體驗**：偏好檔學到的是使用者對筆記描述的反應。若日後想加入到訪後的真實回饋，自然的接點是在 Step 0.5 讀檔時補問上次推薦的店 —— 但那需要維護一份待追蹤清單，本次不做。
 - **跨 skill 的 template 耦合**：`find-nearby` 依賴 `build-itinerary` 的兩份 brief。改動那兩份時要同時考慮兩個呼叫端；此約束記入 `trip-notes/CLAUDE.md`。
+- **泛用類型的解析是模型自由判讀**：Step 0.2 是整個流程裡唯一沒有確定性依據的環節，錯意的成本是整份筆記找錯東西。緩解只有一個 —— 強制一行回報解析結果，讓使用者在花掉時間之前看得到。不加確認提問，因為多數情況解析是對的，為少數錯誤讓每次都多一輪互動不划算。
+- **多型別讓候選數超過矩陣上限的可能**：4 個 type × 20 筆 = 80 個 destination。`computeRouteMatrix` 有元素數上限（且 TRANSIT 的上限遠低於 DRIVE），實作時要確認並在超過時分批呼叫，而不是靜默截斷候選 —— 靜默截斷會讓「已篩掉的候選」漏記，那正是這份設計要求可稽核的東西。
 - **`computeRouteMatrix` 對 TRANSIT 的支援未經實測**：實作 `reachable` 的第一步是用一次真實呼叫確認 TRANSIT 模式可用、以及 origins×destinations 的上限。若 TRANSIT 不支援矩陣，退路是電車模式改用逐筆 `computeRoutes`（20 次呼叫，可接受）或先用 WALK 矩陣粗篩再對前幾名算 TRANSIT。這條在寫程式前就要驗掉，不要等到整合階段才發現。
