@@ -113,6 +113,23 @@ assert_eq "reviews reads its own stub" \
 assert_eq "reviews are sorted newest-first" \
   "2026-07-01 2025-08-01" "$(jq -r '[.reviews[].date] | join(" ")' <<<"$out")"
 
+echo "== reviews (single vs multi) =="
+
+single=$(run_maps reviews PLACE_A 2>&1)
+assert_eq "one id keeps the existing top-level shape" \
+  "PLACE_A" "$(jq -r '.place_id' <<<"$single")"
+assert_eq "one id keeps the caveat field" \
+  "true" "$(jq -r 'has("caveat")' <<<"$single")"
+
+multi=$(run_maps reviews PLACE_A PLACE_B 2>&1)
+assert_eq "two ids return a wrapped list" "2" "$(jq -r '.count' <<<"$multi")"
+assert_eq "wrapped entries keep the single-id shape" \
+  "PLACE_A" "$(jq -r '.places[0].place_id' <<<"$multi")"
+assert_eq "the caveat is carried on every entry" \
+  "true" "$(jq -r '.places[1] | has("caveat")' <<<"$multi")"
+assert_eq "multi reviews honours --out and counts records" \
+  "2" "$(t=$(mktemp); run_maps reviews --out "$t" PLACE_A PLACE_B | jq -r '.records'; rm -f "$t")"
+
 echo "== nearby --fields (amenity fields are three-state) =="
 
 out=$(run_maps nearby --limit 8 --fields outdoorSeating,allowsDogs \

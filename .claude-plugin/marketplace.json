@@ -73,7 +73,7 @@
     {
       "name": "trip-notes",
       "description": "Build a verified travel itinerary as an Obsidian note — self-drive, train/walk, or both; browser-verified links, photos, and opening hours",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "source": "./trip-notes",
       "category": "travel"
     }
