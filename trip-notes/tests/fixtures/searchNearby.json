@@ -10,6 +10,8 @@
       "primaryTypeDisplayName": { "text": "喫茶店" },
       "rating": 4.5,
       "userRatingCount": 320,
+      "outdoorSeating": true,
+      "allowsDogs": false,
       "regularOpeningHours": {
         "weekdayDescriptions": [
           "月曜日: 8:00～18:00", "火曜日: 8:00～18:00", "水曜日: 定休日",
@@ -28,6 +30,7 @@
       "primaryTypeDisplayName": { "text": "食堂" },
       "rating": 4.1,
       "userRatingCount": 95,
+      "allowsDogs": true,
       "regularOpeningHours": {
         "weekdayDescriptions": [
           "月曜日: 11:00～21:00", "火曜日: 11:00～21:00", "水曜日: 11:00～21:00",

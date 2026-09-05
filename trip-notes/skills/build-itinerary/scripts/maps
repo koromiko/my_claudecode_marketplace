@@ -14,7 +14,13 @@
 #                                               the expressway and back. That is a wrong-
 #                                               destination problem — route to the surface-road
 #                                               ramp instead. No routing option fixes it.
-#   maps nearby  [--limit N] <lat,lng> <r_m> [type]  Nearby Search -> candidate pool (default 8)
+#   maps nearby  [--limit N] [--fields F1,F2] <lat,lng> <r_m> [type]
+#                                               Nearby Search -> candidate pool (default 8)
+#                                               --fields adds amenity fields (outdoorSeating,
+#                                               allowsDogs, …). They RAISE THE BILLING TIER, so
+#                                               ask for them only when a condition needs one.
+#                                               An amenity absent from the output means Google
+#                                               has no data — NOT "no". Never filter on absence.
 #   maps reviews <place_id>                     5 reviews -> LEADS ONLY, never a citation.
 #   maps cache   stats|purge [--all]            inspect / clear the on-disk cache
 #
@@ -275,9 +281,13 @@ dispatch() {
     ;;
 
   nearby)
-    limit=8
-    while [[ "${1:-}" == "--limit" ]]; do
-      limit="${2:?--limit needs a number}"; shift 2
+    limit=8; want_fields=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --limit)  limit="${2:?--limit needs a number}"; shift 2 ;;
+        --fields) want_fields="${2:?--fields needs a comma-separated list}"; shift 2 ;;
+        *)        break ;;
+      esac
     done
     # The API itself caps searchNearby at 20 results, so asking for more is silently
     # the same request. Say so rather than letting a --limit 40 look like it worked.
@@ -285,14 +295,43 @@ dispatch() {
       echo "note: searchNearby returns at most 20 results; --limit $limit capped to 20." >&2
       limit=20
     fi
-    [[ $# -ge 2 ]] || { echo "usage: maps nearby [--limit N] <lat,lng> <radius_m> [included_type]" >&2; exit 64; }
+    [[ $# -ge 2 ]] || { echo "usage: maps nearby [--limit N] [--fields F1,F2] <lat,lng> <radius_m> [included_type]" >&2; exit 64; }
+
+    # Amenity fields are opt-in because they raise the request's billing tier,
+    # and closed-list because a typo must fail here rather than at the API or,
+    # worse, be quietly dropped. Keep in sync with
+    # skills/find-nearby/references/api-facts.md.
+    AMENITY_ALLOWED="outdoorSeating allowsDogs servesVegetarianFood goodForChildren restroom goodForGroups"
+    extra_mask=""; amen_build="{}"
+    if [[ -n "$want_fields" ]]; then
+      OLDIFS="$IFS"; IFS=','
+      for f in $want_fields; do
+        case " $AMENITY_ALLOWED " in
+          *" $f "*) ;;
+          *) IFS="$OLDIFS"
+             echo "error: unknown --fields name '$f'" >&2
+             echo "       allowed: $AMENITY_ALLOWED" >&2
+             exit 64 ;;
+        esac
+        extra_mask="${extra_mask},places.${f}"
+        snake=$(printf '%s' "$f" | sed 's/\([A-Z]\)/_\1/g' | tr '[:upper:]' '[:lower:]')
+        amen_build="${amen_build} + (if has(\"${f}\") then {${snake}: .${f}} else {} end)"
+      done
+      IFS="$OLDIFS"
+    fi
+
+    # The jq fragment that adds the `amenities` key — empty when no fields were
+    # requested, so the output shape build-itinerary sees is byte-identical.
+    amen_expr="{}"
+    [[ -n "$want_fields" ]] && amen_expr="{amenities: (${amen_build})}"
+
     lat="${1%%,*}"; lng="${1##*,}"
     body=$(jq -n --argjson lat "$lat" --argjson lng "$lng" --argjson r "$2" \
       --arg lang "$LANG_CODE" --arg reg "$REGION" --arg t "${3:-}" \
       '{locationRestriction:{circle:{center:{latitude:$lat,longitude:$lng},radius:$r}},
         languageCode:$lang, regionCode:$reg, maxResultCount:20}
        + (if $t == "" then {} else {includedTypes:[$t]} end)')
-    mask="places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.businessStatus,places.regularOpeningHours.weekdayDescriptions,places.primaryTypeDisplayName,places.rating,places.userRatingCount"
+    mask="places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.businessStatus,places.regularOpeningHours.weekdayDescriptions,places.primaryTypeDisplayName,places.rating,places.userRatingCount${extra_mask}"
     check "$(post "${PLACES}/places:searchNearby" "$mask" "$body")" \
       | jq --argjson lim "$limit" "$JQ_COMPACT"'
       { returned: (.places // [] | length),
@@ -306,7 +345,7 @@ dispatch() {
           status: (.businessStatus // "UNKNOWN"),
           rating: .rating, reviews: .userRatingCount,
           hours: (.regularOpeningHours.weekdayDescriptions | compact_hours)
-        } ] | sort_by(-(.reviews // 0)) | .[0:$lim] }'
+        } + '"$amen_expr"' ] | sort_by(-(.reviews // 0)) | .[0:$lim] }'
     ;;
 
   reviews)

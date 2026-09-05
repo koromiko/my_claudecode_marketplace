@@ -97,6 +97,32 @@ assert_eq "reviews reads its own stub" \
 assert_eq "reviews are sorted newest-first" \
   "2026-07-01 2025-08-01" "$(jq -r '[.reviews[].date] | join(" ")' <<<"$out")"
 
+echo "== nearby --fields (amenity fields are three-state) =="
+
+out=$(run_maps nearby --limit 8 --fields outdoorSeating,allowsDogs \
+        "35.681,139.767" 500 restaurant 2>&1)
+
+assert_eq "a true amenity surfaces as true" \
+  "true" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .amenities.outdoor_seating' <<<"$out")"
+assert_eq "a false amenity surfaces as false" \
+  "false" "$(jq -r '.places[] | select(.place_id=="PLACE_A") | .amenities.allows_dogs' <<<"$out")"
+assert_eq "an unset amenity is ABSENT, not false" \
+  "null" "$(jq -r '.places[] | select(.place_id=="PLACE_C") | .amenities.outdoor_seating' <<<"$out")"
+assert_eq "a place with no amenity data gets an empty amenities object" \
+  "0" "$(jq -r '.places[] | select(.place_id=="PLACE_C") | .amenities | length' <<<"$out")"
+
+# Without --fields the output shape must be exactly what it was before.
+plain=$(run_maps nearby --limit 8 "35.681,139.767" 500 restaurant 2>&1)
+assert_eq "without --fields there is no amenities key at all" \
+  "false" "$(jq -r '.places[0] | has("amenities")' <<<"$plain")"
+
+# A typo must fail loudly rather than being silently dropped by the API.
+if run_maps nearby --fields notAField "35.681,139.767" 500 restaurant >/dev/null 2>&1; then
+  assert_fail "an unknown --fields name is rejected" "exited 0"
+else
+  assert_pass "an unknown --fields name is rejected"
+fi
+
 echo
 echo "-- $PASSED passed, $FAILED failed --"
 if [[ ${#FAIL_DETAILS[@]} -gt 0 ]]; then printf '%s\n' "${FAIL_DETAILS[@]}"; fi
