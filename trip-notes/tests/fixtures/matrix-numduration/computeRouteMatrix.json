@@ -1,0 +1,6 @@
+[
+  { "originIndex": 0, "destinationIndex": 0, "distanceMeters": 180,  "duration": 0,    "condition": "ROUTE_EXISTS" },
+  { "originIndex": 0, "destinationIndex": 1, "distanceMeters": 620,  "duration": 540,  "condition": "ROUTE_EXISTS" },
+  { "originIndex": 0, "destinationIndex": 2, "distanceMeters": 2400, "duration": 1980, "condition": "ROUTE_EXISTS" },
+  { "originIndex": 0, "destinationIndex": 3, "distanceMeters": 900,  "duration": 300,  "condition": "ROUTE_EXISTS" }
+]

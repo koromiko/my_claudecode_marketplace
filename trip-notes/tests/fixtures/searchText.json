@@ -1,0 +1,26 @@
+{
+  "places": [
+    {
+      "id": "PLACE_A",
+      "displayName": { "text": "喫茶アルファ" },
+      "formattedAddress": "東京都千代田区丸の内1-1-1",
+      "location": { "latitude": 35.6820, "longitude": 139.7670 },
+      "googleMapsUri": "https://maps.google.com/?cid=1",
+      "businessStatus": "OPERATIONAL",
+      "primaryTypeDisplayName": { "text": "喫茶店" },
+      "rating": 4.5,
+      "userRatingCount": 320
+    },
+    {
+      "id": "PLACE_D",
+      "displayName": { "text": "デルタタイ料理" },
+      "formattedAddress": "東京都千代田区丸の内4-4-4",
+      "location": { "latitude": 35.6840, "longitude": 139.7650 },
+      "googleMapsUri": "https://maps.google.com/?cid=4",
+      "businessStatus": "OPERATIONAL",
+      "primaryTypeDisplayName": { "text": "タイ料理店" },
+      "rating": 4.3,
+      "userRatingCount": 210
+    }
+  ]
+}

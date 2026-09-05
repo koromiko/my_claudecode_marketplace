@@ -1,0 +1,14 @@
+{ "places": [
+  { "place_id": "PLACE_A", "name": "喫茶アルファ", "type": "喫茶店",
+    "address": "東京都千代田区丸の内1-1-1", "latlng": "35.682,139.767",
+    "maps_url": "https://maps.google.com/?cid=1", "status": "OPERATIONAL",
+    "rating": 4.5, "reviews": 320, "hours": null },
+  { "place_id": "PLACE_B", "name": "ベータ食堂", "type": "食堂",
+    "address": "東京都千代田区丸の内1-1-2", "latlng": "35.683,139.768",
+    "maps_url": "https://maps.google.com/?cid=2", "status": "OPERATIONAL",
+    "rating": 4.1, "reviews": 210, "hours": null },
+  { "place_id": "PLACE_C", "name": "ガンマ珈琲", "type": "喫茶店",
+    "address": "東京都千代田区丸の内1-1-3", "latlng": "35.684,139.769",
+    "maps_url": "https://maps.google.com/?cid=3", "status": "OPERATIONAL",
+    "rating": 3.9, "reviews": 90, "hours": null }
+] }

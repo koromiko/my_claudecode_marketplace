@@ -1,0 +1,54 @@
+{
+  "places": [
+    {
+      "id": "PLACE_A",
+      "displayName": { "text": "喫茶アルファ" },
+      "formattedAddress": "東京都千代田区丸の内1-1-1",
+      "location": { "latitude": 35.6820, "longitude": 139.7670 },
+      "googleMapsUri": "https://maps.google.com/?cid=1",
+      "businessStatus": "OPERATIONAL",
+      "primaryTypeDisplayName": { "text": "喫茶店" },
+      "rating": 4.5,
+      "userRatingCount": 320,
+      "outdoorSeating": true,
+      "allowsDogs": false,
+      "regularOpeningHours": {
+        "weekdayDescriptions": [
+          "月曜日: 8:00～18:00", "火曜日: 8:00～18:00", "水曜日: 定休日",
+          "木曜日: 8:00～18:00", "金曜日: 8:00～23:00", "土曜日: 8:00～18:00",
+          "日曜日: 8:00～18:00"
+        ]
+      }
+    },
+    {
+      "id": "PLACE_B",
+      "displayName": { "text": "ベータ食堂" },
+      "formattedAddress": "東京都千代田区丸の内2-2-2",
+      "location": { "latitude": 35.6790, "longitude": 139.7690 },
+      "googleMapsUri": "https://maps.google.com/?cid=2",
+      "businessStatus": "OPERATIONAL",
+      "primaryTypeDisplayName": { "text": "食堂" },
+      "rating": 4.1,
+      "userRatingCount": 95,
+      "allowsDogs": true,
+      "regularOpeningHours": {
+        "weekdayDescriptions": [
+          "月曜日: 11:00～21:00", "火曜日: 11:00～21:00", "水曜日: 11:00～21:00",
+          "木曜日: 11:00～21:00", "金曜日: 11:00～21:00", "土曜日: 11:00～21:00",
+          "日曜日: 定休日"
+        ]
+      }
+    },
+    {
+      "id": "PLACE_C",
+      "displayName": { "text": "ガンマ珈琲" },
+      "formattedAddress": "東京都千代田区丸の内3-3-3",
+      "location": { "latitude": 35.6900, "longitude": 139.7800 },
+      "googleMapsUri": "https://maps.google.com/?cid=3",
+      "businessStatus": "CLOSED_PERMANENTLY",
+      "primaryTypeDisplayName": { "text": "カフェ" },
+      "rating": 3.8,
+      "userRatingCount": 12
+    }
+  ]
+}
