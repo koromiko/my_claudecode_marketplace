@@ -94,11 +94,21 @@ For each wave, dispatch in **a single message with parallel `Agent` tool calls**
 
 The verbatim preamble is identical across siblings in a wave — workspace-scoped prompt cache (5-minute TTL) means the second-through-Nth dispatch hit cache. Do not "personalize" the preamble per bead. Per-bead model choice is part of the `Agent({...})` envelope, not the prompt — varying it does **not** invalidate the cache.
 
-## Step 6 — Supervise (cache-warm)
+## Step 6 — Supervise (cache-warm, and terminating)
 
 Poll with `TaskList` / `TaskGet`. Idle wait via `ScheduleWakeup` at **240s** with a `reason` describing the wave (`"waiting on wave-1 children: nt-a, nt-b, nt-c"`). 240s stays inside the 5-minute cache window so the parent's own context cache also stays warm.
 
+Pass the **original skill invocation verbatim** as `prompt` on every tick — it is replayed when the timer fires, so a drifting prompt restarts the batch from Step 1 instead of resuming supervision. Set `noop: true` on a tick where no child advanced. Keep exactly one wakeup outstanding.
+
 If a child stalls > 5 minutes with no progress, send a nudge via `SendMessage`. If still stuck, stop and either retry (Step 7) or absorb.
+
+**The wakeup does not stop itself when the batch finishes.** Cancel it explicitly with
+
+```
+ScheduleWakeup({ stop: true })
+```
+
+as the **first** action at every terminal state, before your closing summary: the last wave verified and Step 10 notes written; a systemic abort (sequential fallback exhausted, `Agent` unavailable); a blocking question put to the user; or a wakeup that fires onto a batch with no children in flight and Step 9's `batch-report.yaml` already written. Never end a batch with a live timer — it will keep replaying the invocation against completed work.
 
 ## Step 7 — Per-child failure handling
 
@@ -151,4 +161,5 @@ Then run `bd sync` to push the bead state changes (notes + in_progress flips) to
 - **Trust but verify** every child report. Read the diff, open the screenshots, re-run `npm run build`.
 - **Parent stays Opus.** The orchestrator's leverage is in plan classification, failure diagnosis, and Step-8 verification — exactly the work where Opus pulls ahead. Don't downgrade the parent to save tokens; the children are where cost moves.
 - A child whose worktree has no changes auto-cleans; otherwise its path travels in the batch report.
+- **Never end a batch with a live wakeup.** Success, abort, or blocking question — every exit path calls `ScheduleWakeup({ stop: true })` first (Step 6).
 - Keep user-facing updates terse: one line per phase transition (`probe ok`, `wave plan ready`, `wave-1 dispatched (3)`, `wave-1 converged 3/3`, `wave-2 dispatched (1)`, `done — N branches awaiting merge`).

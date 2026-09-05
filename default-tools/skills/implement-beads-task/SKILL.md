@@ -97,9 +97,31 @@ Dev count and the QA leg follow the tier you declared in Step 1.7: Trivial/Stand
 - **QA** — *UI-surface beads only.* `subagent_type: general-purpose`, `model: "sonnet"`, with the `agent-browser` skill. Runs after dev's first pass (or in parallel if instructed to wait for the orchestrator's signal). Brief from `templates/qa-brief.md` — render `{{BEAD_ID}}`, `{{BRANCH}}`, `{{SHA}}`, **and `{{SHA_SHORT}}`** (first 7 chars of `{{SHA}}`) so the QA agent gets a unique `AGENT_BROWSER_SESSION=qa-<bead>-<sha>` (parallel beads must each get a distinct session — the bead-id keyed name guarantees that). Runs against the dev's commit SHA in its own worktree.
 - **Code reviewer** — `subagent_type: general-purpose`, `model: "opus"`. Brief from `templates/reviewer-brief.md`.
 
-## Step 4 — Supervise (do not idle)
+## Step 4 — Supervise (do not idle — and do not run forever)
 
-Poll every few minutes via `TaskList` / `TaskGet`. If an agent has produced no progress for ~5 minutes, or is stuck waiting on input, send a nudge via `SendMessage` or stop and respawn. Use `ScheduleWakeup` (180–270s, stay in the cache window) when waiting; include a `reason` describing what you're waiting on.
+Poll every few minutes via `TaskList` / `TaskGet`. If an agent has produced no progress for ~5 minutes, or is stuck waiting on input, send a nudge via `SendMessage` or stop and respawn.
+
+**A wakeup is a fallback heartbeat, not the primary signal.** Agent completion re-invokes you on its own; the timer only covers an agent that hangs or dies without notifying. When you do schedule one:
+
+- `ScheduleWakeup({ delaySeconds: <180–270, stay in the cache window>, prompt: <the original skill invocation, verbatim>, reason: "<what you are waiting on>", noop: <true when nothing changed this tick> })`.
+- `prompt` must be **byte-identical every tick** — it is what gets replayed when the timer fires. A drifting prompt restarts the skill from Step 1 instead of resuming supervision.
+- Keep exactly one wakeup outstanding. Don't stack a new one until the previous has fired.
+
+**Stopping the loop is an explicit action, not a side effect of finishing.** The timer keeps firing until you cancel it — reaching Step 7 or Step 8 does *not* cancel it. Call
+
+```
+ScheduleWakeup({ stop: true })
+```
+
+as the **first** action at every terminal state, before writing your closing summary:
+
+- Step 7 re-verification passed and the Step 8 bead notes are written (the success path).
+- A cap was hit and surfaced to the user (plan loop cap 3 in Step 2; tier review cap in Step 5).
+- The permission probe failed, or a `NEEDS_ELEVATION` was surfaced to the user rather than resolved (Step 1.5).
+- The user aborted, or you are asking a blocking question and will not act until they answer.
+- Any exit where your next message ends the turn with nothing in flight.
+
+If a wakeup fires and you find the run already finished — Step 8 notes recorded, no agent in flight, nothing left to poll — that is itself a terminal state: stop the loop and say so once. Do not re-run verification on a converged bead.
 
 ## Step 5 — Review loop
 
@@ -158,3 +180,4 @@ Treat the YAML report as a *claim*, not evidence. Re-derive each field:
 - A worktree with no changes auto-cleans; otherwise report its path.
 - Keep your own user-facing updates terse: one sentence per phase transition (probe ok, plan converged, dispatched, round 1 review, converged, awaiting merge).
 - On `NEEDS_ELEVATION`: re-dispatch elevated, take the edit yourself, or surface to the user — pick one and move on. Do **not** loop.
+- **Never end a run with a live wakeup.** Success, cap, escalation, or abort — every exit path calls `ScheduleWakeup({ stop: true })` first (Step 4).
