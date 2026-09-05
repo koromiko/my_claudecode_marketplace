@@ -5,9 +5,12 @@ do not edit any file, and do not delegate to further subagents.
 
 ## Inputs
 
-- Candidate pool: `<POOL_PATH>` — output of `trip-maps reachable`. Every record has
-  `place_id`, `name`, `type`, `address`, `travel_min`, `distance_km`, `status`,
-  `rating`, `reviews`, `hours`, and sometimes `amenities`.
+- Candidate pool: `<POOL_PATH>` — the **top-12 subset** the orchestrator derived from
+  `trip-maps reachable`; these are exactly the places whose reviews were read. Every
+  record has `place_id`, `name`, `type`, `address`, `travel_min`, `distance_km`,
+  `status`, `rating`, `reviews`, `hours`, and sometimes `amenities`. Survivors that
+  did not make this file are the orchestrator's to account for, not yours — rank and
+  bucket only what is in `<POOL_PATH>`.
 - Reviews: `<REVIEWS_PATH>` — output of `trip-maps reviews`, up to 5 reviews per place.
 - Preferences: `~/.config/trip-notes/preferences.md` — read it if it exists.
   If it does not exist, **or it exists but every section is empty** (the
@@ -45,19 +48,27 @@ For any structured field (`status`, `hours`, and every key in `amenities`):
 |---|---|---|
 | present, matches/satisfies | Google confirms it | Count it as satisfied |
 | present, contradicts a condition | Google confirms the opposite | **Reject the candidate** if a condition required it |
-| absent / empty | Google has no data | **Keep it**, rank it below confirmed matches, and add a 待確認問題 |
+| absent / empty, or `status: "UNKNOWN"` | Google has no data | **Keep it**, rank it below confirmed matches, and add a 待確認問題 |
 
 Never reject a candidate because a field is missing or empty — that includes an
-empty or absent `status` and an empty or absent `hours`, exactly like a missing
-amenity key. A place Google has no data for is very often exactly the small
-independent venue the user wants.
+empty or absent `hours`, exactly like a missing amenity key. A place Google has no
+data for is very often exactly the small independent venue the user wants.
+
+**`status` is a special case: it is never absent, and `UNKNOWN` is its no-data value.**
+The script writes `status: "UNKNOWN"` wherever Google returned no business status, so
+the "absent" row above never appears for this field — `UNKNOWN` occupies it. Treat
+`UNKNOWN` exactly as you would a missing amenity key: keep it, rank it below confirmed
+matches, and raise a 待確認問題（「Google 無營業狀態資料，需確認是否仍營業」）. Reading
+`UNKNOWN` as "not operational" would silently remove every venue Google holds no status
+for — which is the small independent venue this rule exists to protect.
 
 ## What may reject a candidate
 
 Only these, and only when the triggering data is **present and contradicting** —
 never on absence. Everything else affects order, not membership.
 
-1. `status` is present and is not `OPERATIONAL`
+1. `status` is `CLOSED_PERMANENTLY` or `CLOSED_TEMPORARILY` — those two values only.
+   `OPERATIONAL` and `UNKNOWN` both survive (see above)
 2. An amenity field is explicitly `false` for a condition the user asked for
 3. A `## 反感` entry in the preference file clearly applies, **and** the match
    rests on structured data (`type`, `amenities`, `hours`, `status`) or on the

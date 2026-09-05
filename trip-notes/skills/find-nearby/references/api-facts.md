@@ -6,7 +6,7 @@ Re-run those probes before trusting this file after a Google API change.
 
 ## Valid includedType strings
 
-All 24 candidate types returned OK (either results or a valid empty list — none
+All 25 candidate types returned OK (either results or a valid empty list — none
 returned HTTP 400) when probed with `./maps nearby --limit 1 --no-cache "35.681,139.767" 500 "$t"`
 against Tokyo Station:
 
