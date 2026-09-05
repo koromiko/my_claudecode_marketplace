@@ -25,9 +25,18 @@ not silently substitute your own number.
 
    `<QUESTIONS>`
 
-   For each: the answer, the URL that supports it, and one of `CONFIRMED` /
-   `UNVERIFIABLE`. `UNVERIFIABLE` is a correct and expected answer — a fabricated
-   plausible one is not. Never repeat a Google review as the source.
+   For each, one line in this exact format:
+   `<question> — <answer> — <source URL> — CONFIRMED|UNVERIFIABLE`
+
+   Example:
+   ```
+   是否全席禁菸？ — 是，全店禁菸 — https://example.com/notice — CONFIRMED
+   是否有陽台座位？ — 找不到獨立來源證實 — （無） — UNVERIFIABLE
+   ```
+
+   `UNVERIFIABLE` is a correct and expected answer — a fabricated plausible one
+   is not. Never repeat a Google review as the source; when `UNVERIFIABLE`,
+   leave the source field as `（無）` rather than citing a review.
 
 2. **Find 2–3 local-language blog or news links** about the venue, plus zh-tw
    coverage if it genuinely exists. Say plainly if none exists rather than padding
@@ -41,6 +50,12 @@ not silently substitute your own number.
    Skip outright: Flickr, Getty, Shutterstock, Alamy, PIXTA, 写真AC, and any page
    stating "All rights reserved". If nothing usable exists, answer "no image found".
    That is a normal outcome, not a failure.
+
+   If a page states no licence at all — neither a stock-host restriction nor
+   "All rights reserved" — report it anyway with licence recorded as
+   `unknown`, and keep it. These are hotlinks to an already-public page, not
+   copies, so an unstated licence is not a reason to skip. The hard skips
+   stay only the stock hosts above and pages that explicitly reserve rights.
 
 4. **Report the venue's character in your own words** — the signature item, the
    seating, who it suits. Source each claim. If the only source is a Google review,
