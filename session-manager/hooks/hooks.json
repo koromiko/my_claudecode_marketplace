@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-session.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/remove-session.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

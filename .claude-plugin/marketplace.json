@@ -24,7 +24,7 @@
     {
       "name": "session-manager",
       "description": "Terminal session management - fork sessions, run commands in panes/tabs, capture output",
-      "version": "2.7.1",
+      "version": "2.8.0",
       "source": "./session-manager",
       "category": "development"
     },
@@ -38,7 +38,7 @@
     {
       "name": "default-tools",
       "description": "Tool auto-approval with sensitive-path guards, Ollama LLM fallback, macOS notifications, and an opt-in Stop-hook code review with pluggable reviewers (local LLM, generic CLI, in-session subagent)",
-      "version": "1.7.1",
+      "version": "1.7.2",
       "source": "./default-tools",
       "category": "workflow"
     },

@@ -18,7 +18,8 @@ LOCATOR="${FAP_LOCATOR:-$SCRIPT_DIR/locator.py}"
 FORK="${FAP_FORK:-$SCRIPT_DIR/fork-iterm.sh}"
 
 # A key-binding has no stdout the user sees; route status to the tmux status line.
-notify() { tmux display-message "$1" 2>/dev/null || true; }
+# Also output to stderr so tests can capture the message.
+notify() { echo "$1" >&2; tmux display-message "$1" 2>/dev/null || true; }
 
 PANE_ID="${1:-}"
 if [ -z "$PANE_ID" ]; then
@@ -79,7 +80,11 @@ if [ "$FORK_RC" -eq 0 ] && [ -n "$MANAGED_ID" ]; then
     rm -f "$ERRF"
     exit 0
 else
-    notify "Fork failed: $(head -1 "$ERRF" 2>/dev/null)"
+    if grep -q "no transcript found" "$ERRF" 2>/dev/null; then
+        notify "No saved conversation in this pane yet — nothing to fork."
+    else
+        notify "Fork failed: $(head -1 "$ERRF" 2>/dev/null)"
+    fi
     cat "$ERRF" >&2 2>/dev/null || true
     rm -f "$ERRF"
     exit 1

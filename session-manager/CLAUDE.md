@@ -67,6 +67,24 @@ a `child` (subagent / headless invocation). Pane ids are socket-qualified becaus
 they are not unique across tmux servers. See
 `docs/superpowers/specs/2026-06-07-session-locator-sp1-design.md`.
 
+Resolution is **claude-anchored**: a session's pane and `leader_pid` come from its
+real `claude` TUI process (found by walking up from a tagged child via
+`nearest_claude_ancestor`), and the pane is derived from that TUI's tty — not from
+a `TMUX_PANE` env value on a possibly-detached child. This prevents MCP-server
+children from being reported as the leader and prevents detached stragglers from
+"ghosting" a session onto a pane its TUI does not occupy (SP2.1).
+
+When a session is **idle with no live tagged child** (no stdio MCP server, no in-flight
+Bash-tool shell), the pull scan cannot see it — the TUI itself carries no
+`CLAUDE_CODE_SESSION_ID`. A **hook-backed registry** (SP3) closes this gap: a
+`SessionStart` hook writes `~/.claude/session-manager/sessions/<session_id>.json`
+(`{session_id, claude_pid, cwd, ts}`) and a `SessionEnd` hook deletes it. When the pull
+scan places no session for a pane, `merge_registry_sessions` synthesizes the record from
+the registry, placed claude-anchored on the recorded `claude_pid` — but only if that pid
+is still a live `claude` (dead entries are ignored and swept). Live-scan discovery always
+wins over the registry (dedup by `session_id`), so SP1's pull remains ground truth. See
+`docs/superpowers/specs/2026-07-27-session-locator-sp3-hook-backed-registry-design.md`.
+
 Resolve return contract (important for SP2 consumers): `resolve` prints a single
 JSON object when exactly one session matches, a JSON array when several do, and
 `[]` with exit code 1 when none do. **The array case is the ambiguity signal** —

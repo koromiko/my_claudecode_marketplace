@@ -59,6 +59,15 @@ class TestParseProcesses(unittest.TestCase):
         out = pline(4242, 1, "ttys016", CLAUDE_CODE_SESSION_ID=UUID_A)
         self.assertEqual(locator.parse_processes(out, self_pid=4242), [])
 
+    def test_extracts_claude_pid(self):
+        with_pid = pline(2001, 1900, "ttys016",
+                         CLAUDE_CODE_SESSION_ID=UUID_A, CLAUDE_PID="17141")
+        without = pline(2002, 1900, "ttys016", CLAUDE_CODE_SESSION_ID=UUID_B)
+        procs = locator.parse_processes(with_pid + "\n" + without)
+        by_sid = {p["session_id"]: p for p in procs}
+        self.assertEqual(by_sid[UUID_A]["claude_pid"], 17141)
+        self.assertIsNone(by_sid[UUID_B]["claude_pid"])
+
 
 class TestBuildPpidMap(unittest.TestCase):
     def test_maps_all_processes_not_just_claude(self):
@@ -71,6 +80,23 @@ class TestBuildPpidMap(unittest.TestCase):
         self.assertEqual(m[1900], 1800)   # non-claude proc present (ancestry needs it)
         self.assertEqual(m[2001], 1900)
         self.assertNotIn("garbage", m)
+
+
+class TestBuildProcessTable(unittest.TestCase):
+    def test_captures_all_procs_with_tty_and_command(self):
+        out = "\n".join([
+            "79481 79313 ttys008 claude",
+            "79770 79492 ttys008 node /npx/abc/.bin/context7-mcp",
+            "94268 94266 ?? node /npx/def/.bin/some-mcp",
+            "1900 1800 ttys016 -zsh",
+            "garbage line",                       # non-numeric pid -> skipped
+        ])
+        t = locator.build_process_table(out)
+        self.assertEqual(t[79481], {"ppid": 79313, "tty": "ttys008", "command": "claude"})
+        self.assertEqual(t[79770]["command"], "node /npx/abc/.bin/context7-mcp")
+        self.assertIsNone(t[94268]["tty"])        # "??" -> None
+        self.assertEqual(t[1900]["ppid"], 1800)   # non-claude proc present for ancestry
+        self.assertNotIn("garbage", t)
 
 
 class TestParseTmuxPanes(unittest.TestCase):
@@ -326,7 +352,7 @@ class TestResolveTiebreakWiring(unittest.TestCase):
     one, and keep returning the array when the foreground is undeterminable."""
 
     def setUp(self):
-        self._gather = locator.gather_sessions
+        self._scan = locator._scan_and_build
         self._ps = locator.pane_foreground_ps
         self.two = [
             {"session_id": UUID_A, "role": "interactive", "pane": "tmux:default:%86",
@@ -334,10 +360,12 @@ class TestResolveTiebreakWiring(unittest.TestCase):
             {"session_id": UUID_B, "role": "interactive", "pane": "tmux:default:%86",
              "host": "tmux", "tty": "ttys016", "leader_pid": 2002},
         ]
-        locator.gather_sessions = lambda: self.two
+        # No live procs -> the on-tty discriminator finds nothing, so behavior is
+        # governed purely by the foreground signal.
+        locator._scan_and_build = lambda: (self.two, [])
 
     def tearDown(self):
-        locator.gather_sessions = self._gather
+        locator._scan_and_build = self._scan
         locator.pane_foreground_ps = self._ps
 
     def _resolve_pane(self):
@@ -360,6 +388,366 @@ class TestResolveTiebreakWiring(unittest.TestCase):
         out = self._resolve_pane()
         self.assertIsInstance(out, list)
         self.assertEqual({r["session_id"] for r in out}, {UUID_A, UUID_B})
+
+
+class TestOnTtyMemberSids(unittest.TestCase):
+    def test_selects_sessions_with_member_on_tty(self):
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008"},
+            {"session_id": UUID_STALE, "pid": 81310, "tty": None},
+        ]
+        self.assertEqual(locator.on_tty_member_sids(procs, "ttys008"), {UUID_OWNER})
+
+    def test_empty_tty_returns_empty(self):
+        procs = [{"session_id": UUID_A, "pid": 1, "tty": "ttys1"}]
+        self.assertEqual(locator.on_tty_member_sids(procs, None), set())
+
+
+class TestClaudePidAnchoredSids(unittest.TestCase):
+    def _hit(self, sid, leader):
+        return {"session_id": sid, "leader_pid": leader}
+
+    def test_selects_session_whose_member_carries_claude_pid_of_its_tui(self):
+        hits = [self._hit(UUID_OWNER, 2076), self._hit(UUID_STALE, 2076)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 3100, "claude_pid": 2076},
+            {"session_id": UUID_STALE, "pid": 2900, "claude_pid": None},
+        ]
+        self.assertEqual(
+            locator.claude_pid_anchored_sids(hits, procs), {UUID_OWNER})
+
+    def test_ignores_member_whose_claude_pid_mismatches_leader(self):
+        hits = [self._hit(UUID_OWNER, 2076)]
+        procs = [{"session_id": UUID_OWNER, "pid": 3100, "claude_pid": 9999}]
+        self.assertEqual(locator.claude_pid_anchored_sids(hits, procs), set())
+
+    def test_none_claude_pid_never_matches(self):
+        hits = [self._hit(UUID_OWNER, 2076)]
+        procs = [{"session_id": UUID_OWNER, "pid": 3100, "claude_pid": None}]
+        self.assertEqual(locator.claude_pid_anchored_sids(hits, procs), set())
+
+    def test_both_carriers_returns_both(self):
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 5054, "claude_pid": 4973},
+            {"session_id": UUID_STALE, "pid": 5090, "claude_pid": 4973},
+        ]
+        self.assertEqual(
+            locator.claude_pid_anchored_sids(hits, procs),
+            {UUID_OWNER, UUID_STALE})
+
+    def test_empty_inputs(self):
+        self.assertEqual(locator.claude_pid_anchored_sids([], []), set())
+
+
+class TestResolveCollision(unittest.TestCase):
+    def _hit(self, sid, leader):
+        return {"session_id": sid, "role": "interactive", "pane": "tmux:default:%126",
+                "host": "tmux", "tty": "ttys008", "leader_pid": leader}
+
+    def test_reuse_collision_prefers_on_tty_session(self):
+        # Both hits share the reused TUI 4973 -> foreground pgid ties -> the
+        # on-tty member breaks it in favor of the live owner.
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [{"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008"},
+                 {"session_id": UUID_STALE, "pid": 81310, "tty": None}]
+        ps = "4973 4973 S+\n5054 4973 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_OWNER])
+
+    def test_genuine_ambiguity_returns_both(self):
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [{"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008"},
+                 {"session_id": UUID_STALE, "pid": 81310, "tty": "ttys008"}]
+        ps = "4973 4973 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual({h["session_id"] for h in out}, {UUID_OWNER, UUID_STALE})
+
+    def test_foreground_wins_for_distinct_leaders(self):
+        hits = [self._hit(UUID_A, 2001), self._hit(UUID_B, 2002)]
+        ps = "2001 2001 S\n2002 2002 S+\n"
+        out = locator.resolve_collision(hits, "ttys016", [], ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_B])
+
+    def test_resume_phantom_prefers_claude_pid_carrier(self):
+        # One TUI (2076) -> two sids: active carries CLAUDE_PID=2076 on a detached
+        # shell; the pre-resume phantom's MCP server is on-tty but carries no
+        # CLAUDE_PID. Foreground pgid ties; the CLAUDE_PID tier must pick the active.
+        hits = [self._hit(UUID_OWNER, 2076), self._hit(UUID_STALE, 2076)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 3100, "tty": None, "claude_pid": 2076},
+            {"session_id": UUID_STALE, "pid": 2900, "tty": "ttys008", "claude_pid": None},
+        ]
+        ps = "2076 2076 S+\n2900 2076 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_OWNER])
+
+    def test_reuse_collision_still_uses_on_tty_when_both_carry_claude_pid(self):
+        # /clear-reuse: both sids carry CLAUDE_PID=4973 -> tier 2 ties -> on-tty
+        # presence (tier 3) still picks the live owner. SP2.2 behavior preserved.
+        hits = [self._hit(UUID_OWNER, 4973), self._hit(UUID_STALE, 4973)]
+        procs = [
+            {"session_id": UUID_OWNER, "pid": 5054, "tty": "ttys008", "claude_pid": 4973},
+            {"session_id": UUID_STALE, "pid": 81310, "tty": None, "claude_pid": 4973},
+        ]
+        ps = "4973 4973 S+\n5054 4973 S+\n"
+        out = locator.resolve_collision(hits, "ttys008", procs, ps)
+        self.assertEqual([h["session_id"] for h in out], [UUID_OWNER])
+
+
+class TestTtyToPaneIndex(unittest.TestCase):
+    def test_inverts_index_by_tty(self):
+        idx = {
+            ("default", "%126"): {"tty": "ttys008", "pane_pid": 1, "tmux_session": "11",
+                                  "tmux_window": "1", "active": True},
+            ("default", "%127"): {"tty": "ttys009", "pane_pid": 2, "tmux_session": "11",
+                                  "tmux_window": "1", "active": False},
+        }
+        inv = locator.tty_to_pane_index(idx)
+        self.assertEqual(inv["ttys008"], ("default", "%126"))
+        self.assertEqual(inv["ttys009"], ("default", "%127"))
+
+    def test_skips_falsy_tty(self):
+        idx = {("default", "%5"): {"tty": "", "pane_pid": 1, "tmux_session": "s",
+                                   "tmux_window": "0", "active": True}}
+        self.assertEqual(locator.tty_to_pane_index(idx), {})
+
+
+class TestNearestClaudeAncestor(unittest.TestCase):
+    TABLE = {
+        79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},
+        79492: {"ppid": 79481, "tty": "ttys008", "command": "node /npx/x/.bin/wrap"},
+        79770: {"ppid": 79492, "tty": "ttys008", "command": "node /npx/x/.bin/context7-mcp"},
+        79313: {"ppid": 1, "tty": "ttys008", "command": "-zsh"},
+        94268: {"ppid": 94266, "tty": None, "command": "node /npx/y/.bin/some-mcp"},
+    }
+
+    def test_re_claude_matches_tui_not_mcp(self):
+        self.assertTrue(locator.RE_CLAUDE.search("claude"))
+        self.assertTrue(locator.RE_CLAUDE.search("claude -r abc --fork-session"))
+        self.assertTrue(locator.RE_CLAUDE.search("/usr/local/bin/claude -r"))
+        self.assertFalse(locator.RE_CLAUDE.search("node /npx/x/.bin/context7-mcp"))
+        self.assertFalse(locator.RE_CLAUDE.search("node /Users/me/.claude/plugins/foo-mcp"))
+
+    def test_walks_up_from_mcp_child_to_claude_tui(self):
+        self.assertEqual(locator.nearest_claude_ancestor(79770, self.TABLE), 79481)
+
+    def test_returns_self_when_pid_is_claude(self):
+        self.assertEqual(locator.nearest_claude_ancestor(79481, self.TABLE), 79481)
+
+    def test_returns_none_when_chain_breaks_before_claude(self):
+        # 94268's parent 94266 is gone from the table -> orphan -> None
+        self.assertIsNone(locator.nearest_claude_ancestor(94268, self.TABLE))
+
+    def test_returns_none_on_cycle(self):
+        cyc = {1: {"ppid": 2, "tty": None, "command": "a"},
+               2: {"ppid": 1, "tty": None, "command": "b"}}
+        self.assertIsNone(locator.nearest_claude_ancestor(1, cyc))
+
+
+UUID_9C = "9ccee61d-0000-0000-0000-00000000009c"
+UUID_C3 = "c392555a-0000-0000-0000-0000000000c3"
+UUID_OWNER = "645fe01b-0000-0000-0000-000000000645"
+UUID_STALE = "51a1e000-0000-0000-0000-0000000051a1"
+
+
+class TestClaudeAnchoredPlacement(unittest.TestCase):
+    def _proc(self, pid, ppid, sid, pane, tty=None, iterm=None, term=None,
+              claude_pid=None):
+        return {"pid": pid, "ppid": ppid, "session_id": sid, "tmux_pane": pane,
+                "tmux_socket": "default" if pane else None, "tty": tty,
+                "iterm_session_id": iterm, "term_session_id": term,
+                "claude_pid": claude_pid}
+
+    TMUX_INDEX = {("default", "%126"): {
+        "tty": "ttys008", "pane_pid": 79313, "tmux_session": "11",
+        "tmux_window": "1", "active": True}}
+
+    def test_leader_upgrades_from_mcp_child_to_claude_tui(self):
+        # Only tagged proc is an MCP child; its claude TUI is pid 79481.
+        procs = [self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008")]
+        table = {
+            79770: {"ppid": 79492, "tty": "ttys008", "command": "node /npx/.bin/context7-mcp"},
+            79492: {"ppid": 79481, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
+            79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},
+            79313: {"ppid": 1, "tty": "ttys008", "command": "-zsh"},
+        }
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertEqual(r["leader_pid"], 79481)          # the claude TUI, not the MCP child
+        self.assertEqual(r["pane"], "tmux:default:%126")  # from the TUI's tty
+        self.assertEqual(r["tty"], "ttys008")
+        self.assertTrue(r["pane_live"])
+
+    def test_detached_child_does_not_ghost_onto_a_pane(self):
+        # c392555a's only tagged proc is detached (tty None) with a STALE TMUX_PANE
+        # of %126, and its parent is gone -> no claude ancestor -> must NOT map to %126.
+        # 9ccee61d legitimately occupies %126.
+        procs = [
+            self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008"),
+            self._proc(94268, 94266, UUID_C3, "%126", tty=None),
+        ]
+        table = {
+            79770: {"ppid": 79492, "tty": "ttys008", "command": "node /npx/.bin/context7-mcp"},
+            79492: {"ppid": 79481, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
+            79481: {"ppid": 79313, "tty": "ttys008", "command": "claude"},
+            94268: {"ppid": 94266, "tty": None, "command": "node /npx/.bin/some-mcp"},
+            # 94266 (parent) is gone from the table -> orphan chain
+        }
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        by_sid = {r["session_id"]: r for r in out}
+        self.assertEqual(by_sid[UUID_9C]["pane"], "tmux:default:%126")
+        self.assertIsNone(by_sid[UUID_C3]["pane"])         # ghost eliminated
+        self.assertFalse(by_sid[UUID_C3]["pane_live"])
+        self.assertEqual(by_sid[UUID_C3]["leader_pid"], 94268)  # structural fallback
+
+    def test_claude_tui_on_non_tmux_tty_uses_iterm_env(self):
+        # TUI found but its tty maps to no tmux pane -> iTerm host via rep's env marker.
+        procs = [self._proc(3100, 3050, UUID_A, None, tty="ttys030",
+                            iterm="w0t6p0:GUID")]
+        table = {
+            3100: {"ppid": 3090, "tty": "ttys030", "command": "node /npx/.bin/context7-mcp"},
+            3090: {"ppid": 3000, "tty": "ttys030", "command": "claude"},
+        }
+        out = locator.build_sessions(procs, {}, {},  # no tmux panes
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertEqual(r["leader_pid"], 3090)
+        self.assertEqual(r["pane"], "iterm:w0t6p0:GUID")
+        self.assertEqual(r["host"], "iterm")
+
+    def test_mcp_less_detached_session_placed_via_claude_pid(self):
+        # SP2.2 fix: the session's only member is DETACHED (tty None), no on-tty
+        # member, but CLAUDE_PID names the live claude TUI 79313 on ttys008.
+        procs = [self._proc(2740, 1, UUID_9C, None, tty=None, claude_pid=79313)]
+        table = {79313: {"ppid": 14528, "tty": "ttys008", "command": "claude"}}
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertEqual(r["leader_pid"], 79313)
+        self.assertEqual(r["pane"], "tmux:default:%126")   # from the TUI's tty
+        self.assertTrue(r["pane_live"])
+
+    def test_claude_pid_naming_dead_pid_orphans(self):
+        # CLAUDE_PID names a pid absent from proc_table and no claude ancestor is
+        # reachable -> orphan (pane=None), never a ghost.
+        procs = [self._proc(2740, 1, UUID_9C, None, tty=None, claude_pid=99999)]
+        table = {2740: {"ppid": 1, "tty": None, "command": "zsh -c tool"}}
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        r = out[0]
+        self.assertIsNone(r["pane"])
+        self.assertFalse(r["pane_live"])
+        self.assertEqual(r["leader_pid"], 2740)            # structural fallback
+
+    def test_reuse_straggler_collides_at_placement(self):
+        # SP2.2: both sessions name the same live TUI 4973 (one via an on-tty MCP
+        # child, one via a detached child), so BOTH are placed on %126 at the
+        # placement layer. Disambiguation is the resolve layer's job (Task 3).
+        procs = [
+            self._proc(5054, 4997, UUID_OWNER, "%126", tty="ttys008"),
+            self._proc(81310, 81300, UUID_STALE, "%126", tty=None),
+        ]
+        table = {
+            5054: {"ppid": 4997, "tty": "ttys008", "command": "node /npx/.bin/context7-mcp"},
+            4997: {"ppid": 4973, "tty": "ttys008", "command": "node /npx/.bin/wrap"},
+            4973: {"ppid": 79313, "tty": "ttys008", "command": "claude -r"},
+            81310: {"ppid": 81300, "tty": None, "command": "node /npx/.bin/some-mcp"},
+            81300: {"ppid": 4973, "tty": None, "command": "zsh -c tool"},
+        }
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        by_sid = {r["session_id"]: r for r in out}
+        self.assertEqual(by_sid[UUID_OWNER]["pane"], "tmux:default:%126")
+        self.assertEqual(by_sid[UUID_STALE]["pane"], "tmux:default:%126")  # co-located now
+        self.assertEqual(by_sid[UUID_OWNER]["leader_pid"], 4973)
+        self.assertEqual(by_sid[UUID_STALE]["leader_pid"], 4973)
+
+    def test_schema_unchanged_with_proc_table(self):
+        procs = [self._proc(79770, 79492, UUID_9C, "%126", tty="ttys008")]
+        table = {79770: {"ppid": 79481, "tty": "ttys008", "command": "node x-mcp"},
+                 79481: {"ppid": 1, "tty": "ttys008", "command": "claude"}}
+        out = locator.build_sessions(procs, {}, self.TMUX_INDEX,
+                                     cwd_fn=lambda pid: None, proc_table=table)
+        self.assertEqual(
+            set(out[0].keys()),
+            {"session_id", "role", "parent_session_id", "pane", "host", "tty",
+             "cwd", "leader_pid", "pane_live", "tmux"},
+        )
+
+
+class TestMergeRegistrySessions(unittest.TestCase):
+    TMUX_INDEX = {("default", "%126"): {
+        "tty": "ttys008", "pane_pid": 79313, "tmux_session": "11",
+        "tmux_window": "1", "active": True}}
+    TABLE = {40116: {"ppid": 14528, "tty": "ttys008", "command": "claude --resume x"},
+             99: {"ppid": 1, "tty": "ttys008", "command": "-zsh"}}
+
+    def _idx(self):
+        return locator.tty_to_pane_index(self.TMUX_INDEX)
+
+    def test_live_pid_synthesizes_placed_record(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 40116, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(len(out), 1)
+        rec = out[0]
+        self.assertEqual(rec["session_id"], UUID_C3)
+        self.assertEqual(rec["role"], "interactive")
+        self.assertEqual(rec["pane"], "tmux:default:%126")
+        self.assertEqual(rec["leader_pid"], 40116)
+        self.assertEqual(rec["cwd"], "/x")
+        self.assertTrue(rec["pane_live"])
+
+    def test_dead_pid_skipped(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 55555, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(out, [])
+
+    def test_non_claude_pid_skipped(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 99, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(out, [])
+
+    def test_live_discovered_session_wins(self):
+        existing = [{"session_id": UUID_C3, "role": "interactive", "pane": "tmux:default:%126",
+                     "leader_pid": 40116, "parent_session_id": None, "host": "tmux",
+                     "tty": "ttys008", "cwd": "/live", "pane_live": True, "tmux": None}]
+        entries = [{"session_id": UUID_C3, "claude_pid": 40116, "cwd": "/stale", "ts": 1}]
+        out = locator.merge_registry_sessions(existing, entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["cwd"], "/live")  # live record untouched
+
+    def test_empty_inputs(self):
+        self.assertEqual(locator.merge_registry_sessions([], [], {}, {}, {}), [])
+
+    def test_synthesized_record_has_exactly_schema_keys(self):
+        entries = [{"session_id": UUID_C3, "claude_pid": 40116, "cwd": "/x", "ts": 1}]
+        out = locator.merge_registry_sessions([], entries, self.TABLE,
+                                              self.TMUX_INDEX, self._idx())
+        self.assertEqual(set(out[0].keys()), {
+            "session_id", "role", "parent_session_id", "pane", "host", "tty",
+            "cwd", "leader_pid", "pane_live", "tmux"})
+
+
+class TestDeadRegistrySids(unittest.TestCase):
+    TABLE = {40116: {"ppid": 1, "tty": "ttys008", "command": "claude --resume x"},
+             99: {"ppid": 1, "tty": "ttys008", "command": "-zsh"}}
+
+    def test_flags_dead_and_non_claude_only(self):
+        entries = [
+            {"session_id": UUID_C3, "claude_pid": 40116},   # live claude -> keep
+            {"session_id": UUID_9C, "claude_pid": 55555},   # dead pid -> dead
+            {"session_id": UUID_OWNER, "claude_pid": 99},    # non-claude -> dead
+            {"session_id": UUID_STALE, "claude_pid": None},  # no pid -> dead
+        ]
+        self.assertEqual(locator.dead_registry_sids(entries, self.TABLE),
+                         {UUID_9C, UUID_OWNER, UUID_STALE})
 
 
 if __name__ == "__main__":

@@ -124,7 +124,7 @@ get_timestamp() {
 project_sessions_dir() {
     local working_dir="$1"
     local encoded_path
-    encoded_path=$(echo "$working_dir" | sed 's|/|-|g' | sed 's|_|-|g')
+    encoded_path=$(echo "$working_dir" | sed 's/[^A-Za-z0-9]/-/g')
     echo "$HOME/.claude/projects/$encoded_path"
 }
 
@@ -347,7 +347,7 @@ detect_session_id_project_files() {
 
     # Encode the path for Claude's directory structure
     local encoded_path
-    encoded_path=$(echo "$working_dir" | sed 's|/|-|g' | sed 's|_|-|g')
+    encoded_path=$(echo "$working_dir" | sed 's/[^A-Za-z0-9]/-/g')
 
     local sessions_dir="$HOME/.claude/projects/$encoded_path"
 
