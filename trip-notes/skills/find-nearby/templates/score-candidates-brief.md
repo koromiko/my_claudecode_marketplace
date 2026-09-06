@@ -30,9 +30,15 @@ Four rules govern what you may do with them:
 1. **A review is a lead, never a citation.** Nothing you learn from a review may
    be stated as fact. A review-derived signal may change the ranking **and**
    must become a 待確認問題 — both, not either — but it may never be written
-   up as a settled fact on its own.
-2. **Never quote or paraphrase review text** into your output. Write your own
-   conclusion.
+   up as a settled fact on its own. The one place review-derived material
+   reaches the reader is 評論印象 below, and it goes there **labelled as
+   unverified**, which is the opposite of being stated as fact.
+2. **Never quote or reproduce review text** into your output — not verbatim, not
+   lightly reworded. Write your own conclusion in your own words. This holds for
+   評論印象 too: it is your aggregate characterisation of what the reviews are
+   about, never a rewrite of any particular review, and it never names or
+   attributes a reviewer. Google's terms govern displaying review content, and
+   these notes can be published.
 3. **Absence proves nothing.** You get at most 5 reviews, chosen by Google for
    relevance — not recency, and not sortable. "No review mentions smoking" is not
    evidence about smoking.
@@ -112,6 +118,37 @@ Every candidate that survived all four rejection rules but did not make the
 top `<N>` in 排序結果. One line each: `<name>（<travel_min> 分）`. Together,
 排序結果 + 已篩掉 + 未入選 must account for every candidate in the pool exactly
 once — no candidate may be silently absent from all three.
+
+### 評論印象
+
+One entry per place whose reviews you actually read — **all twelve**, including
+every place you rejected in 已篩掉 and every place in 未入選. Format —
+`<name>（N 則評論，未驗證）：<impression>`, with N the count and the rest of the
+parenthesis verbatim:
+
+```
+喫茶アルファ（5 則評論，未驗證）：二樓靠窗位與深焙是被反覆提到的兩件事；平日午後仍要等位。
+```
+
+The 「未驗證」 label is not decoration and is not optional — it is the entire
+reason this material is allowed into a note at all, and the orchestrator carries
+it through to the reader unchanged. N is the number of reviews you actually read
+for that place, not always 5.
+
+- **首選 layer** (the top 3–4 of 排序結果): one to two sentences.
+- **Everyone else**: one sentence, **20 字以內** — it has to fit a table cell.
+- Write only what reviews can tell you and structured data cannot: 氣氛、座位、
+  排隊、招牌品項、店主風格、客群. **不得寫結構化欄位能回答的事** — 營業時間、
+  定休日、`status`、`amenities` 那六個布林值都有欄位，欄位是那些問題的答案。
+  A review that disagrees with a field is still rule 4 above: it becomes a
+  待確認問題, and 評論印象 stays silent about it.
+- No statistical claims (「大家都說」、「評價一致」). Five reviews chosen by
+  Google for relevance are not a sample.
+- If a place has no reviews in `<REVIEWS_PATH>`, or only star ratings with no
+  text, write exactly 「評論不足，未做摘要」. Do not reconstruct an impression
+  from the rating, the name, or the type — an invented impression is
+  indistinguishable from a real one to the reader, which is the whole reason
+  this section is labelled.
 
 ### 待確認問題清單
 Grouped by place name, the specific questions the research agents should chase:

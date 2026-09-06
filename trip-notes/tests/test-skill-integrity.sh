@@ -132,6 +132,61 @@ if grep -q '必須同時更新檔案開頭的「最後更新：」' "$PE"; then
   assert_pass "preference skeleton's rules include updating 最後更新"
 else assert_fail "preference skeleton's rules include updating 最後更新" "rule missing from the comment"; fi
 
+echo "== 評論印象 is carried end to end, and always with its disclaimer =="
+
+# Reviews now reach the note as a labelled impression, which is a deliberate,
+# narrow exception to "a review never reaches the note". The exception only
+# holds while the label travels WITH it: the disclaimer 「（N 則評論，未驗證）」
+# is what keeps an impression from reading as a confirmed fact. So every place
+# that produces or renders an impression must also carry the disclaimer, and
+# the two bans that make the exception safe — no verbatim/reworded review text,
+# nothing a structured field already answers — must stay stated in the brief.
+
+SB="$FN/templates/score-candidates-brief.md"
+BI="$SKILLS/build-itinerary/SKILL.md"
+
+for f in "$SB" "$FN/SKILL.md" "$BI"; do
+  n=$(basename "$(dirname "$f")")/$(basename "$f")
+  if grep -q '評論印象' "$f"; then assert_pass "評論印象 is defined in $n"
+  else assert_fail "評論印象 is defined in $n" "not mentioned"; fi
+  # The disclaimer template, with N as the literal placeholder for the count.
+  if grep -q '（N 則評論，未驗證）' "$f"; then
+    assert_pass "the 未驗證 disclaimer template appears in $n"
+  else assert_fail "the 未驗證 disclaimer template appears in $n" "disclaimer missing"; fi
+done
+
+# The scoring agent is the only producer; these are the constraints that keep
+# its output publishable and non-factual.
+if grep -q '不得寫結構化欄位能回答的事' "$SB"; then
+  assert_pass "score brief bans restating what a structured field answers"
+else assert_fail "score brief bans restating what a structured field answers" "ban missing"; fi
+if grep -q '評論不足，未做摘要' "$SB"; then
+  assert_pass "score brief gives a no-data phrasing instead of inviting invention"
+else assert_fail "score brief gives a no-data phrasing instead of inviting invention" "phrase missing"; fi
+if grep -qE '逐字|verbatim' "$SB"; then
+  assert_pass "score brief still bans verbatim review text"
+else assert_fail "score brief still bans verbatim review text" "ban missing"; fi
+
+# The impression is an output section of the brief, not a remark buried in prose.
+if grep -q '^### 評論印象' "$SB"; then
+  assert_pass "評論印象 is its own output section of the score brief"
+else assert_fail "評論印象 is its own output section of the score brief" "heading missing"; fi
+
+# find-nearby renders it in two places with different length budgets; the 其他候選
+# table gains a column, and a candidate whose reviews were never read must be
+# visibly distinguishable there rather than silently blank.
+if grep -q '評論印象（未驗證）' "$FN/SKILL.md"; then
+  assert_pass "the 其他候選 table header carries the disclaimer inline"
+else assert_fail "the 其他候選 table header carries the disclaimer inline" "column header missing"; fi
+
+# Every impression must also land in the existing 「僅來自評論推測、未經確認」
+# list — that list is what Step 9 and the reader use to tell impression from
+# verified fact. Without this the note would carry unverified claims that the
+# 驗證狀態 section implicitly denies exist.
+if grep -q '僅來自評論推測、未經確認' "$FN/SKILL.md"; then
+  assert_pass "find-nearby still routes impressions into 驗證狀態"
+else assert_fail "find-nearby still routes impressions into 驗證狀態" "list missing"; fi
+
 echo
 echo "-- $PASSED passed, $FAILED failed --"
 if [[ ${#FAIL_DETAILS[@]} -gt 0 ]]; then printf '%s\n' "${FAIL_DETAILS[@]}"; fi

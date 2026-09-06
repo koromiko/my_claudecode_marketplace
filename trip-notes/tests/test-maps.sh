@@ -403,6 +403,70 @@ assert_eq "--batch 1 still reaches every place" \
 assert_eq "--batch 1 gives every place the single-element response, not a shifted one" \
   "1 1 1" "$(jq -r '[.places[] | {k:.place_id, t:.travel_min}] | sort_by(.k) | map(.t|tostring) | join(" ")' <<<"$out")"
 
+echo "== an API error payload is fatal, even wrapped in an array =="
+
+# computeRouteMatrix returns its errors as a ONE-ELEMENT JSON ARRAY —
+# `[{"error":{...}}]` — not as a bare object (verified live; see
+# references/api-facts.md). `check` only recognised the bare-object shape, so a
+# 400 sailed through as if it were a matrix response: the error object has no
+# `destinationIndex`, no `condition` and no `duration`, so every candidate came
+# out `_ok: false` and the run reported a confident "considered: N,
+# unroutable: N, returned: 0" — nothing nearby — with exit status 0. An error
+# must be loud.
+if run_maps_in "$FIXTURES/matrix-error" reachable --from "35.681,139.767" \
+     --mode WALK --max-min 15 "$pool_a" "$pool_b" >/dev/null 2>&1; then
+  assert_fail "an array-wrapped API error exits non-zero" "exited 0"
+else
+  assert_pass "an array-wrapped API error exits non-zero"
+fi
+err=$(run_maps_in "$FIXTURES/matrix-error" reachable --from "35.681,139.767" \
+        --mode WALK --max-min 15 "$pool_a" "$pool_b" 2>&1 >/dev/null || true)
+case "$err" in
+  *"maximum number of Addresses and Place IDs"*)
+    assert_pass "the API's own error message reaches stderr" ;;
+  *) assert_fail "the API's own error message reaches stderr" "stderr was [$err]" ;;
+esac
+out=$(run_maps_in "$FIXTURES/matrix-error" reachable --from "35.681,139.767" \
+        --mode WALK --max-min 15 "$pool_a" "$pool_b" 2>/dev/null || true)
+assert_eq "an API error never renders as a plausible all-unroutable result" \
+  "" "$(jq -r '.unroutable // empty' <<<"${out:-}" 2>/dev/null)"
+
+echo "== the default batch respects the 50 Addresses-and-Place-IDs cap =="
+
+# The 625-element cap is not the binding one. computeRouteMatrix ALSO caps the
+# total number of Addresses and Place IDs in a request at 50, and every
+# destination `reachable` sends is a placeId — so a 74-candidate pool blew the
+# cap on the first call, and (before the fix above) reported every candidate
+# unroutable. The default must chunk below the cap. Observed offline through
+# re-basing: the batch fixture answers with 2 elements per call, so a 60-place
+# pool yields 2 legs per chunk — 2 legs for one chunk, 4 for two.
+cap_pool=$(mktemp)
+jq -n '{returned: 60, shown: 60,
+        places: [range(60) | {place_id: ("PLACE_\(. + 100)"), name: "P\(.)",
+                              latlng: "35.681,139.767"}]}' > "$cap_pool"
+out=$(run_maps_in "$FIXTURES/batch" reachable --from "35.681,139.767" \
+        --mode WALK --max-min 15 "$cap_pool" 2>&1)
+assert_eq "a 60-place pool is split into more than one call by default" \
+  "4" "$(jq -r '.returned' <<<"$out")"
+assert_eq "the second default chunk starts at 49, not at 50 or 600" \
+  "PLACE_100 PLACE_101 PLACE_149 PLACE_150" \
+  "$(jq -r '[.places[].place_id] | sort | join(" ")' <<<"$out")"
+
+# An explicit --batch over the cap is a request the API will reject outright, so
+# it is clamped rather than sent. Same observable: 600 must behave as 49 does.
+out=$(run_maps_in "$FIXTURES/batch" reachable --from "35.681,139.767" \
+        --mode WALK --max-min 15 --batch 600 "$cap_pool" 2>/dev/null)
+assert_eq "an explicit --batch over the cap is clamped, not sent" \
+  "PLACE_100 PLACE_101 PLACE_149 PLACE_150" \
+  "$(jq -r '[.places[].place_id] | sort | join(" ")' <<<"$out")"
+cap_warn=$(run_maps_in "$FIXTURES/batch" reachable --from "35.681,139.767" \
+             --mode WALK --max-min 15 --batch 600 "$cap_pool" 2>&1 >/dev/null)
+case "$cap_warn" in
+  *"capped to 49"*) assert_pass "clamping the batch is announced on stderr" ;;
+  *) assert_fail "clamping the batch is announced on stderr" "stderr was [$cap_warn]" ;;
+esac
+rm -f "$cap_pool"
+
 rm -f "$pool_a" "$pool_b"
 
 echo

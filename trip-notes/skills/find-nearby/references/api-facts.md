@@ -84,6 +84,37 @@ is NOT newline-delimited JSON (NDJSON) — the elements are members of one JSON
 array, not separate top-level JSON values one per line. A parser for this
 response must parse the whole body as a single JSON array.
 
+**Error shape (measured 2026-09-06):** an error from this endpoint arrives as a
+ONE-ELEMENT ARRAY, not the bare `{"error":{…}}` object the Places endpoints
+return: `[{"error":{"code":400,"message":"…","status":"INVALID_ARGUMENT"}}]`.
+An error check that tests only `type == "object" and has("error")` therefore
+misses it, and the error object then reads as a legs array — no
+`destinationIndex`, no `condition`, no `duration` — so every candidate scores
+as unroutable and the caller reports a confident "nothing is nearby" with exit
+status 0. Check both shapes.
+
+### Two request caps, and the smaller one binds
+
+There is a second cap independent of the 625-element one, and for a
+place_id-based pool it is the one that fires first:
+
+> `Request exceeded the maximum number of Addresses and Place IDs. The total
+> number of Addresses and Place IDs in the request must be <= 50.`
+
+Measured directly on WALK, 2026-09-06 (lat/lng waypoints do NOT count toward
+it — only addresses and place IDs do; the ORIGIN counts when it is one):
+
+| origin | destinations (place IDs) | result |
+|---|---|---|
+| place_id | 49 | HTTP 200, 49 elements |
+| place_id | 50 | HTTP 400, the message above |
+| lat,lng | 50 | HTTP 200, 50 elements |
+| lat,lng | 51 | HTTP 400, the message above |
+
+So the cap counts origin + destinations together, and **49 destinations is the
+largest batch that is safe for every origin form**. The 625-element cap is only
+reachable with lat/lng waypoints on both sides.
+
 | Mode | Supported | Max destinations observed | Error at over-limit |
 |---|---|---|---|
 | WALK | yes | 60 observed directly (n=10 and n=60 both returned 200 with all elements `ROUTE_EXISTS`); cap inferred at 625 from DRIVE's mode-independent error text — NOT independently pushed to 626 for WALK, so 625 is an inference, not an observation, for this mode | `Request exceeded the maximum number of elements. The product of the number of origins and destinations must be <= 625.` (verified on DRIVE at n=626; the error text is about total element count, not mode-specific, so it should apply identically to WALK, but this has not been directly confirmed for WALK) |
@@ -98,9 +129,13 @@ explicitly states the limit is on the *product of origins and destinations*
 independently pushing WALK to 626 to save API calls once the mode-independent
 nature of the cap was confirmed via the error message on DRIVE.
 
-Chosen batch size per mode: **600** for WALK and DRIVE — comfortably at or
-below the observed/documented cap of 625 total elements (origins ×
-destinations), leaving headroom for a multi-origin matrix. TRANSIT should not
+Chosen batch size per mode: **49** for WALK and DRIVE — the 50
+Addresses-and-Place-IDs cap above, minus one slot for a place_id origin. This
+was 600 (chosen against the 625-element cap alone) until a 74-candidate WALK
+pool returned HTTP 400 on the first call and, because the array-wrapped error
+went undetected, reported all 74 candidates unroutable. The element cap is not
+the binding one whenever destinations are place IDs — and here they always
+are. TRANSIT should not
 be batched through `computeRouteMatrix` at all; a later task needs a
 different approach (e.g. `computeRoutes` per-pair, or treat transit times as
 unavailable) since this endpoint reports `ROUTE_NOT_FOUND` for every TRANSIT

@@ -64,7 +64,7 @@ Where `build-itinerary` answers "how do I travel this route", `find-nearby` answ
 - 範圍是時間預算不是直線半徑 —— 直線距離在有河、鐵道、高速公路切斷處會嚴重騙人；`reachable` 換到可信的分鐘數（WALK／DRIVE 用一次 batched matrix 呼叫；TRANSIT 的 `computeRouteMatrix` 對每個 element 都回 200 加 `ROUTE_NOT_FOUND`，即使是真的有車可搭的路線，所以改成逐一目的地個別 route 查詢）。
 - 只有「反感」能刷掉候選 —— 排序錯了看得見，篩掉錯了看不見。
 - 結構化欄位一律三態，不只 amenity —— `status`、`hours` 和每個 amenity 欄位都一樣：`null` 或空值是「Google 沒資料」，不是「沒有」。`status` 的無資料值是字面上的 `"UNKNOWN"`（script 在沒有 `businessStatus` 時就寫這個值，所以這個欄位永遠不會缺席），只有 `CLOSED_PERMANENTLY`／`CLOSED_TEMPORARILY` 兩個明確值才刷掉候選；把 `UNKNOWN` 當「非營業中」處理，會悄悄刷掉每一家 Google 沒有登記營業狀態的店——正是這整套設計想保護的獨立小店。一家真的有陽台但沒被記錄的獨立店，也是使用者最想要的那種。
-- 評論決定排序，不決定筆記正文 —— 評論線索變成待確認問題交給研究 agent，這正是 `build-itinerary` Step 0.6 規則 1 的用法。
+- 評論決定排序；進入正文只走「評論印象」這一條掛著標籤的路 —— 事實類線索仍然變成待確認問題交給研究 agent（`build-itinerary` Step 0.6 規則 1 的用法）；評論獨有的質地（氣氛、座位、排隊、招牌）則以 `<店名>（N 則評論，未驗證）：…` 的形式進筆記，兩個 skill 共用同一套寫法與禁令。標籤是這個例外唯一的安全機制，所以它跟句子一起走，不得被搬進結論表、事實句或圖說。
 - 雙管道的 fallback 是「兩邊都發」—— 「什麼時候用哪個」這種判斷容易被略過，略過時掉進的必須是完整的那條路。
 - 偏好檔只能 `Edit` 不能 `Write` —— 使用者手改的內容必須存活。
 

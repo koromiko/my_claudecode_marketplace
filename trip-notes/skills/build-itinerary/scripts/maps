@@ -36,6 +36,11 @@
 #                                               Merge pool files by place_id, compute the real
 #                                               travel time from <o> to each with one matrix
 #                                               call per batch, drop anything over --max-min.
+#                                               --batch defaults to 49 and is CAPPED there:
+#                                               computeRouteMatrix allows at most 50 Addresses
+#                                               and Place IDs per request (origin included),
+#                                               which binds long before its 625-element cap
+#                                               because every destination here is a place_id.
 #                                               Reports considered / dropped_over_limit /
 #                                               unroutable so nothing vanishes silently.
 #                                               Records for the same place_id from different
@@ -147,11 +152,20 @@ api_get() {
 }
 
 # Fail loudly on an API error payload instead of emitting `null` downstream.
+# TWO shapes, both observed live: the Places endpoints return a bare object
+# `{"error":{…}}`, while computeRouteMatrix returns its errors inside a
+# ONE-ELEMENT ARRAY — `[{"error":{…}}]` — because a matrix response is itself an
+# array. Only the object shape used to be recognised, so a matrix 400 flowed on
+# as if it were a list of legs: the error object carries no destinationIndex, no
+# condition and no duration, so every candidate came out unroutable and the run
+# reported "nothing is nearby" with exit status 0. Match both shapes.
 check() {
   local body="$1"
-  if jq -e 'type == "object" and has("error")' >/dev/null 2>&1 <<<"$body"; then
+  if jq -e 'if type == "array" then (.[0] // {}) else . end
+            | type == "object" and has("error")' >/dev/null 2>&1 <<<"$body"; then
     echo "Google Maps API error:" >&2
-    jq -r '.error | "  \(.code) \(.status): \(.message)"' >&2 <<<"$body"
+    jq -r 'if type == "array" then .[0] else . end
+           | .error | "  \(.code) \(.status): \(.message)"' >&2 <<<"$body"
     exit 1
   fi
   printf '%s' "$body"
@@ -360,14 +374,29 @@ dispatch() {
       [[ -f "$p" ]] || { echo "error: pool file not found: $p" >&2; exit 66; }
     done
 
-    # computeRouteMatrix caps a request at 625 elements (origins × destinations)
-    # — measured, with the error text recorded in
-    # skills/find-nearby/references/api-facts.md. 600 leaves headroom under that
-    # cap while keeping every realistic pool to a single call.
+    # computeRouteMatrix has TWO caps and the smaller one binds here:
+    #   * 625 ELEMENTS (origins × destinations), and
+    #   * 50 ADDRESSES AND PLACE IDS in the whole request, origin included.
+    # Every destination `reachable` sends is a placeId, so the second cap is the
+    # real limit — 50, not 625. A 74-candidate pool at the old default of 600
+    # produced HTTP 400 "The total number of Addresses and Place IDs in the
+    # request must be <= 50" on the first call. Both caps are recorded in
+    # skills/find-nearby/references/api-facts.md.
+    # 49, not 50: --from may itself be a place_id: or an address, and the cap
+    # counts the origin. One spare slot makes the batch safe for every origin
+    # form rather than only for lat,lng.
     # Batching (rather than truncating) is mandatory — a silently dropped
     # candidate never reaches 已篩掉的候選, and an omission nobody can see is the
     # one error this skill cannot self-correct.
-    if [[ "$batch" -eq 0 ]]; then batch=600; fi
+    BATCH_CAP=49
+    if [[ "$batch" -eq 0 ]]; then batch="$BATCH_CAP"; fi
+    # An explicit --batch above the cap is a request the API rejects outright.
+    # Clamp it and say so, the way `search` caps --limit: the alternative is a
+    # 400 that the caller asked for and cannot act on.
+    if [[ "$batch" -gt "$BATCH_CAP" ]]; then
+      echo "note: --batch $batch exceeds the API's 50 Addresses-and-Place-IDs limit; capped to $BATCH_CAP" >&2
+      batch="$BATCH_CAP"
+    fi
 
     # Merge every pool by place_id, FIELD-WISE. `unique_by(.place_id)` used to
     # live here and it kept only the FIRST record for a repeated id — which
