@@ -187,6 +187,29 @@ if grep -q '僅來自評論推測、未經確認' "$FN/SKILL.md"; then
   assert_pass "find-nearby still routes impressions into 驗證狀態"
 else assert_fail "find-nearby still routes impressions into 驗證狀態" "list missing"; fi
 
+
+echo "== the provenance gate exists and both skills point at it =="
+
+PROV="$SKILLS/build-itinerary/scripts/note-provenance"
+if [[ -x "$PROV" ]]; then assert_pass "note-provenance exists and is executable"
+else assert_fail "note-provenance exists and is executable" "not found or not +x"; fi
+
+# The gate is worthless if a SKILL.md forgets to run it, so both must name it.
+for sk in build-itinerary find-nearby; do
+  if grep -q 'note-provenance' "$SKILLS/$sk/SKILL.md"; then
+    assert_pass "$sk/SKILL.md invokes note-provenance"
+  else
+    assert_fail "$sk/SKILL.md invokes note-provenance" "no mention of the provenance gate"
+  fi
+done
+
+# find-nearby borrows it across skills, so its path must actually resolve from there.
+while read -r rel; do
+  [[ -z "$rel" ]] && continue
+  if [[ -x "$SKILLS/find-nearby/$rel" ]]; then assert_pass "find-nearby's path to $rel resolves"
+  else assert_fail "find-nearby's path to $rel resolves" "not executable at $SKILLS/find-nearby/$rel"; fi
+done < <(grep -oE '\.\./[a-zA-Z0-9_-]+/scripts/[a-zA-Z0-9._-]+' "$SKILLS/find-nearby/SKILL.md" | sort -u)
+
 echo
 echo "-- $PASSED passed, $FAILED failed --"
 if [[ ${#FAIL_DETAILS[@]} -gt 0 ]]; then printf '%s\n' "${FAIL_DETAILS[@]}"; fi
