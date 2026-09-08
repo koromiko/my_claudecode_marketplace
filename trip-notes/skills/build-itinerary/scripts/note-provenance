@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# note-provenance <note.md> <data.json>... — check a finished note against the
+# data it was supposed to be built from.
+#
+# Why this exists: the pipeline spends a whole verification step stopping
+# *subagents* from inventing facts, and has nothing at all pointed at the
+# orchestrator. A real run shipped a 結論表 in which eight Google Maps links and
+# six "Google 無資料" opening-hours cells were invented outright — plausible,
+# well-formed, and wrong — because the orchestrator wrote the table from memory
+# for the rows it had not looked up. Every one of those eight cids was wrong.
+# No agent was involved and no existing check could see it.
+#
+# Both halves of that failure are mechanically decidable, which is the only
+# reason this is a script and not another paragraph of prose:
+#
+#   1. `maps_url` is a copy-verbatim field. A cid in the note that is in no data
+#      file was not copied from anywhere.
+#   2. "no data" is a claim about the data, so the data settles it. A place whose
+#      record carries hours cannot honestly be written up as having none.
+#
+# Exit 0 clean, 65 violations found, 64 usage error.
+
+set -uo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "usage: note-provenance <note.md> <data.json>..." >&2
+  exit 64
+fi
+
+note="$1"; shift
+[[ -f "$note" ]] || { echo "note-provenance: no such note: $note" >&2; exit 64; }
+for d in "$@"; do
+  [[ -f "$d" ]] || { echo "note-provenance: no such data file: $d" >&2; exit 64; }
+done
+
+command -v jq >/dev/null || { echo "note-provenance: jq is required" >&2; exit 64; }
+
+violations=0
+
+# ---- 1. every cid in the note must exist in the data ------------------------
+note_cids=$(grep -oE 'cid=[0-9]+' "$note" | sed 's/^cid=//' | sort -u)
+data_cids=$(jq -r '.. | objects | select(has("maps_url")) | .maps_url' "$@" 2>/dev/null \
+            | grep -oE 'cid=[0-9]+' | sed 's/^cid=//' | sort -u)
+
+while IFS= read -r cid; do
+  [[ -z "$cid" ]] && continue
+  if ! printf '%s\n' "$data_cids" | grep -qx "$cid"; then
+    line=$(grep -nm1 "cid=$cid" "$note" | cut -d: -f1)
+    name=$(sed -n "${line}p" "$note" | grep -oE '^\| [^|]+' | sed 's/^| //;s/ *$//')
+    echo "FABRICATED MAPS LINK  line $line  cid=$cid  ${name:-（無法從該行取得店名）}"
+    violations=$((violations + 1))
+  fi
+done <<< "$note_cids"
+
+# ---- 2. "no data" claims must match the data --------------------------------
+# A place whose record has a non-null `hours` may not be written up as having none.
+while IFS=$'\t' read -r pname; do
+  [[ -z "$pname" ]] && continue
+  hits=$(grep -nF "$pname" "$note" | grep -E '無資料|no data' || true)
+  if [[ -n "$hits" ]]; then
+    while IFS= read -r h; do
+      echo "FALSE 無資料 CLAIM    line ${h%%:*}  $pname  （資料檔中此店有 hours）"
+      violations=$((violations + 1))
+    done <<< "$hits"
+  fi
+done < <(jq -r '.. | objects | select(has("name") and has("hours"))
+                | select(.hours != null) | .name' "$@" 2>/dev/null | sort -u)
+
+if [[ $violations -gt 0 ]]; then
+  echo "note-provenance: $violations violation(s) — every one is a fact the note" >&2
+  echo "  states and the data does not support. Fix the note, not this check." >&2
+  exit 65
+fi
+
+echo "note-provenance: clean ($(printf '%s\n' "$note_cids" | grep -c . ) map link(s) checked)"

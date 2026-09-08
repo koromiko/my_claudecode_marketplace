@@ -1,0 +1,17 @@
+{
+  "origin": "place_id:ORIGIN",
+  "mode": "WALK",
+  "max_min": 15,
+  "pool_fetched": "2026-09-08T12:00:00Z",
+  "places": [
+    { "place_id": "PLACE_A", "name": "喫茶アルファ", "travel_min": 3, "rating": 4.5,
+      "maps_url": "https://maps.google.com/?cid=111&g_mp=X",
+      "hours": { "closed": ["日"], "hours": ["月曜日: 11時00分～21時00分"] } },
+    { "place_id": "PLACE_B", "name": "ベータ食堂", "travel_min": 5, "rating": 4.1,
+      "maps_url": "https://maps.google.com/?cid=222&g_mp=X",
+      "hours": null },
+    { "place_id": "PLACE_C", "name": "ガンマ珈琲", "travel_min": 7, "rating": 3.9,
+      "maps_url": "https://maps.google.com/?cid=333&g_mp=X",
+      "hours": { "closed": [], "hours": "09:00～18:00" } }
+  ]
+}
