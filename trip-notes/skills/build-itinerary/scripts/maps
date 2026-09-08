@@ -575,12 +575,19 @@ dispatch() {
         languageCode:$lang, regionCode:$reg, maxResultCount:20}
        + (if $t == "" then {} else {includedTypes:[$t]} end)')
     mask="${PLACES_MASK}${extra_mask}"
+    # Emit places in the order the API returned them. `searchText` returns
+    # relevance order for the query string and `searchNearby` its own ranking;
+    # both are signals the caller can use. This used to re-sort by
+    # `-(.reviews)`, which discarded that ordering and re-introduced exactly the
+    # chain/tourist bias that find-nearby's Step 4 bans review-count ranking to
+    # avoid — inert only while --limit equals the API's own cap of 20, and a
+    # silent *selector* the moment anyone passes a smaller --limit.
     check "$(post "${PLACES}/places:searchNearby" "$mask" "$body")" \
       | jq --argjson lim "$limit" "$JQ_COMPACT$JQ_PLACE"'
       { returned: (.places // [] | length),
         shown: ([(.places // []) | length, $lim] | min),
         places: [ (.places // [])[] | place_row('"$amen_expr"') ]
-                | sort_by(-(.reviews // 0)) | .[0:$lim] }'
+                | .[0:$lim] }'
     ;;
 
   search)
@@ -613,7 +620,7 @@ dispatch() {
       { returned: (.places // [] | length),
         shown: ([(.places // []) | length, $lim] | min),
         places: [ (.places // [])[] | place_row({}) ]
-                | sort_by(-(.reviews // 0)) | .[0:$lim] }'
+                | .[0:$lim] }'
     ;;
 
   reviews)

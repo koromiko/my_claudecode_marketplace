@@ -70,8 +70,8 @@ echo "== existing behaviour (build-itinerary depends on all of this) =="
 
 out=$(run_maps nearby --limit 8 "35.681,139.767" 500 restaurant 2>&1)
 
-assert_eq "nearby sorts by review count, most-reviewed first" \
-  "PLACE_A" "$(jq -r '.places[0].place_id' <<<"$out")"
+assert_eq "nearby emits places in the order the API returned them" \
+  "PLACE_A PLACE_B PLACE_C" "$(jq -r '[.places[].place_id] | join(" ")' <<<"$out")"
 assert_eq "nearby carries businessStatus through verbatim" \
   "CLOSED_PERMANENTLY" "$(jq -r '.places[] | select(.place_id=="PLACE_C") | .status' <<<"$out")"
 assert_eq "nearby uses the API googleMapsUri verbatim" \
@@ -82,7 +82,7 @@ assert_eq "a place whose open days share one range is collapsed to a string" \
   "11:00～21:00" "$(jq -r '.places[] | select(.place_id=="PLACE_B") | .hours.hours' <<<"$out")"
 assert_eq "定休日 is preserved in the closed array" \
   "日" "$(jq -r '.places[] | select(.place_id=="PLACE_B") | .hours.closed[0]' <<<"$out")"
-assert_eq "--limit truncates after sorting" \
+assert_eq "--limit truncates the API order, it does not re-rank first" \
   "1" "$(run_maps nearby --limit 1 "35.681,139.767" 500 restaurant 2>&1 | jq -r '.places | length')"
 assert_eq "provenance fields are always attached" \
   "false" "$(jq -r '.from_cache' <<<"$out")"
@@ -166,8 +166,25 @@ assert_eq "search output uses the same top-level keys as nearby" \
 assert_eq "search output uses the same per-place keys as nearby" \
   "$(run_maps nearby --limit 1 "35.681,139.767" 500 restaurant | jq -r '.places[0] | keys | join(" ")')" \
   "$(jq -r '.places[0] | keys | join(" ")' <<<"$out")"
-assert_eq "search sorts by review count like nearby" \
-  "PLACE_A" "$(jq -r '.places[0].place_id' <<<"$out")"
+assert_eq "search preserves API relevance order like nearby" \
+  "PLACE_A PLACE_D" "$(jq -r '[.places[].place_id] | join(" ")' <<<"$out")"
+# The regression that matters: the main fixture happens to be in review-count
+# order, so it cannot tell "API order" from "sorted by reviews" apart. This
+# fixture is deliberately the reverse (12 / 95 / 320 reviews), so it fails
+# loudly if anyone reinstates a review-count sort in the pool writers. That
+# sort is banned because find-nearby's Step 4 bans review-count ranking for
+# the whole pipeline, and a pool writer is just an earlier, less visible place
+# to do the same damage.
+assert_eq "nearby does NOT re-sort a pool by review count" \
+  "PLACE_C PLACE_B PLACE_A" \
+  "$(run_maps_in "$FIXTURES/api-order" nearby --limit 8 "35.681,139.767" 500 restaurant 2>&1 | jq -r '[.places[].place_id] | join(" ")')"
+assert_eq "search does NOT re-sort a pool by review count" \
+  "PLACE_C PLACE_B PLACE_A" \
+  "$(run_maps_in "$FIXTURES/api-order" search --limit 8 "35.681,139.767" 1500 "タイ料理" 2>&1 | jq -r '[.places[].place_id] | join(" ")')"
+assert_eq "--limit keeps the API's first N, not the most-reviewed N" \
+  "PLACE_C" \
+  "$(run_maps_in "$FIXTURES/api-order" nearby --limit 1 "35.681,139.767" 500 restaurant 2>&1 | jq -r '.places[0].place_id')"
+
 assert_eq "search honours --out" \
   "2" "$(t=$(mktemp); run_maps search --limit 20 --out "$t" "35.681,139.767" 1500 "タイ料理" >/dev/null; jq -r '.places|length' "$t"; rm -f "$t")"
 
