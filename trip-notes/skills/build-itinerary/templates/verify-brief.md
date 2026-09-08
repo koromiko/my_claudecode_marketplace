@@ -22,8 +22,14 @@ agent-browser open "<url>" --load domcontentloaded --timeout 20000
 
 One thing the API cannot settle, so report it if you happen to see it: for a site spanning more than a kilometre (a long park, a promenade whose named plaza sits at one tip), **which part of it the pin lands on**. The reader can be sent to the wrong end of a correct place.
 
+## Instagram embeds — NOT your job
+
+The note may embed Instagram posts. **Do not open them.** They were already checked mechanically before you were spawned: the orchestrator loaded each post's `embed/captioned` page, confirmed it did not render Instagram's "may be broken, or the post may have been removed" card, and matched the account handle against the venue. There is nothing left for you to add, and Instagram is slow and hostile to automated browsers. Skip every `instagram.com` URL in the file, including the fallback links under each embed.
+
 ## Image URLs to check
 {{IMAGE_URL_LIST}}
+
+**Stops now carry 2–3 photos each, not one, so this list is longer than it used to be** — check every entry, and note that several images sharing one stop name is expected, not a duplication bug. If you run short on time, prefer covering **one photo from every stop** over covering every photo of the first few stops: a stop with an unchecked second photo is a smaller risk than a stop nobody looked at.
 
 For each: open it directly and confirm it renders as an actual photograph relevant to the place it's captioned as (not a broken image, blank page, login wall, ad banner, or generic logo/icon). Flag anything that doesn't load or looks unrelated to its caption. Also report, per image:
 
@@ -47,5 +53,7 @@ For each: open it and confirm the page loads and is actually about the place it'
 Return a markdown list, one entry per problem found, in this shape:
 
 `**[Image|Blog]** — <stop name>: <what's wrong> (checked: <url>)`
+
+Where a stop has several photos and only some are bad, name which one — quote the URL, since the stop name alone no longer identifies a single image.
 
 If everything checks out, say so explicitly (`No issues found` per section) rather than leaving it ambiguous. Be concrete — "pin lands 4km away in the wrong ward" beats "seems off."

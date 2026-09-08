@@ -5,10 +5,14 @@ do not edit any file, and do not delegate to further subagents.
 
 ## Inputs
 
-- Candidate pool: `<POOL_PATH>` — the **top-12 subset** the orchestrator derived from
+- Candidate pool: `<POOL_PATH>` — the **top-14 subset** the orchestrator derived from
   `trip-maps reachable`; these are exactly the places whose reviews were read. Every
   record has `place_id`, `name`, `type`, `address`, `travel_min`, `distance_km`,
-  `status`, `rating`, `reviews`, `hours`, and sometimes `amenities`. Survivors that
+  `status`, `rating`, `reviews`, `hours`, `pool_hits`, and sometimes `amenities`.
+  `pool_hits` is how many of this run's separate queries independently returned that
+  place — a query-agreement signal, **not** a popularity one. It is what the
+  orchestrator ranked on; treat a high value as evidence the place genuinely matches
+  what was asked for, and a 1 as no evidence either way, never as a mark against. Survivors that
   did not make this file are the orchestrator's to account for, not yours — rank and
   bucket only what is in `<POOL_PATH>`.
 - Reviews: `<REVIEWS_PATH>` — output of `trip-maps reviews`, up to 5 reviews per place.
@@ -97,9 +101,17 @@ nobody can see cannot be corrected by feedback.
 ## Neutral mode
 
 If `preferences.md` does not exist, **or exists but every section is empty**
-(the cold-start skeleton — the common case for a first run), rank by
-`travel_min` first, then `rating`, and say in your output that you ran
-neutrally. Do not invent preferences.
+(the cold-start skeleton — the common case for a first run), rank by how well
+each place matches `<CONDITIONS>`, then `rating`, and say in your output that
+you ran neutrally. Do not invent preferences.
+
+**`travel_min` is a tiebreak here, never the primary key.** Everything in this
+file already passed the travel-time gate, so re-ranking on it just re-applies a
+condition that was already satisfied — at a granularity nobody asked for. Doing
+it as the primary key once produced a list decided entirely by a 2-minute window
+inside a 15-minute budget, in which the best-known venues in the area lost to a
+shisha lounge that happened to sit by the station. Use it to separate places
+that are otherwise equal, and say so when it decided something.
 
 ## Output (markdown, no files written)
 
@@ -121,7 +133,7 @@ once — no candidate may be silently absent from all three.
 
 ### 評論印象
 
-One entry per place whose reviews you actually read — **all twelve**, including
+One entry per place whose reviews you actually read — **all fourteen**, including
 every place you rejected in 已篩掉 and every place in 未入選. Format —
 `<name>（N 則評論，未驗證）：<impression>`, with N the count and the rest of the
 parenthesis verbatim:
