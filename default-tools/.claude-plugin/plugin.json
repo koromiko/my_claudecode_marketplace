@@ -1,6 +1,6 @@
 {
   "name": "default-tools",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Default tool auto-approval with sensitive-path guards, Ollama LLM fallback evaluator, macOS notification hooks, a grill-me skill that interrogates plans before implementation, and a rule-adherence command that grades CLAUDE.md rules against past session transcripts",
   "author": {
     "name": "sthuang"

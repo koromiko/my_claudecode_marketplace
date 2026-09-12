@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Use when the user wants a plan or design stress-tested before building it. Triggers on "grill me", "grill this plan", "stress-test this plan", "poke holes in this design", "interrogate this design/plan", AND on pre-implementation moments where a concrete plan or design is on the table and about to be implemented. Dispatches a separate read-only grill agent that interrogates the plan one question at a time; the main agent answers each question from the codebase and escalates only costly-to-reverse decisions (schema/contract, public API, data migration, security boundary) to the human.
+description: Use when a plan, design, spec, or implementation approach already exists and should be pressure-tested before any code is written. Triggers on "grill me", "grill this plan", "stress-test this plan", "poke holes in this design", "interrogate this design", and on the softer forms users actually use at that moment — "does this look right?", "what am I missing?", "any holes in this?", "sanity check this before I build it", "review my plan", "is this approach sound?". ALSO use this skill when a plan or spec has just been approved, written, or handed over and implementation is the next step, even if the user never asks to be grilled — this is the last cheap moment to catch a wrong assumption. Not for producing a plan (brainstorm one first), and not for reviewing code that already exists.
 ---
 
 # grill-me
@@ -10,6 +10,7 @@ Stress-test a plan or design before implementation by running a relentless, one-
 ## When this applies
 
 - **Explicit:** "grill me", "grill this plan", "stress-test this plan", "poke holes in this design", "interrogate this design".
+- **Softer explicit:** "does this look right?", "what am I missing?", "any holes in this?", "sanity check this before I build it", "review my plan", "is this approach sound?" — the user is asking for the same interrogation without naming it.
 - **Implicit:** a concrete plan or design is on the table and about to be built, and it should be vetted first.
 
 If there is no concrete plan/design yet, say so and offer to brainstorm one first — there is nothing to grill.
