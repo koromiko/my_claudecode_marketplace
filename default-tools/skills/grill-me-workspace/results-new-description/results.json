@@ -1,0 +1,260 @@
+{
+  "skill_name": "grill-me",
+  "model": "claude-opus-5",
+  "runs_per_query": 3,
+  "results": [
+    {
+      "query": "ok i've got the migration plan written up in docs/specs/2026-09-notification-batching.md \u2014 three services, a new kafka topic, and a backfill. before i start writing any of it, does this look right to you?",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "here's my approach for job-alert dedup: hash on (userId, jobId, day) in redis with a 26h ttl, skip anything that hits. what am i missing?",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "we agreed on the plan in the thread \u2014 swap the polling loop for SSE, keep the old endpoint for 2 releases, then delete it. sanity check this before I build it?",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "read PLAN.md in this repo and interrogate it. i want to find the wrong assumptions now, not after i've written 2000 lines",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "is this approach sound? im going to add a nullable tenant_id to every table, backfill it lazily on read, then flip a proctor when its done",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "before i implement: the plan is to cache the graphql response in the RN app with a 5 min ttl keyed by search params. any holes in this?",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "grill me on the retry design \u2014 exponential backoff starting at 200ms, 5 attempts, then dead-letter to a DDB table we sweep hourly",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "just got the spec approved for the new DFR self-service routes API. walk me through everything that could go wrong before i open the branch",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Skill"
+      ]
+    },
+    {
+      "query": "stress-test the design doc i linked above. assume i'm wrong about the failure modes and work from there",
+      "should_trigger": true,
+      "trigger_rate": 0.667,
+      "triggers": 2,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "I finished the RFC for moving auth off the monolith. Poke holes in it before I take it to the team on Thursday.",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": false,
+      "tools_seen": [
+        "Bash",
+        "mcp__glean__search"
+      ]
+    },
+    {
+      "query": "review this MR for me \u2014 !4821 in mobile-app-platform, it's the one that moves the filter types into the shared package",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill",
+        "ToolSearch"
+      ]
+    },
+    {
+      "query": "poke around the codebase and tell me how the proctor loader actually gets its allocations at startup",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash"
+      ]
+    },
+    {
+      "query": "i need to write a design doc for the new payments flow, help me figure out what the sections should be",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "does this look right? TypeError: Cannot read properties of undefined (reading 'jobkey') at JobCard.tsx:142 \u2014 happens only on android",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "what am i missing in this test? passes locally but fails in CI with a timeout on the appium session after ~90s",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "grill the logs for anything mentioning jobalertid between 2pm and 4pm yesterday in the jobalerts-api service",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "ToolSearch",
+        "mcp__io-indeed-datadog__analyze_datadog_logs",
+        "mcp__io-indeed-datadog__list_datadog_skills",
+        "mcp__io-indeed-datadog__load_datadog_skill",
+        "mcp__io-indeed-datadog__search_datadog_logs"
+      ]
+    },
+    {
+      "query": "i want to brainstorm options for how we handle offline mode in the RN app, nothing decided yet",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "sanity check these numbers for me \u2014 the idash dashboard says 4.2% but my IQL query gives 3.8% for the same day",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill"
+      ]
+    },
+    {
+      "query": "can you review my plan for the sprint? 8 tickets, 6 working days, two of them are blocked on the platform team",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash"
+      ]
+    },
+    {
+      "query": "interrogate the release_candidate pipeline failures from last night and tell me which ones are actually flaky vs real",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "pass": true,
+      "tools_seen": [
+        "Bash",
+        "Skill",
+        "ToolSearch",
+        "mcp__cypress-cloud__cypress_get_failed_tests",
+        "mcp__cypress-cloud__cypress_get_flaky_tests",
+        "mcp__cypress-cloud__cypress_get_runs",
+        "mcp__sre-astrolabe__get_pipeline_job_output",
+        "mcp__sre-astrolabe__jira_get_issue",
+        "mcp__sre-astrolabe__list_pipeline_jobs",
+        "mcp__sre-astrolabe__list_pipeline_trigger_jobs",
+        "mcp__sre-astrolabe__list_pipelines"
+      ]
+    }
+  ],
+  "summary": {
+    "passed": 19,
+    "total": 20,
+    "recall_positives": 0.9,
+    "specificity_negatives": 1.0,
+    "mean_rate_positives": 0.867,
+    "mean_rate_negatives": 0.0
+  }
+}
