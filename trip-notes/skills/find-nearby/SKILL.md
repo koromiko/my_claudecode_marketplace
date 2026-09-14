@@ -262,12 +262,15 @@ Letting a place whose reviews were never read into the main list would put an un
 | 5 | 偏好比對排序 | `sonnet` |
 | 6a | 首選研究 + 實拍圖（2–3 張）+ Instagram | `sonnet` |
 | 7 | 時間事實交叉比對 | `sonnet` |
-| 9.2b | Instagram 發掘 + 檢查 | — (orchestrator 自己跑，不開 agent) |
+| 9.2b | Instagram 發掘 + 檢查 | — (orchestrator 自己跑) |
+| 9.2b-2 | 在訪客貼文之間挑一則 | `haiku` — 一個 agent，最多 3 張截圖 |
 | 9 | 瀏覽器驗證 | **`opus`** |
 
 預算放在唯一能阻止錯誤出貨的那道閘門。A wrong photo costs the reader a picture; a wrong closing time costs them the evening.
 
-Step 9.2b 刻意**不開 agent**，也刻意把 Instagram 的**發掘**放在這裡而不是 Step 6a：帶 WebSearch 的 agent 找得到店家的帳號，卻幾乎找不到個別貼文（Google 不索引小帳號的貼文）；同一個帳號頁，瀏覽器一開就有 8 則。代碼到手之後，「這則貼文還在嗎」由一句固定英文回答、「是不是這家店」由第一行的 handle 回答，兩者都是 `grep` 就能定案的事。把任何一段交給模型，等於為一個不存在的判斷付錢，而且等於給 agent 一個捏造貼文 URL 的機會；也不要把 Instagram 併進 9.3 的 opus agent，那筆預算是留給「這張照片到底是不是這家店」的。
+Step 9.2b 刻意把 Instagram 的**發掘**放在這裡而不是 Step 6a：帶 WebSearch 的 agent 找得到店家的帳號，卻幾乎找不到個別貼文（Google 不索引小帳號的貼文）；同一個帳號頁或 location 頁，瀏覽器一開就有六到八則。代碼到手之後，「這則貼文還在嗎」由一句固定英文回答、「是不是這家店」由第一行的 handle 回答，兩者都是 `grep` 就能定案的事。把模型擋在這幾段之外，同時也讓任何 agent 都碰不到貼文 URL —— 這才是「絕不捏造」成為結構性保證而非一條要記得的規則的原因。
+
+其中**只有一件事是真正的判斷，並且只配一個便宜 agent：在訪客貼文之間挑一則。** Instagram 的 Top posts 排的是「多少人按讚」，那不等於「適合放進旅遊筆記」—— 實測某家店，6,436 likes 的 top post 是發文者的人像，而一則只有 1 like 的貼文拍的是店家自有杯墊上的一杯啤酒。`grep` 分不出來，只讀文案也分不出來，所以 9.2b-2 送最多三張截圖給 `haiku` 問一個問題。那就是 Instagram 的全部模型預算，不要再長大；也不要把 Instagram 併進 9.3 的 opus agent，那筆預算是留給「這張照片到底是不是這家店」的。
 
 ## Step 5 — Scoring
 
@@ -322,7 +325,7 @@ tags: [travel, japan, nearby, <type>, ...]
 <iframe src="https://www.instagram.com/p/<code>/embed/captioned"
   width="400" height="600" frameborder="0" scrolling="no"></iframe>
 
-[在 Instagram 開啟](https://www.instagram.com/p/<code>/) · @<handle>
+[在 Instagram 開啟](https://www.instagram.com/p/<code>/) · @<handle>（訪客貼文）
 ```
 段末一行：**評論印象**（N 則評論，未驗證）：<一到兩句>
 
@@ -374,7 +377,9 @@ A reader who wonders "why isn't X here?" should find the answer.
 
 - **Instagram embed 永遠跟它的 fallback 連結一起出貨。** `<iframe>` 在 Obsidian 編輯模式渲染不出東西，離線也是，貼文被刪後則變成一張「post may have been removed」卡片。緊接在下面那行 `[在 Instagram 開啟](…)` 就是讓這幾種情況仍然可點而不是死掉的東西，所以兩者一起寫、或兩者都不寫。絕不輸出單獨的 iframe。
 
-- **筆記裡每個 Instagram 貼文 URL 都來自 9.2b 的瀏覽器讀取，沒有其他來源。** handle 只證明帳號存在，對任何一個貼文代碼都不構成證據，所以貼文 URL 永遠不可能由 handle 推導出來。研究 agent 只回報 handle、且被明令不得回報貼文 URL —— 這讓它成為結構上的保證，而不是一條要靠人記得的規則。如果你發現自己正要寫下一個不是從 9.2b-1 撈出來、又通過 9.2b-2 的貼文 URL，那表示上游出了問題，丟掉它。
+- **筆記裡每個 Instagram 貼文 URL 都來自 9.2b 的瀏覽器讀取，沒有其他來源。** handle 只證明帳號存在，對任何一個貼文代碼都不構成證據，所以貼文 URL 永遠不可能由 handle 推導出來。研究 agent 只回報 handle、且被明令不得回報貼文 URL —— 這讓它成為結構上的保證，而不是一條要靠人記得的規則。如果你發現自己正要寫下一個不是從 location 頁（9.2b-1）或帳號頁（9.2b-3）撈出來、又通過 embed 檢查的貼文 URL，那表示上游出了問題，丟掉它。
+
+- **要標明這是誰發的。** 訪客拍的照片跟店家自己的宣傳照，對讀者是兩回事；而兩者渲染出來是同一張卡片，標籤是唯一能分辨的東西。fallback 那行一律加上 `（訪客貼文）` 或 `（本店帳號）`。
 - **Re-read any numbered list you insert into.** Appending items mid-list, or inserting a heading between two items, silently breaks the ordering.
 - **Run the lint gate AND the provenance gate after every `Write`/`Edit` of the note.** Do not rely on remembering these rules — run the commands. The provenance gate is the only check in this pipeline pointed at your own output rather than a subagent's.
 
@@ -424,11 +429,61 @@ lint gate 檢查的是**形狀**，這一關檢查的是**出處**：筆記裡�
 
 **這一關防的是 orchestrator，不是 agent。** 整條 pipeline 花了一整個驗證階段防 subagent 捏造事實，卻沒有任何東西指著寫檔的人。真實執行上出過事：結論表裡有八個 Google Maps 連結與六個「Google 無資料」的營業時間格是憑空寫的 —— 因為那幾列的資料 orchestrator 從來沒查過，就照著記憶補完了，八個 cid 全錯。當時每一關都通過了：連結格式正確、lint gate 只看形狀、而瀏覽器驗證被明確告知不要開 Maps 連結。**「我記得是這個值」在這裡永遠不算資料來源** —— `maps_url` 是規定要原樣照抄的欄位，沒抄到就是沒有。
 
-**9.2b — Instagram：先發掘貼文，再驗證（orchestrator 自己跑，不開 agent）。** Step 6a 的 agent 交給你的是**帳號 handle，不是貼文 URL**。發掘在這裡做，因為這是唯一可行的地方：WebSearch 找**帳號**很可靠，找小店的**個別貼文**幾乎必然失敗 —— Google 不索引只有幾百則貼文的帳號的個別貼文。實測三家澀谷小店：三個 agent 全都找到官方帳號、也全都正確回報「找不到貼文」；同樣這三個帳號，瀏覽器一打開帳號頁就各拿到 8 個活的貼文代碼。
+**9.2b — Instagram：先發掘一般使用者的貼文，再驗證（orchestrator 自己跑，中間只用一個便宜 agent）。**
 
-這樣走還有一個結構上的好處：**agent 從頭到尾不經手貼文 URL**，捏造風險不是靠規則防堵，而是根本沒有機會發生。
+筆記要的是**訪客拍的店**，不是店家自己的宣傳照。Step 6a 的 agent 交給你的是**帳號 handle，不是貼文 URL**；以下全部在瀏覽器裡發生，這也是為什麼沒有任何 agent 有機會捏造貼文 URL —— 它們從頭到尾碰不到。
 
-**9.2b-1 — 從帳號頁讀貼文代碼。** 每家有 handle 的店一次頁面載入：
+兩條來源，依序試。第一條給的是訪客貼文但只有知名店才有；第二條一定有，但是店家自己的帳號。
+
+**9.2b-1 — location 頁（優先：真的訪客）**
+
+Instagram 為每個被標記的地點保留一頁，其 **Top posts** 就是訪客貼文，依 Instagram 自己的熱門度排序，未登入也渲染得出來。
+
+1. **找 id。** WebSearch `instagram.com/explore/locations <店名>`。**只採信出現在真實搜尋結果連結裡的 URL。** 搜尋引擎摘要文字裡引用的 URL 不算結果 —— 實測採信過一個，那個 id 根本不存在，還花了一次往返才分辨出它跟被限流的差別。
+2. **打開它，核對名稱。** 頁面文字第三行就是該地點自己的名稱：
+
+```bash
+agent-browser --session igloc open "https://www.instagram.com/explore/locations/<id>/<slug>/" >/dev/null 2>&1
+agent-browser --session igloc wait 5000 >/dev/null 2>&1
+agent-browser --session igloc get text body 2>&1 | sed -n '3p'
+```
+
+   **必須跟這家店相符。** 這不是形式：實測搜尋某家澀谷啤酒吧回來的 location 頁，打開發現是「赤から渋谷宇田川町店」，一家毫不相干的鍋物連鎖。拿錯 location 頁會得到一整面別家店的照片，這是這一步能造成的最糟結果。出現 `Something went wrong` 表示 id 是壞的，改走 9.2b-3。
+3. **讀 Top posts 的代碼**，依 DOM 順序：
+
+```bash
+agent-browser --session igloc get html body 2>&1 \
+  | grep -oE '/(p|reel)/[A-Za-z0-9_-]{5,}/' | awk '!seen[$0]++' | head -6
+```
+
+   HTML 一定要直接管進 `grep`：**絕不能讓 `get html` 的輸出進入你的 context**，一頁約 700 KB。
+
+**9.2b-2 — 篩候選，然後讓便宜的 agent 挑**
+
+對這些代碼跑 9.2b-4 的 embed 檢查，候選要**同時**滿足：
+
+- **`broken=0`** —— 判定規則見 9.2b-4，只以正向命中判定失效。
+- **handle 不是店家自己的帳號。** 這條路的重點就是訪客貼文；從 location 頁繞回官方貼文，等於多走幾步的 9.2b-3。
+- **每個 handle 只取一則。** 實測某家店的前 8 則 top posts 裡有 3 則出自同一個帳號。不依 handle 去重，「訪客們」就會變成同一位訪客。
+
+最多留 3 則。接著各截一張圖，交給**一個 `haiku` agent**：
+
+```bash
+agent-browser --session igshot set viewport 500 900 >/dev/null 2>&1
+agent-browser --session igshot open "https://www.instagram.com/p/<code>/embed/captioned" >/dev/null 2>&1
+agent-browser --session igshot wait 3500 >/dev/null 2>&1
+agent-browser --session igshot screenshot --full <scratch>/ig-<code>.png >/dev/null 2>&1
+```
+
+`--full` 加上這個 viewport 會把 handle、location 標籤、整張照片與文案收進同一畫面 —— 判斷需要的東西全在裡面。只問 agent 一件事：**哪一張拍的是這個地方本身（店內、外觀，或它供應的東西），而不是以人物為主體？** 回傳選中的代碼，或「none suitable」。
+
+**這是整個 Instagram 處理裡唯一真正需要判斷的地方，而它值得那個 agent。** 實測某家店：遙遙領先的 top post（6,436 likes）是發文者本人的人像、店家幾乎只在背景裡；而一則只有 **1 like** 的貼文拍的是店家自有杯墊上的一杯啤酒，文案還列出酒款。熱門度排的是「多少人按讚」，不是「適不適合放進旅遊筆記」。`grep` 分不出來，只讀文案也分不出來。
+
+agent 回「none suitable」就往下走 9.2b-3，不要硬上最不糟的那則。
+
+**9.2b-3 — 店家自己的帳號（fallback）**
+
+沒有 location 頁、名稱對不上、或整面都不合用 —— 改讀店家自己的帳號。這是覆蓋率較廣的那條：小型獨立店家能中，而那正是 9.2b-1 容易失敗的地方。
 
 ```bash
 agent-browser --session igfind open "https://www.instagram.com/<handle>/" >/dev/null 2>&1
@@ -437,24 +492,21 @@ agent-browser --session igfind get html body 2>&1 \
   | grep -oE '/(p|reel)/[A-Za-z0-9_-]{5,}/' | awk '!seen[$0]++' | head -5
 ```
 
-`--session igfind` 是獨立 cookie 的瀏覽器，也就是未登入的讀者。HTML 一定要直接管進 `grep`：**絕不能讓 `get html` 的輸出進入你的 context**，一頁約 700 KB。
-
-判讀規則：
-
 - **第一個通常是置頂貼文**，其後才是新到舊。置頂是店家自己挑來當門面的，是很好的預設而不是該跳過的東西 —— 實測某帳號的置頂貼文有 53 likes，最新那則只有 8 likes。
 - **抓不到東西是一個問題，不是一個答案。** 它永遠不等於「這個帳號沒有貼文」。重試一次；仍然空手就讀頁面文字，確認自己落在哪一種情況：
 
-  ```bash
-  agent-browser --session igfind get text body 2>&1 | head -5
-  ```
+```bash
+agent-browser --session igfind get text body 2>&1 | head -5
+```
 
   - **命中 `Restricted profile` ／ `It's unavailable for certain audiences. Log in to continue.`** —— Instagram 對該帳號做了年齡限制，未登入的讀者（以及這一步）看不到它的任何貼文。**酒類店家很常見**，精釀啤酒／居酒屋／bar 這類主題撞到的機率遠高於咖啡廳。要記成「年齡限制帳號」，並在筆記裡**如實這樣寫**，而不是含糊帶過成「找不到」：「本店 Instagram 為 `@<handle>`，但該帳號設為年齡限制，未登入無法讀取，故無嵌入貼文。」帳號確實存在、讀者自己登入就看得到 —— 這正是寫成「沒有 Instagram」會毀掉的資訊。
   - **其他情況**（一般登入牆、逾時、空 body）—— 記為該店沒有 Instagram，繼續往下。
 
   多跑一個指令值得，因為這兩種情況給讀者的東西不同。「我們讀不到」跟「那裡沒有東西」不是同一句話，而且只有一句是真的。
-- 取前 2–3 個當候選交給 9.2b-2。不要更多；每家最多一則 embed。
 
-**9.2b-2 — 驗證候選。** 把候選的 embed 當**頂層頁面**載入（不是放進 iframe —— 那會跨來源、讀不到）。embed 端點不需登入、不擋自動化瀏覽器：
+**9.2b-4 — embed 檢查（兩條路都在這裡收斂）**
+
+把候選的 embed 當**頂層頁面**載入（不是放進 iframe —— 那會跨來源、讀不到）。embed 端點不需登入、不擋自動化瀏覽器：
 
 ```bash
 for c in <candidate codes>; do
@@ -462,23 +514,30 @@ for c in <candidate codes>; do
   agent-browser --session igcheck wait 3000 >/dev/null 2>&1
   t=$(agent-browser --session igcheck get text body 2>&1)
   printf "%-14s broken=%s | %s\n" "$c" \
-    "$(printf %s "$t" | grep -c 'may be broken')" "$(printf %s "$t" | head -1)"
+    "$(printf %s "$t" | grep -c 'may be broken')" "$(printf %s "$t" | head -2 | tr '\n' ' ')"
 done
 agent-browser --session igcheck close
 ```
 
 `<candidate codes>` 要直接寫成 `for` 那行上的**字面空白分隔清單**。不要塞進變數寫成 `for c in $codes` —— Bash tool 跑的是 zsh，不對未加引號的變數做字串分割，迴圈會安靜地**只跑一次**、把整串當成一個 `$c`，然後回報一筆假結果而不是 N 筆真結果。這看起來會像檢查通過了。用 `wait 3000`；`--load networkidle` 在這裡跟 9.3 一樣是禁用的。
 
-取**同時滿足兩個條件**的第一個候選：
+判讀規則：
 
-- **`broken=0`。** `broken=1` 表示頁面渲染出 Instagram 的「The link to this photo or video may be broken, or the post may have been removed.」卡片，這是唯一能證明貼文已消失的訊號。
-- **body 第一行的 handle 與 Step 6a 回報的 handle 相符。** 即使文案沒 render 出來，這一行也穩定存在。
-
-**只以正向命中判定失效。** 活著的貼文 body 長度從 ~750 到 ~2200 bytes 都有，因為文案有時到 3 秒還沒 render 完。所以「沒看到預期文案」「body 很短」「抓不到東西」一律是**「無法確認」**，絕不是「已失效」—— 從沉默反推刪除，會在每次 Instagram 變慢時砍掉好貼文。無法確認的記入驗證狀態。
+- **`broken=1` → 丟掉該候選。** 頁面渲染出 Instagram 的「The link to this photo or video may be broken, or the post may have been removed.」卡片，這是唯一能證明貼文已消失的訊號。
+- **只以正向命中判定失效。** 活著的貼文 body 長度從 ~750 到 ~2200 bytes 都有，因為文案有時到 3 秒還沒 render 完。所以「沒看到預期文案」「body 很短」「抓不到東西」一律是**「無法確認」**，絕不是「已失效」—— 從沉默反推刪除，會在每次 Instagram 變慢時砍掉好貼文。無法確認的重試一次，仍不確認就記入驗證狀態。
+- **body 第一行是帳號 handle，第二行在貼文有標記地點時是 location 名稱。** 即使文案沒 render 出來，這兩行也穩定存在 —— handle 用來跟 Step 6a 回報的比對（fallback 路徑），location 名稱則是 location 路徑上第二道免費的歸屬訊號。
 
 沒有任何候選通過，該店就沒有 Instagram 區塊。這是預期結果，而且比一張寫著「這則貼文可能已被移除」的卡片好。
 
 **循序，不要平行。** 實測跨兩個帳號連續 12 次載入沒有被限流，這個量級用單純迴圈即可；仍然保持循序，不要展開平行。
+
+**筆記怎麼寫。** 要標明這是誰發的 —— 讀者不該需要猜自己看的是店家宣傳還是別人的造訪：
+
+```
+[在 Instagram 開啟](https://www.instagram.com/p/<code>/) · @<handle>（訪客貼文）
+```
+
+9.2b-1 這條路寫 `（訪客貼文）`，9.2b-3 寫 `（本店帳號）`；兩者皆非時要講清楚關係（母公司、所在建物、所在樓層的官方帳號都算）。
 
 **9.3 — browser verification.** Spawn one `general-purpose` subagent with `model: opus`, tell it explicitly to **use the `agent-browser` skill**, and give it `../build-itinerary/templates/verify-brief.md` with the note path and the list of image and blog URLs. **首選現在每家 1–3 張圖，圖片清單要含全部，不是每家一張。** Instagram 不在這一關 —— 9.2b 已經定案，brief 也叫 agent 跳過所有 `instagram.com` URL。 Google Maps links are not part of this pass — a `googleMapsUri` came from a resolved `place_id` and there is nothing for a browser to discover about it; if you want a check, re-run `trip-maps details <place_id>` and confirm the name still matches.
 

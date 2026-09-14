@@ -124,12 +124,15 @@ Pass `model` on each `Agent` call. The stages differ enormously in how much judg
 | 1 — per-stop / per-area research | Blogs, parking cost, narrative status, on-route confirmation | `sonnet` — the per-weekday-hours reasoning that used to justify `opus` in train mode now arrives structured from Step 0.5 |
 | 2 — photos + extra spots + Instagram | Judging "is this a real photo of the place or an ad/logo", and whether an Instagram post is really about this stop | `sonnet` |
 | 2.5 — extra-spot images | Mechanical search → open → extract img URL, already batched | `haiku` |
-| 3.6 — Instagram discovery + check | Read post codes off the account page, grep one fixed string, match the handle | — (no agent, you run it) |
+| 3.6 — Instagram discovery + check | Read post codes off a location or account page, grep one fixed string, match the handle | — (no agent, you run it) |
+| 3.6b — picking among visitors' posts | "Does this photo show the place, or is it a portrait of its poster?" | `haiku` — one agent, up to 3 screenshots |
 | 4 — verification | Catching the wrong bridge in a caption, the Friday-only closing time | **`opus` — do not economise here** |
 
 A wrong image costs the reader a missing photo. A wrong closing time costs them the evening. Step 2.5 is the largest share of agent calls and the least judgment-bound, so it is where cost comes out; Step 4 is the only stage that stops an error from shipping, so it is where cost goes in.
 
-Step 3.6 is deliberately **not** an agent, and it is deliberately where Instagram *discovery* happens rather than in Step 2. An agent with WebSearch can find a venue's account but almost never an individual post (Google does not index individual posts for a small account); a browser opening that same account page gets eight of them. And once the codes are in hand, "is this post real" is answered by a fixed English sentence and "is it the right account" by a handle on the first line — a `grep` settles both. Delegating any of it would buy a model's judgment where there is none to exercise, and would hand an agent the chance to invent a post URL. Do not promote it to an agent, and do not hand Instagram to the Step 4 agent either: that budget is for the wrong-bridge-in-a-caption problem.
+Step 3.6 is deliberately where Instagram *discovery* happens rather than in Step 2. An agent with WebSearch can find a venue's account but almost never an individual post (Google does not index individual posts for a small account); a browser opening that same account or location page gets six to eight of them. And once the codes are in hand, "is this post real" is answered by a fixed English sentence and "is it the right account" by a handle on the first line — a `grep` settles both. Keeping the model out of those also keeps any agent from ever handling a post URL, which is what makes "never fabricate one" structural rather than a rule to remember.
+
+Exactly one part of it is a genuine judgment call and gets exactly one cheap agent: **choosing among visitors' posts**. Instagram's Top posts ranks what people liked, which is not what belongs in a travel note — measured at one venue, the 6,436-like top post was a portrait of its poster, and a 1-like post showed a glass of beer on the venue's own branded coaster. No `grep` and no caption text can separate those, so 3.6b sends up to three screenshots to a `haiku` agent and asks one question. That is the whole model budget for Instagram; do not grow it, and do not hand Instagram to the Step 4 agent either — that budget is for the wrong-bridge-in-a-caption problem.
 
 ## Step -1 — Decide the mode (do this first)
 
@@ -291,7 +294,7 @@ one `#### <name>` sub-heading per stop, and under it that stop's 1–3 `![name](
 <iframe src="https://www.instagram.com/p/<code>/embed/captioned"
   width="400" height="600" frameborder="0" scrolling="no"></iframe>
 
-[在 Instagram 開啟](https://www.instagram.com/p/<code>/) · @<handle>
+[在 Instagram 開啟](https://www.instagram.com/p/<code>/) · @<handle>（訪客貼文）
 ```
 
 The `####` heading carries the name, so the images below it need no `**name**` caption line — this is the existing heading exception, not a new rule, and it is why the section is grouped this way rather than repeating `**name**` under every photo. A stop with no photo still gets its heading, with 「（未找到可用實拍圖）」 under it, so the reader can tell "nothing found" from "stop omitted".
@@ -376,7 +379,9 @@ After both files exist, add a `> [!tip]` callout to each pointing at the other, 
 
 - **An Instagram embed always ships with its fallback link.** The `<iframe>` renders nothing in Obsidian's editing mode, nothing offline, and a "post may have been removed" card once the post is gone. The `[在 Instagram 開啟](…)` line directly beneath it is what keeps that case navigable rather than dead, so the two are written together or not at all. Never emit a bare iframe.
 
-- **Every Instagram post URL in a note comes from Step 3.6's browser read, and from nowhere else.** A handle proves the account exists; it says nothing about any particular post code, so a post URL can never be derived from one. Research agents report handles only and are forbidden to report post URLs at all — which is why this is a structural guarantee rather than a rule anyone has to remember. If you find yourself about to write a post URL that did not come out of 3.6a and survive 3.6b, something has gone wrong upstream; drop it.
+- **Every Instagram post URL in a note comes from Step 3.6's browser read, and from nowhere else.** A handle proves the account exists; it says nothing about any particular post code, so a post URL can never be derived from one. Research agents report handles only and are forbidden to report post URLs at all — which is why this is a structural guarantee rather than a rule anyone has to remember. If you find yourself about to write a post URL that did not come off a location page (3.6a) or an account page (3.6c) and survive the embed check, something has gone wrong upstream; drop it.
+
+- **Say whose post it is.** A visitor's photo and the venue's own marketing are different things to a reader, and the label is the only thing that tells them apart once both are rendered as the same card. `（訪客貼文）` or `（本店帳號）` on the fallback line, always.
 - **Re-read any numbered list you insert into.** Appending items mid-list, or inserting a heading between two items, silently breaks the ordering and the list continuity. If a block needs its own heading, move it out of the list entirely.
 - **Run the lint gate after every `Write`/`Edit` of the note** (see Step 3.9). Do not rely on remembering these rules — run the command.
 
@@ -397,13 +402,61 @@ Drop before verification: anything non-2xx, any image URL whose `content_type` i
 
 **Exclude every `instagram.com` URL from this sweep.** Instagram returns `200 text/html` for a completely fabricated post code — measured: a real post and an invented one differ by 7 bytes, the invented code echoed back — with no `og:` tags and no caption in the body, because the page is a JS shell for logged-out HTTP clients. Applying the rules above to it would pass every fake URL while flagging every real one as "not `image/*`". Instagram is settled in Step 3.6 instead.
 
-## Step 3.6 — Instagram: find the post, then check it (you run this, not an agent)
+## Step 3.6 — Instagram: find a visitor's post, then check it (you run this; one cheap agent inside)
 
-Step 2's agents hand you **account handles, never post URLs**. Discovery happens here, in the browser, because that is the only place it works: WebSearch reliably finds a venue's *account* but almost never an individual *post* for a small venue — Google does not index individual posts for an account with a few hundred of them. Measured on three small Shibuya bars, all three agents found the official account and all three correctly reported "no post found"; the same three accounts each yielded eight live post codes the moment a browser opened the account page.
+**What the note wants is a visitor's photo of the place, not the venue's own marketing.** Step 2's agents hand you an account **handle, never a post URL**; everything below happens here, in the browser, which is also why no agent can invent a post URL — none of them ever touches one.
 
-Routing it this way also removes the fabrication risk structurally rather than by rule: **an agent never handles a post URL at all**, so there is nothing to invent.
+There are two sources, tried in this order. The first gives visitors' posts but only exists for well-known venues; the second always exists but is the venue's own account.
 
-**3.6a — read post codes off the account page.** One page load per stop that has a handle:
+### 3.6a — the location page (preferred: real visitors)
+
+Instagram keeps a page per tagged place, and its **Top posts** grid is visitors' posts ranked by Instagram's own popularity signal. It renders logged-out.
+
+1. **Find the id.** WebSearch `instagram.com/explore/locations <venue name>`. **Only trust a URL that appears as an actual search result link.** A URL quoted in the search engine's prose summary is not a result — one such "id" was tried and turned out not to exist, and it cost a round trip to tell that apart from rate limiting.
+2. **Open it and check the name.** The third line of the page text is the location's own name:
+
+   ```bash
+   agent-browser --session igloc open "https://www.instagram.com/explore/locations/<id>/<slug>/" >/dev/null 2>&1
+   agent-browser --session igloc wait 5000 >/dev/null 2>&1
+   agent-browser --session igloc get text body 2>&1 | sed -n '3p'
+   ```
+
+   **It must match the stop.** This is not a formality: a search for one Shibuya beer bar returned a location page that turned out to be 「赤から渋谷宇田川町店」, an unrelated hotpot chain. A wrong location page yields a whole grid of wrong-venue photos, which is the worst failure this step can produce. `Something went wrong` means the id is bad — go to 3.6c.
+3. **Read the Top posts codes**, in DOM order:
+
+   ```bash
+   agent-browser --session igloc get html body 2>&1 \
+     | grep -oE '/(p|reel)/[A-Za-z0-9_-]{5,}/' | awk '!seen[$0]++' | head -6
+   ```
+
+   Pipe the HTML straight into `grep` — **never let `get html` land in your context**, it is ~700 KB per page.
+
+### 3.6b — check the candidates, then let a cheap agent pick
+
+Run the embed check on those codes (the loop in 3.6c), and keep a candidate only if **all** of these hold:
+
+- **`broken=0`** — see 3.6c for what that means and why it is judged only on a positive match.
+- **The handle is not the venue's own account.** The point of this path is a visitor's post; an official post reached through the location page is just 3.6c with extra steps.
+- **One post per handle.** Three of eight top posts at one venue came from a single account. Deduplicate by handle or the "visitors" are one visitor.
+
+Keep at most 3. Then screenshot each and hand them to **one `haiku` agent**:
+
+```bash
+agent-browser --session igshot set viewport 500 900 >/dev/null 2>&1
+agent-browser --session igshot open "https://www.instagram.com/p/<code>/embed/captioned" >/dev/null 2>&1
+agent-browser --session igshot wait 3500 >/dev/null 2>&1
+agent-browser --session igshot screenshot --full <scratch>/ig-<code>.png >/dev/null 2>&1
+```
+
+`--full` and that viewport put the handle, the location label, the whole photo and the caption in one frame — everything the judgment needs. Ask the agent for one thing: **which of these shows the place itself — its interior, exterior, or what it serves — rather than being centred on a person?** Return the chosen code, or "none suitable".
+
+**This is the one part of Instagram handling that is a judgment call, and it earns its agent.** Measured at one venue: the top post by a wide margin (6,436 likes) was a portrait of its poster with the venue barely visible behind her, while a post with **1 like** showed a glass of beer on the venue's own branded coaster with the beers named in the caption. Popularity ranks what people liked; it does not rank what belongs in a travel note. A `grep` cannot tell those apart and neither can the caption text.
+
+If the agent says "none suitable", fall through to 3.6c rather than shipping the least-bad one.
+
+### 3.6c — the venue's own account (fallback)
+
+No location page, a name mismatch, or nothing suitable in the grid — read the venue's own account instead. This is the wider-coverage path: it works for small independent venues, which is exactly where 3.6a tends to fail.
 
 ```bash
 agent-browser --session igfind open "https://www.instagram.com/<handle>/" >/dev/null 2>&1
@@ -411,10 +464,6 @@ agent-browser --session igfind wait 4000 >/dev/null 2>&1
 agent-browser --session igfind get html body 2>&1 \
   | grep -oE '/(p|reel)/[A-Za-z0-9_-]{5,}/' | awk '!seen[$0]++' | head -5
 ```
-
-`--session igfind` is an isolated browser with its own cookies — a logged-out reader, the state the note's audience is in. Pipe the HTML straight into `grep`; **never let `get html` land in your context**, it is ~700 KB per page.
-
-Read the output by these rules:
 
 - **The first code is usually the pinned post**, and the rest are newest-first. A pinned post is what the venue itself chose to lead with, so it is a good default rather than something to skip — on a real account the pinned post had 53 likes against the newest post's 8.
 - **An empty result is a question, not an answer.** It never means "the account has no posts". Retry once, and if it is still empty read the page text to find out which case you are in:
@@ -427,9 +476,10 @@ Read the output by these rules:
   - **Anything else** (a generic login wall, a timeout, an empty body) — record no Instagram for that stop and move on.
 
   The distinction is worth one extra command because the two cases give the reader different things. "We could not read it" and "there is nothing there" are not the same sentence, and only one of them is true.
-- Take the first 2–3 codes as candidates and settle them in 3.6b. Do not take more; one embed per stop is the cap.
 
-**3.6b — verify the candidate.** Load each candidate's embed as a **top-level page** (not in an iframe — that would be cross-origin and unreadable). The embed endpoint needs no login and does not block automated browsers:
+### 3.6d — the embed check (both paths end here)
+
+Load each candidate's embed as a **top-level page** (not in an iframe — that would be cross-origin and unreadable). The embed endpoint needs no login and does not block automated browsers:
 
 ```bash
 for c in <candidate codes>; do
@@ -437,7 +487,7 @@ for c in <candidate codes>; do
   agent-browser --session igcheck wait 3000 >/dev/null 2>&1
   t=$(agent-browser --session igcheck get text body 2>&1)
   printf "%-14s broken=%s | %s\n" "$c" \
-    "$(printf %s "$t" | grep -c 'may be broken')" "$(printf %s "$t" | head -1)"
+    "$(printf %s "$t" | grep -c 'may be broken')" "$(printf %s "$t" | head -2 | tr '\n' ' ')"
 done
 agent-browser --session igcheck close
 ```
@@ -446,16 +496,23 @@ Write `<candidate codes>` as a **literal space-separated list** on the `for` lin
 
 Use `wait 3000`; `--load networkidle` is banned here for the same reason it is banned in Step 4.
 
-Take the **first candidate that satisfies both** of these:
+Read the output by these rules:
 
-- **`broken=0`.** A `broken=1` means the page rendered Instagram's "The link to this photo or video may be broken, or the post may have been removed." card. That is the only thing that proves a post is gone.
-- **The handle on the first line of the body matches the handle Step 2 reported.** It renders reliably even when the caption does not.
-
-**Judge broken only on a positive match.** Body length varies from ~750 to ~2200 bytes across live posts because the caption sometimes has not rendered by the 3s mark. Absence of the expected caption, a short body, or an empty result therefore means **"could not check"**, never "broken" — inferring removal from silence would drop good posts every time Instagram is slow. Anything you could not check goes to 驗證狀態 as unverified.
-
-If no candidate passes, the stop simply gets no Instagram block. That is an expected outcome, and better than a card reading "this post may have been removed".
+- **`broken=1` → drop that candidate.** The page rendered Instagram's "The link to this photo or video may be broken, or the post may have been removed." card. That is the only thing that proves a post is gone.
+- **Judge broken only on a positive match.** Body length varies from ~750 to ~2200 bytes across live posts because the caption sometimes has not rendered by the 3s mark. Absence of the expected caption, a short body, or an empty result therefore means **"could not check"**, never "broken" — inferring removal from silence would drop good posts every time Instagram is slow. Anything you could not check gets one retry, then goes to 驗證狀態 as unverified.
+- **The first line of the body is the account handle**, and the second is the location label when the post is location-tagged. Both render reliably even when the caption does not — the handle is what you match against Step 2's report on the fallback path, and the location label is a second, free attribution signal on the location path.
 
 **Sequential, not parallel.** Twelve sequential loads across two accounts showed no rate limiting, so a plain loop is fine at this scale; keep it sequential anyway rather than fanning out.
+
+### What the note says
+
+Label whose post it is — the reader should never have to guess whether they are looking at the venue's marketing or someone's visit:
+
+```
+[在 Instagram 開啟](https://www.instagram.com/p/<code>/) · @<handle>（訪客貼文）
+```
+
+`（訪客貼文）` for the 3.6a path, `（本店帳號）` for 3.6c, and name the relationship where it is neither — an adjacent official account (a parent company, the building, the floor it sits on) gets said as such.
 
 ## Step 3.8 — Provenance gate (run this with the lint gate, after every Write/Edit)
 
