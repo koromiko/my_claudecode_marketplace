@@ -1,6 +1,6 @@
 {
   "name": "default-tools",
-  "version": "1.7.2",
+  "version": "1.9.0",
   "description": "Default tool auto-approval with sensitive-path guards, Ollama LLM fallback evaluator, macOS notification hooks, and a grill-me skill that interrogates plans before implementation",
   "author": {
     "name": "sthuang"

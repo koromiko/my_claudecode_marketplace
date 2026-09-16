@@ -91,12 +91,29 @@ When you finish — success, partial, or failed — your **last action** is to w
 
 **Missing status file = implicit failure.** Write it even when you fail — the parent uses it to choose between retry, ABSORB, and sequential fallback.
 
+### Independent review happens after you finish — expect a round trip
+
+The parent runs an **Independent Review Gate** on your diff once you return: a fresh reviewer agent
+that did not write your code returns GO or NO-GO. Your own inline review pass does **not** satisfy
+that gate, so do not treat "I reviewed it myself" as the end of the story.
+
+Two consequences for you:
+
+- **Make the diff reviewable.** Commit with a message that states intent, keep unrelated churn out,
+  and make sure `report.yaml` names the exact build/lint/test commands you ran — the reviewer is
+  handed those commands verbatim and will run them.
+- **Stay reachable.** After you write your status file, the parent may `SendMessage` you a numbered
+  list of blocking items from a NO-GO verdict. Fix every item in the same worktree and branch, re-run
+  your gates, update `report.yaml` and the status file with the new `head_sha`, and report back.
+  Do not open a new branch or worktree for review fixes.
+
 ### What "done" looks like for you
 
 - `report.yaml` written, all gates green.
 - Status file written with `status: "success"`.
 - Branch committed, worktree clean (`git status` shows nothing uncommitted you intended to keep).
-- You did **not** run `bd close <id>`. The project rule is: bead closure happens only after a human merges to `main`. Just leave the bead `in_progress` and let the parent surface the unmerged branch.
+- A GO from the parent's review gate is what makes your branch mergeable — expect the round trip above before the batch is over.
+- You did **not** run `bd close <id>`, merge, or push. Closure happens only after the bead's code is on `main`, and the parent is the one that gets it there — after an independent reviewer returns GO and a merge-verdict judge returns MERGE. Leave the bead `in_progress`, leave your branch unmerged, and let the parent land it.
 
 ## Preamble (paste verbatim — end)
 

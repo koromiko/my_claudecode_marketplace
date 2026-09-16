@@ -15,6 +15,8 @@ Skill assets (load on demand at the step that uses them):
 - `references/prompt-cache-strategy.md` — verbatim-prefix pattern + ScheduleWakeup cadence.
 - `references/child-dispatch-template.md` — the exact `Agent({...})` envelope to use per bead.
 - `references/retry-and-fallback.md` — status-file contract, retry policy, ABSORB, sequential fallback (self-contained — no dependency on other orchestration skills).
+- `references/independent-review-gate.md` — the per-bead GO/NO-GO gate run by the parent after verification.
+- `references/merge-verdict-and-landing.md` — the per-bead fork merge-verdict judge, then merging, the integration gate, pushing, and closing.
 
 ## Inputs
 
@@ -96,11 +98,13 @@ The verbatim preamble is identical across siblings in a wave — workspace-scope
 
 ## Step 6 — Supervise (cache-warm, and terminating)
 
-Poll with `TaskList` / `TaskGet`. Idle wait via `ScheduleWakeup` at **240s** with a `reason` describing the wave (`"waiting on wave-1 children: nt-a, nt-b, nt-c"`). 240s stays inside the 5-minute cache window so the parent's own context cache also stays warm.
+Poll with `TaskList` / `TaskGet`. Idle wait via `ScheduleWakeup` at **240s** with a `reason` describing the wave (`"waiting on wave-1 children: nt-a, nt-b, nt-c"`, `"waiting on review-gate round 2: nt-b"`). 240s stays inside the 5-minute cache window so the parent's own context cache also stays warm.
 
 Pass the **original skill invocation verbatim** as `prompt` on every tick — it is replayed when the timer fires, so a drifting prompt restarts the batch from Step 1 instead of resuming supervision. Set `noop: true` on a tick where no child advanced. Keep exactly one wakeup outstanding.
 
 If a child stalls > 5 minutes with no progress, send a nudge via `SendMessage`. If still stuck, stop and either retry (Step 7) or absorb.
+
+Review-gate rounds (Step 9) and merge verdicts (Step 10) are part of the wave you are supervising — a wave is not converged when its children return, only when every bead in it has landed on `main` or has a stated reason it did not. Keep the same 240s cadence across gate and verdict rounds.
 
 **The wakeup does not stop itself when the batch finishes.** Cancel it explicitly with
 
@@ -108,7 +112,7 @@ If a child stalls > 5 minutes with no progress, send a nudge via `SendMessage`. 
 ScheduleWakeup({ stop: true })
 ```
 
-as the **first** action at every terminal state, before your closing summary: the last wave verified and Step 10 notes written; a systemic abort (sequential fallback exhausted, `Agent` unavailable); a blocking question put to the user; or a wakeup that fires onto a batch with no children in flight and Step 9's `batch-report.yaml` already written. Never end a batch with a live timer — it will keep replaying the invocation against completed work.
+as the **first** action at every terminal state, before your closing summary: the last wave verified, every bead through the review gate and merge verdict, merges landed and pushed, and Step 12 notes written; a systemic abort (sequential fallback exhausted, `Agent` unavailable); a blocking question put to the user; or a wakeup that fires onto a batch with no children in flight and Step 12's `batch-report.yaml` already written. Never end a batch with a live timer — it will keep replaying the invocation against completed work.
 
 ## Step 7 — Per-child failure handling
 
@@ -119,7 +123,7 @@ Follow `references/retry-and-fallback.md`. In short:
 - **ABSORB** on 3rd failure: parent runs `implement-beads-task` for that bead **inline** (same workspace, no nested Agent call).
 - **Per-wave sequential fallback**: if `failures_after_retries / dispatched > 50%` in a wave, switch the rest of the batch to sequential (parent runs implement-beads-task inline, one bead at a time). Cause is usually systemic — re-dispatching wastes tokens.
 
-## Step 8 — Per-child verification (orchestrator review)
+## Step 8 — Per-child verification (mechanical re-derivation)
 
 For each successful child, treat its report as a **claim**, not evidence. Re-derive:
 
@@ -133,35 +137,103 @@ For each successful child, treat its report as a **claim**, not evidence. Re-der
    - **`codex-exec`-routed beads skip this step.** Codex children don't run the full implement-beads-task and won't have the worktree-scoped report.yaml. Verify them via `npm run lint` + `tsc --noEmit` + a directly-relevant unit test instead.
 5. Carry every `escalations` entry into your own batch report and final summary.
 
-## Step 9 — Cross-bead report
+This step is re-derivation, not review — it proves the child's claims, not that the change is the
+right change. That is Step 9's job, and Step 8 passing is its precondition.
+
+## Step 9 — Independent Review Gate (per bead)
+
+Follow `references/independent-review-gate.md`. A bead is **not done** — and its branch does not go
+into the merge sequence — until an independent reviewer returns **GO**.
+
+- The reviewer is a **fresh `general-purpose` Agent (`model: "opus"`) that did not write the code**.
+  Never the implementing child (self-review), never `subagent_type: "fork"` (inherits your context),
+  never you reading the diff (that was Step 8).
+- Brief it with: the bead (`bd show <id>`), the session intent and your briefing decisions, the diff
+  (`git -C <worktree> diff <base_branch>...HEAD`), the exact build/test commands, and the project's
+  non-negotiable constraints copied verbatim from its AGENTS.md / CLAUDE.md.
+- Require an explicit `VERDICT: GO` or `VERDICT: NO-GO` + a concrete blocking list.
+- On **NO-GO**: forward every blocking item to the child via `SendMessage` (or fix inline if the bead
+  was ABSORBed), re-run Step 8 on the new head, then dispatch a **fresh** reviewer. Repeat.
+- **Cap: 3 rounds.** A third NO-GO marks the bead `review_blocked` — branch withheld from the merge
+  list, final blocking list into `escalations`, surfaced to the user.
+- Dispatch reviewers for all beads awaiting a round **in one parallel message**, capped at 4.
+- Only the trivial carve-out in the reference (mechanical diff, no control-flow or data-shape change,
+  `ui_surface: false`) may skip the gate; record it as `review_gate.skipped_reason: "trivial"`.
+- ABSORBed beads get the gate too — there *you* are the author, so the independent eye matters most.
+
+A GO means the branch is mergeable, not merged. It is the precondition for Step 10's merge verdict — a bead needs **both** before it lands.
+
+## Step 10 — Merge Verdict Protocol (per bead)
+
+Follow `references/merge-verdict-and-landing.md`. A GO says the code is good; the merge verdict says
+the work is done. A bead needs **both** before it touches `main`.
+
+- Dispatch **one `Agent(subagent_type: "fork")` per bead** — the fork inherits this session's
+  transcript, which is what a session-level judgement needs. Pin each judge to its own bead by id;
+  it can see every sibling's evidence and will use the wrong one otherwise.
+- Dispatch judges for all beads awaiting one in a single parallel message, capped at 4. No `model`
+  (a fork follows the parent), no worktree isolation (it reads, it does not build).
+- Require exactly **MERGE** or **ESCALATE**. The fork **decides only** — it must not merge, close
+  beads, edit files, or push.
+- Run the verdict **as each bead earns its GO**, not as one phase at the end. Wave-1 beads can be
+  judged and landed while wave-2 children are still writing code.
+- **On ESCALATE:** do not merge. Report the reason, leave the bead `in_progress` with its worktree
+  intact, keep it and anything chained behind it out of the merge sequence, and stop for the human.
+
+## Step 11 — Land the merges
+
+**Land per wave, not per bead.** Verdicts come in as beads earn them (Step 10), but merging one bead
+at a time means one integration gate per bead — the gate is the expensive part. Collect a wave's
+MERGE-verdict beads and land them as one sequence; a bead whose verdict arrives after its wave landed
+goes into the next landing pass. Each landing pass runs the full sequence below.
+
+For every bead in the pass, in wave order, with `git -C <abs path>` for every command:
+
+1. Record `PRE_BATCH_SHA` on the main checkout, `pull --rebase origin main`.
+2. Merge the branches **one at a time, locally, in wave order** — a chained bead after its
+   predecessor. A conflict aborts the sequence for that bead and everything behind it: the wave
+   plan's file partition was wrong, and resolving it yourself would ship code no reviewer has seen.
+3. **Run the integration gate once on merged `main`** — build plus the suites the batch's beads
+   actually exercised. Each branch was green *in isolation*; nothing has yet proven they are green
+   *together*. This is the batch's own failure mode and does not exist in the single-bead protocol.
+4. If it is red: `reset --hard $PRE_BATCH_SHA`, re-merge one at a time with a build after each to
+   find the culprit, exclude it (and its dependents), keep the rest, report it as
+   `integration_failed`.
+5. **Push** once green, then verify `status` shows up to date with `origin/main`. Retry through
+   `pull --rebase` if rejected. Never force-push, never skip hooks, never end with "ready to push
+   when you are" — you push.
+6. After the push: `bd close <id>` each merged bead, `git worktree remove` its worktree, `bd create`
+   the follow-up beads the verdicts proposed, then commit the bd state (the project's
+   `scripts/bd-commit.sh` or its documented `bd sync` path) and push again.
+7. Every bead **not** merged — ESCALATE, `review_blocked`, `integration_failed`, or blocked behind
+   one — gets `bd update <id> --notes="<branch> @ <sha> — not merged: <reason> — see .agents/reports/${BATCH_ID}/batch-report.yaml"`,
+   stays `in_progress`, and keeps its worktree.
+
+## Step 12 — Cross-bead report + handoff
 
 Write `.agents/reports/${BATCH_ID}/batch-report.yaml` per the contract in `templates/batch-report.yaml`:
 
 - Wave plan (waves + dependencies).
-- Per-bead row: id, branch, head_sha, gate results, screenshot paths, status (success / absorbed / sequential-fallback).
-- Aggregate escalations.
-- **Unmerged-branches list in merge order**, respecting wave dependencies.
+- Per-bead row: id, branch, head_sha, gate results, review-gate verdict + rounds, merge verdict,
+  merge outcome, screenshot paths, status (merged / escalated / review-blocked / integration-failed /
+  failed).
+- Aggregate escalations and the follow-up beads filed.
+- The **merged list** (bead, branch, merge commit) and the **not-merged list**, each with its reason.
 
-## Step 10 — Bead lifecycle (project rule)
-
-Per project `CLAUDE.md`: **do not `bd close` anything in this batch**. The work isn't done until merged to `main`.
-
-For every bead in the run:
-
-```sh
-bd update <id> --notes="<branch> @ <sha> — see .agents/reports/${BATCH_ID}/batch-report.yaml"
-```
-
-Final user-facing message: a one-line phase log plus the unmerged-branches list in merge order, each annotated with its base (`nt-d ← nt-a` for chained beads).
-
-Then run `bd sync` to push the bead state changes (notes + in_progress flips) to git.
+Final user-facing message: the one-line phase log, what landed on `origin/main`, every merge verdict,
+the follow-up beads filed, and anything left unmerged with the reason a human needs to act on it.
 
 ## Guardrails
 
 - **Top-level only** — refuse if `Agent` is not available.
-- **Never** close beads. **Never** merge to `main`. **Never** force-push or skip hooks.
+- **Never merge, close a bead, or push without BOTH** a **GO** from the independent review gate
+  (Step 9) and a **MERGE** verdict from the fork judge (Step 10). Either one alone is not enough.
+- **Never** force-push, skip hooks, or resolve a cross-bead merge conflict on your own judgement.
+- **Never merge without the integration gate.** Branches green in isolation are not evidence that
+  they are green merged together.
 - **Trust but verify** every child report. Read the diff, open the screenshots, re-run `npm run build`.
-- **Parent stays Opus.** The orchestrator's leverage is in plan classification, failure diagnosis, and Step-8 verification — exactly the work where Opus pulls ahead. Don't downgrade the parent to save tokens; the children are where cost moves.
-- A child whose worktree has no changes auto-cleans; otherwise its path travels in the batch report.
+- **No bead ships without a GO** from an independent reviewer that did not write it (Step 9). A child's own inline review pass is self-review and does not count; neither does your Step 8 pass.
+- **Parent stays Opus.** The orchestrator's leverage is in plan classification, failure diagnosis, Step-8 verification, and the landing sequence — exactly the work where Opus pulls ahead. Don't downgrade the parent to save tokens; the children are where cost moves.
+- A merged bead's worktree is removed; an unmerged bead's worktree **stays** — the human needs it, and its path travels in the batch report.
 - **Never end a batch with a live wakeup.** Success, abort, or blocking question — every exit path calls `ScheduleWakeup({ stop: true })` first (Step 6).
-- Keep user-facing updates terse: one line per phase transition (`probe ok`, `wave plan ready`, `wave-1 dispatched (3)`, `wave-1 converged 3/3`, `wave-2 dispatched (1)`, `done — N branches awaiting merge`).
+- Keep user-facing updates terse: one line per phase transition (`probe ok`, `wave plan ready`, `wave-1 dispatched (3)`, `wave-1 converged 3/3`, `review gate 3/3 GO`, `verdicts 3 MERGE`, `wave-2 dispatched (1)`, `integration gate green`, `pushed — N merged, M escalated`).
