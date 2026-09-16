@@ -21,7 +21,7 @@ usage:
   sightings append --run <run.json> --top14 <top14.json> --shown <shown.json>
                    [--pool <pool.json>]... [--log <path>]
   sightings backfill --from <preferences.md> [--log <path>]
-  sightings stats [--log <path>]
+  sightings stats [--log <path>] [--types <t1,t2>] [--queries <q1,q2>]
 
 Records live at ${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}/sightings.jsonl
 USAGE
@@ -272,7 +272,47 @@ case "$cmd" in
     ;;
 
   stats)
-    echo "error: 'stats' is not implemented yet" >&2; exit 64 ;;
+    log="$LOG_DEFAULT"; types=""; queries=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --log)     [[ $# -ge 2 ]] || die64 "--log needs a value";     log="$2";     shift 2 ;;
+        --types)   [[ $# -ge 2 ]] || die64 "--types needs a value";   types="$2";   shift 2 ;;
+        --queries) [[ $# -ge 2 ]] || die64 "--queries needs a value"; queries="$2"; shift 2 ;;
+        *) die64 "unknown flag '$1'" ;;
+      esac
+    done
+    if [[ ! -f "$log" ]]; then
+      echo "sightings: no log at $log (neutral mode)"; exit 0
+    fi
+
+    total_lines=$(wc -l < "$log" | tr -d ' ')
+    good=$( (jq -c . "$log" 2>/dev/null || true) | wc -l | tr -d ' ')
+    bad=$(( total_lines - good ))
+
+    jq -s -r --arg t "$types" --arg q "$queries" '
+      ($t | split(",") | map(select(. != ""))) as $types
+      | ($q | split(",") | map(select(. != ""))) as $queries
+      | length as $n
+      | ([.[] | select(.verdict=="👍")] | length) as $up
+      | ([.[] | select(.verdict=="👎")] | length) as $down
+      | ([.[] | select(.verdict==null)] | length) as $none
+      | "sightings: \($n) record(s) — \($up) 👍 / \($down) 👎 / \($none) unmarked",
+        ( if ($types|length) + ($queries|length) > 0 then
+            ([ .[]
+               | select( ((.type // "") as $ty | $types | index($ty) != null)
+                         or ((.matched_queries // []) as $m
+                             | ($queries | map(. as $x | $m | index($x) != null) | any)) )
+             ] | length) as $seg
+            | "segment: \($seg) record(s)"
+            + (if $seg < 5 then "  ⚠ 少於 5 筆，推論薄弱且無刷掉權" else "" end)
+          else empty end )' \
+      <(jq -c . "$log" 2>/dev/null)
+
+    if [[ "$bad" -gt 0 ]]; then
+      echo "note: $bad unreadable line(s) skipped"
+    fi
+    exit 0
+    ;;
 
   *) usage ;;
 esac

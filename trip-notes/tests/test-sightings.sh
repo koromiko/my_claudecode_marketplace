@@ -161,6 +161,29 @@ assert_eq "bucket lines are not mistaken for evidence" "0" \
 assert_eq "legacy records omit fields the prose never carried, not null them" "0" \
   "$(jq -sr '[.[]|select(has("matched_queries") or has("rating") or has("reviews") or has("travel_min") or has("rank_shown") or has("tier") or has("research"))]|length' "$BLOG")"
 
+echo "== stats summarises without dumping records =="
+out=$("$SIGHTINGS" stats --log "$LOG" 2>&1); rc=$?
+assert_eq "stats exits 0" "0" "$rc"
+assert_has "stats reports the total" "8 record(s)" "$out"
+assert_eq "stats never prints a whole record" "0" "$(grep -c 'place_id' <<<"$out")"
+
+echo "== stats sizes the relevant segment =="
+out=$("$SIGHTINGS" stats --log "$LOG" --queries "クラフトビール" 2>&1)
+assert_has "the segment is counted" "segment: 4 record(s)" "$out"
+assert_has "and the weak-evidence warning fires under 5" "少於 5 筆" "$out"
+
+echo "== a missing log is neutral mode, not an error =="
+out=$("$SIGHTINGS" stats --log "$TMP/nope.jsonl" 2>&1); rc=$?
+assert_eq "a missing log exits 0" "0" "$rc"
+assert_has "and says so plainly" "neutral mode" "$out"
+
+echo "== a malformed line is skipped and reported, never fatal =="
+cp "$LOG" "$TMP/dirty.jsonl"; echo '{"broken": ' >> "$TMP/dirty.jsonl"
+out=$("$SIGHTINGS" stats --log "$TMP/dirty.jsonl" 2>&1); rc=$?
+assert_eq "a malformed line does not abort" "0" "$rc"
+assert_has "the skipped line is reported" "1 unreadable line" "$out"
+assert_has "the readable ones still count" "8 record(s)" "$out"
+
 echo "== usage errors are distinguishable =="
 assert_eq "no subcommand exits 64" "64" "$("$SIGHTINGS" >/dev/null 2>&1; echo $?)"
 assert_eq "a missing --run file exits 64" "64" \
