@@ -47,6 +47,17 @@ for h in 反感 強偏好 弱偏好 未定 證據紀錄; do
     assert_fail "the bucket section '$h' is gone from the skeleton" "still present"
   else assert_pass "the bucket section '$h' is gone from the skeleton"; fi
 done
+# The absence loop above is vacuous against a hollowed-out or truncated file — it
+# would pass just as happily if someone emptied preferences-example.md entirely.
+# Pin the skeleton to actually having the expected shape and substance, not just
+# lacking the retired one.
+if head -1 "$PE" | grep -qF "# 個人偵店偏好"; then assert_pass "skeleton still has its title"
+else assert_fail "skeleton still has its title" "missing or moved"; fi
+if grep -qF "sightings.jsonl" "$PE"; then assert_pass "skeleton points the user at sightings.jsonl"
+else assert_fail "skeleton points the user at sightings.jsonl" "missing"; fi
+nonblank=$(grep -cve '^[[:space:]]*$' "$PE")
+if [[ "$nonblank" -ge 8 ]]; then assert_pass "skeleton has substantive content ($nonblank non-blank lines)"
+else assert_fail "skeleton has substantive content" "only $nonblank non-blank lines"; fi
 
 echo "== SKILL.md wires up the sightings log =="
 if [[ -x "$FN/scripts/sightings" ]]; then assert_pass "sightings script ships with the skill"
@@ -62,6 +73,69 @@ for gone in "升到" "每區上限 8 條" "最後更新："; do
     assert_fail "the old bookkeeping rule '$gone' is gone from SKILL.md" "still present"
   else assert_pass "the old bookkeeping rule '$gone' is gone from SKILL.md"; fi
 done
+
+echo "== the four rules this task introduced are pinned by meaning, not by token =="
+
+# Rule: the skill never writes preferences.md. A bare mention of the phrase
+# passes even sitting in a comment; also require that no Edit/Write command in
+# SKILL.md targets preferences.md, which is the actual mechanism that would
+# violate the rule.
+if grep -qF "skill 永遠不寫這個檔" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states the skill never writes preferences.md"
+else assert_fail "SKILL.md states the skill never writes preferences.md" "claim missing"; fi
+if grep -iE '(Edit|Write)[^\n]*preferences\.md' "$FN/SKILL.md" >/dev/null; then
+  assert_fail "no Edit/Write command in SKILL.md targets preferences.md" "found one"
+else assert_pass "no Edit/Write command in SKILL.md targets preferences.md"; fi
+
+# Rule: the orchestrator never reads the sightings log into its own context —
+# only `sightings stats` may touch it directly.
+if grep -qF "不要把 log 讀進自己的 context" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states the log must not enter the orchestrator's context"
+else assert_fail "SKILL.md states the log must not enter the orchestrator's context" "claim missing"; fi
+if grep -iE '(cat|Read|head|tail)[^\n]*sightings\.jsonl' "$FN/SKILL.md" >/dev/null; then
+  assert_fail "no direct read of sightings.jsonl appears in SKILL.md" "found one"
+else assert_pass "no direct read of sightings.jsonl appears in SKILL.md"; fi
+
+# Rule: verdict is null-never-omitted for unmarked candidates.
+if grep -qF "沒被標記的一律寫 \`null\`，不要省略" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states unmarked candidates get verdict null, never omitted"
+else assert_fail "SKILL.md states unmarked candidates get verdict null, never omitted" "claim missing"; fi
+
+# Rule: a weak segment (<5) means declare-and-redo with no removal power, not a
+# quiet fallback.
+if grep -qF "不得行使刷掉權" "$FN/SKILL.md" && grep -qF "退回重做" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states a weak segment gets no removal power and a redo, not a pass"
+else assert_fail "SKILL.md states a weak segment gets no removal power and a redo, not a pass" "claim missing"; fi
+
+echo "== sightings append's --pool flag is written correctly =="
+
+# --pool takes exactly one value in scripts/sightings; a literal glob
+# (--pool <scratch>/pool-*.json) expands to several bare arguments and the
+# parser's default arm dies with "unknown flag" on the second one. This is the
+# normal path (Step 0.2 fires both nearby and search by default), not an edge
+# case, and the existing tests never caught it because they use the correct
+# repeated-flag form.
+# Check the actual call site (the two lines starting at "scripts/sightings
+# append"), not prose elsewhere that may legitimately name the broken form as
+# a warning example.
+if grep -A1 -F 'scripts/sightings append' "$FN/SKILL.md" | grep -qF -- '--pool <scratch>/pool-*.json'; then
+  assert_fail "the sightings append call site does not glob a single --pool" "found it"
+else assert_pass "the sightings append call site does not glob a single --pool"; fi
+if grep -qF 'pool_flags+=(--pool "$p")' "$FN/SKILL.md"; then
+  assert_pass "SKILL.md builds one --pool flag per pool file"
+else assert_fail "SKILL.md builds one --pool flag per pool file" "missing"; fi
+
+echo "== sightings backfill is documented somewhere a reader would look =="
+
+# The one-time migration off the four-bucket preferences.md exists in the
+# script but was undocumented in every .md under trip-notes/ — unreachable in
+# practice for anyone with an old-format file.
+if grep -qF "sightings backfill" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md documents sightings backfill"
+else assert_fail "SKILL.md documents sightings backfill" "missing"; fi
+if grep -qF "絕不寫回它" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states backfill reads preferences.md and never writes it"
+else assert_fail "SKILL.md states backfill reads preferences.md and never writes it" "missing"; fi
 
 echo "== brief placeholders are all fillable =="
 

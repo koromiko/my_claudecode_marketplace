@@ -5,7 +5,7 @@ description: Manual trigger. Find restaurants, cafés, shops, parks, or any othe
 
 # Find Nearby Places (ranked against the user's own preferences)
 
-You are the **orchestrator**. You resolve, filter, research, assemble, and verify — you do not hand unverified content to the user. The deliverable is one Obsidian markdown note in the shape given under "Note shape" below, followed by a feedback round that improves the preference file for next time.
+You are the **orchestrator**. You resolve, filter, research, assemble, and verify — you do not hand unverified content to the user. The deliverable is one Obsidian markdown note in the shape given under "Note shape" below, followed by a feedback round that records what was shown into the sightings log for next time.
 
 `build-itinerary` answers "how do I travel this route". This skill answers "what is around this one point that is worth going to **and matches my taste**".
 
@@ -26,7 +26,9 @@ Skill assets:
   type that is not listed there.**
 - `templates/score-candidates-brief.md` — preference matching + ranking subagent
 - `templates/research-venue-brief.md` — per-venue research subagent (首選層)
-- `templates/preferences-example.md` — cold-start skeleton for the preference file
+- `templates/preferences-example.md` — a skeleton for the user to copy to
+  `~/.config/trip-notes/preferences.md` themselves; the skill never writes it,
+  only points to it
 - `../build-itinerary/templates/verify-facts-brief.md` — time-and-access fact check
 - `../build-itinerary/templates/verify-brief.md` — agent-browser URL/image verification
 
@@ -103,7 +105,7 @@ Every condition goes to the **cheapest layer that can actually answer it**. Hand
 | **2. 結構化布林欄位** | 陽台座位、寵物、素食、兒童友善、廁所、適合多人 | 加進 `nearby --fields`，由 script 端過濾 | **升 SKU**，只在需要時加 |
 | **3. 無結構化來源** | 有設計感、安靜、可久坐、氣氛好、**無障礙** | 交給 Step 5 scoring agent（評論）＋ 待確認問題 | 已含在既有流程 |
 
-Layer 3 and the preference file run on exactly the same machinery — they are the same kind of thing, one persistent and one per-run.
+Layer 3 and the sightings log run on exactly the same machinery — they are the same kind of thing, one persistent (across runs, in `sightings.jsonl`) and one per-run.
 
 Validated layer-2 field names (`--fields`): `outdoorSeating`, `allowsDogs`, `servesVegetarianFood`, `goodForChildren`, `restroom`, `goodForGroups`. **These six are the whole list — `scripts/maps` rejects anything else with exit 64, and Step 2 then aborts.** `api-facts.md` records four further names (`servesBreakfast`, `liveMusic`, `accessibilityOptions`, `parkingOptions`) as valid *in a field mask*, which is a different and weaker claim: they are object- or enum-valued, not the plain booleans the three-state rule assumes, so `--fields` does not take them. A condition those four would have answered — 「有供早餐」、「有現場音樂」、「無障礙」、「有停車場」 — is a **layer-3** condition: send it to the scoring agent plus a 待確認問題, exactly like 「氣氛好」. **Only add the ones a stated condition needs.** These sit in a higher billing tier and a request bills at its highest field, the same mechanism as `reviews`. Nobody asked about a balcony → `outdoorSeating` does not go in the mask.
 
@@ -130,7 +132,10 @@ Report the resolved type set, the query channels, any `--fields` you added, and 
 兩個來源，權威分明：
 
 - `~/.config/trip-notes/preferences.md` — **使用者親口說的話**，純人工檔。
-  存在就整份交給 Step 5 的 agent，當作最高權威。**skill 永遠不寫這個檔。**
+  這個固定路徑寫在 `score-candidates-brief.md` 裡，Step 5 的 agent 存在就自己打開讀，
+  當作最高權威；orchestrator 不需要、也不要把它的內容讀進自己的 context 或轉交。
+  **skill 永遠不寫這個檔。** 不存在就跳過，不建立；若使用者想要，一行告知
+  `templates/preferences-example.md` 的路徑，由使用者自己複製過去。
 - `~/.config/trip-notes/sightings.jsonl` — 目擊紀錄，skill 唯一會寫的記憶。
 
 先跑一行拿摘要，**不要把 log 讀進自己的 context**：
@@ -140,7 +145,15 @@ scripts/sightings stats --queries "<本次查詢詞，逗號分隔>"
 ```
 
 它會回報總筆數、相關群大小，以及群小於 5 筆時的警告。log 不存在 → 中性模式，
-一行告知使用者，流程照跑。
+一行告知使用者，流程照跑；筆記的 排序依據 寫「尚無目擊紀錄，本次為中性排序（依
+`travel_min` 與評分）」，不要套用「相關群 <N> 筆目擊」那個模板——中性模式沒有
+群可言。
+
+**一次性搬遷：`scripts/sightings backfill --from <preferences.md>`。** 若使用者的
+`preferences.md` 還是舊的四區模型（帶 `## 反感`／`## 證據紀錄` 等標題），這個子命令
+只讀那份檔的 `## 證據紀錄` 區塊，把裡面的 👍／👎 紀錄轉成 `legacy: true` 的
+sightings 記錄寫進 log——**只讀 `preferences.md`，絕不寫回它**。只在使用者主動要求
+搬遷舊偏好檔時執行一次，不是每次執行都跑。
 
 ## Pipeline
 
@@ -588,13 +601,36 @@ cat > <scratch>/run.json <<'JSON'
  "region":"...","origin":"...","request":"<使用者原話，逐字>",
  "queries":["..."],"mode":"WALK","max_min":20}
 JSON
+pool_flags=()
+for p in <scratch>/pool-*.json; do pool_flags+=(--pool "$p"); done
 scripts/sightings append --run <scratch>/run.json --top14 <scratch>/top14.json \
-  --shown <scratch>/shown.json --pool <scratch>/pool-*.json
+  --shown <scratch>/shown.json "${pool_flags[@]}"
 ```
+
+**`--pool` takes exactly one value and must be repeated, once per pool file — never
+`--pool <scratch>/pool-*.json` written literally.** The shell expands that glob into
+several bare arguments; the parser consumes the first as `--pool`'s value and then
+hits an unrecognised bare filename and exits 64 with `unknown flag`. Step 0.2's
+default is to fire both `nearby` and `search` in parallel, so this is the normal
+path with two or more pool files, not an edge case.
+
+**Do not "fix" the crash by dropping `--pool` instead.** `--pool` is the only
+source of `matched_queries` on the written record, and `matched_queries` is one of
+the two fields (`type` is the other) that `sightings stats --queries` and the
+scoring brief's 分群 step segment on. Omitting `--pool` does not degrade that
+run's record — it silently drops the segment signal, permanently, for every
+sighting recorded that way.
 
 `verdict` 只有三種值：`"👍"`、`"👎"`、`null`。**沒被標記的一律寫 `null`，不要省略
 那一筆**——它配上 `rank_shown` 才說得出「我們排第 1 的使用者沒選」，而那是這份記憶
 裡最有價值的一句話。`research` 只有首選層有，其餘省略。
+
+**哪幾家要記，`rank_shown` 怎麼填：** 展示過的每一家指筆記裡出現名字的每一家 ——
+首選、其他候選、以及已篩掉的候選裡**點名的**那些（Step 5 的 已篩掉／未入選；未點名
+的兩種數字統計，`reachable` 的 `dropped_over_limit`／`unroutable`，不是候選，不記）。
+首選與其他候選的 `rank_shown` 是結論表裡的名次；已篩掉的候選裡的店從未被排進結論表，
+`rank_shown` 寫 `null`——它們的 `verdict` 也必然是 `null`，因為使用者從未被給過選
+它們的機會。
 
 使用者略過不答是合法結果：`verdict` 全部寫 `null`，記錄照寫。
 
@@ -615,4 +651,4 @@ scripts/sightings append --run <scratch>/run.json --top14 <scratch>/top14.json \
 - Hotlink images from the source page; don't download or rehost them. Skip Flickr, Getty, Shutterstock, Alamy, PIXTA, 写真AC, and any page stating "All rights reserved". A page stating no licence at all is kept, recorded as `unknown`.
 - Default output language is Traditional Chinese with native-language (usually Japanese) place names alongside — follow the user's language if they ask otherwise.
 - If asked to commit, **`git add` the specific `.md` files by path, never a directory.** Run `git status` first and keep the commit scoped to this task's files.
-- Keep progress updates short: one line for the Step 0.2 resolution, one when research finishes, one when verification finishes, one final summary, one for the preference-file change.
+- Keep progress updates short: one line for the Step 0.2 resolution, one when research finishes, one when verification finishes, one final summary, one for the sightings-log write.
