@@ -52,11 +52,29 @@ done
 
 echo "== brief placeholders are all fillable =="
 
-assert_eq "score brief placeholders" "<CONDITIONS> <N> <POOL_PATH> <REVIEWS_PATH>" \
+assert_eq "score brief placeholders" "<CONDITIONS> <N> <POOL_PATH> <REVIEWS_PATH> <SIGHTINGS_PATH>" \
   "$(grep -o '<[A-Z_]*>' "$FN/templates/score-candidates-brief.md" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "research brief placeholders" \
   "<ADDRESS> <FETCHED> <HOURS> <MAPS_URL> <NAME> <QUESTIONS> <STATUS> <TRAVEL_MIN>" \
   "$(grep -o '<[A-Z_]*>' "$FN/templates/research-venue-brief.md" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+
+echo "== the scoring brief mandates segment-then-axes-then-rank =="
+SB="$FN/templates/score-candidates-brief.md"
+for phrase in "先分群" "每條軸都要附計數" "沒有計數的軸不得使用"; do
+  if grep -qF "$phrase" "$SB"; then assert_pass "score brief states: $phrase"
+  else assert_fail "score brief states: $phrase" "missing"; fi
+done
+
+echo "== the removal bar survives the rewrite =="
+for phrase in "少於 5 筆" "≥ 2 次不同執行" "任何一群都沒有"; do
+  if grep -qF "$phrase" "$SB"; then assert_pass "score brief keeps the removal bar: $phrase"
+  else assert_fail "score brief keeps the removal bar: $phrase" "missing"; fi
+done
+
+echo "== inference may never silently remove =="
+if grep -qF "若這條推錯了，告訴我" "$SB"; then
+  assert_pass "score brief mandates the correctable removal line"
+else assert_fail "score brief mandates the correctable removal line" "missing"; fi
 
 echo "== the hard-won verification rules survive in the shared briefs =="
 
