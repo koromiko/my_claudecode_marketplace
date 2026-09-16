@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# sightings — the find-nearby preference memory.
+#
+# One line per SHOWN candidate per run. Not per marked candidate: the signal
+# that matters most is the gap between the rank we showed and the choice the
+# user made, and that only exists if the unmarked ones are written down too.
+#
+# Nothing here infers anything. It records what happened; the scoring agent
+# does the reasoning, every run, from these lines.
+set -euo pipefail
+
+CONFIG_DIR="${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}"
+LOG_DEFAULT="$CONFIG_DIR/sightings.jsonl"
+
+die64() { echo "error: $*" >&2; exit 64; }
+die65() { echo "violation: $*" >&2; exit 65; }
+
+usage() {
+  cat >&2 <<'USAGE'
+usage:
+  sightings append --run <run.json> --top14 <top14.json> --shown <shown.json>
+                   [--pool <pool.json>]... [--log <path>]
+  sightings backfill --from <preferences.md> [--log <path>]
+  sightings stats [--log <path>]
+
+Records live at ${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}/sightings.jsonl
+USAGE
+  exit 64
+}
+
+# 月曜日..日曜日 for date's %u (1=Monday .. 7=Sunday)
+weekday_jp() {
+  case "$1" in
+    1) echo 月曜日 ;; 2) echo 火曜日 ;; 3) echo 水曜日 ;; 4) echo 木曜日 ;;
+    5) echo 金曜日 ;; 6) echo 土曜日 ;; 7) echo 日曜日 ;;
+    *) echo "" ;;
+  esac
+}
+# short form used by the `closed` array (月火水木金土日)
+weekday_short() {
+  case "$1" in
+    1) echo 月 ;; 2) echo 火 ;; 3) echo 水 ;; 4) echo 木 ;;
+    5) echo 金 ;; 6) echo 土 ;; 7) echo 日 ;; *) echo "" ;;
+  esac
+}
+
+cmd="${1:-}"; [[ -n "$cmd" ]] || usage; shift
+
+case "$cmd" in
+  append)
+    log="$LOG_DEFAULT"; run=""; top14=""; shown=""; pools=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --log)   log="${2:?--log needs a path}"; shift 2 ;;
+        --run)   run="${2:?--run needs a file}"; shift 2 ;;
+        --top14) top14="${2:?--top14 needs a file}"; shift 2 ;;
+        --shown) shown="${2:?--shown needs a file}"; shift 2 ;;
+        --pool)  pools+=("${2:?--pool needs a file}"); shift 2 ;;
+        *) die64 "unknown flag '$1'" ;;
+      esac
+    done
+    for f in "$run" "$top14" "$shown"; do
+      [[ -n "$f" ]] || usage
+      [[ -f "$f" ]] || die64 "no such file: $f"
+    done
+    for p in "${pools[@]:-}"; do
+      [[ -z "$p" || -f "$p" ]] || die64 "no such pool file: $p"
+    done
+
+    target_date=$(jq -r '.target_date // empty' "$run")
+    if [[ -n "$target_date" ]]; then
+      u=$(date -j -f "%Y-%m-%d" "$target_date" +%u 2>/dev/null || echo "")
+    else
+      u=""
+    fi
+    wd_long=$(weekday_jp "${u:-0}")
+    wd_short=$(weekday_short "${u:-0}")
+
+    # place_id -> [queries], built from the pools' own self-description.
+    if [[ ${#pools[@]} -gt 0 ]]; then
+      mq=$(jq -s '
+        [ .[]
+          | (.query // .included_type) as $q
+          | select($q != null)
+          | .places[]? | {place_id, q: $q} ]
+        | group_by(.place_id)
+        | map({key: .[0].place_id, value: [.[].q] | unique})
+        | from_entries' "${pools[@]}")
+    else
+      mq='{}'
+    fi
+
+    # A shown place_id that isn't in top14 is a contract violation, not a
+    # usage error: something upstream fabricated or mismatched an id.
+    missing=$(jq -r --slurpfile t "$top14" '
+      ($t[0].places | map(.place_id)) as $ids
+      | .[] | select(.place_id as $p | $ids | index($p) | not) | .place_id' "$shown")
+    [[ -z "$missing" ]] || die65 "shown place_id not in top14: $missing"
+
+    mkdir -p "$(dirname "$log")"
+
+    lines=$(jq -c -n \
+      --slurpfile run_arr "$run" \
+      --slurpfile top_arr "$top14" \
+      --slurpfile shown_arr "$shown" \
+      --argjson mq "$mq" \
+      --arg wd "$wd_long" --arg wds "$wd_short" '
+      def hm: capture("(?<h>[0-9]+)時(?<m>[0-9]+)分") | ((.h|tonumber)*60 + (.m|tonumber));
+      def fmt: "\(((./60)|floor)|tostring|if length==1 then "0"+. else . end):\((.%60)|tostring|if length==1 then "0"+. else . end)";
+
+      # Returns {open_from, close_at, hours_span_h, closed_on_target, hours_missing}
+      def derive(h; wd; wds):
+        if h == null or (h|type) != "object" then
+          {open_from:null, close_at:null, hours_span_h:null,
+           closed_on_target:null, hours_missing:true}
+        else
+          ( if (h.hours|type) == "array" then
+              ( [ h.hours[] | select(startswith(wd + ":")) ] | first // null )
+            elif (h.hours|type) == "string" then h.hours
+            else null end ) as $line
+          | ( (h.closed // []) | index(wds) != null ) as $closed_listed
+          | if $line == null then
+              {open_from:null, close_at:null, hours_span_h:null,
+               closed_on_target:$closed_listed, hours_missing:true}
+            elif ($line | test("定休日")) then
+              {open_from:null, close_at:null, hours_span_h:null,
+               closed_on_target:true, hours_missing:false}
+            else
+              ( [ $line | scan("[0-9]+時[0-9]+分") ] ) as $parts
+              | if ($parts|length) < 2 then
+                  {open_from:null, close_at:null, hours_span_h:null,
+                   closed_on_target:$closed_listed, hours_missing:true}
+                else
+                  ($parts[0]|hm) as $o | ($parts[1]|hm) as $c
+                  | (if $c <= $o then $c + 1440 else $c end) as $c2
+                  | {open_from: ($o|fmt), close_at: ($c|fmt),
+                     hours_span_h: ((($c2 - $o)/60)|floor),
+                     closed_on_target: $closed_listed, hours_missing:false}
+                end
+            end
+        end;
+
+      $run_arr[0] as $run
+      | ($top_arr[0].places | map({key:.place_id, value:.}) | from_entries) as $by_id
+      | $shown_arr[0][]
+      | . as $s
+      | ($by_id[$s.place_id]) as $p
+      | derive($p.hours; $wd; $wds) as $h
+      | {
+          run_id: $run.run_id, run_date: $run.run_date, target_date: $run.target_date,
+          region: $run.region, origin: $run.origin, request: $run.request,
+          queries: $run.queries, mode: $run.mode, max_min: $run.max_min,
+
+          place_id: $p.place_id, name: $p.name, type: $p.type,
+          pool_hits: ($p.pool_hits // null),
+          matched_queries: ($mq[$p.place_id] // []),
+          travel_min: ($p.travel_min // null),
+          rating: ($p.rating // null), reviews: ($p.reviews // null),
+          status: ($p.status // "UNKNOWN"),
+          open_from: $h.open_from, close_at: $h.close_at,
+          hours_span_h: $h.hours_span_h,
+          closed_on_target: $h.closed_on_target,
+          hours_missing: $h.hours_missing,
+          closed_days: (($p.hours.closed) // []),
+          # Google has no "不定休" field. It only ever arrives from Step 7
+          # verification, so it rides in on the shown record research block
+          # and is null for everything else — never inferred from an empty
+          # closed_days, which means "no closure data", not "closes never".
+          irregular_closure: ($s.research.irregular_closure // null),
+          amenities: ($p.amenities // {}),
+
+          rank_shown: $s.rank_shown, tier: $s.tier,
+          verdict: ($s.verdict // null),
+          research: ($s.research // null)
+        }')
+
+    printf '%s\n' "$lines" >> "$log"
+
+    n=$(printf '%s\n' "$lines" | wc -l | tr -d ' ')
+    up=$(printf '%s\n' "$lines" | jq -s '[.[]|select(.verdict=="👍")]|length')
+    down=$(printf '%s\n' "$lines" | jq -s '[.[]|select(.verdict=="👎")]|length')
+    none=$(printf '%s\n' "$lines" | jq -s '[.[]|select(.verdict==null)]|length')
+    echo "sightings: appended $n record(s) to $log ($up 👍 / $down 👎 / $none unmarked)"
+    ;;
+
+  backfill|stats)
+    echo "error: '$cmd' is not implemented yet" >&2; exit 64 ;;
+
+  *) usage ;;
+esac
