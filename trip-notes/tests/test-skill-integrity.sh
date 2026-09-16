@@ -38,25 +38,172 @@ while read -r p; do
 done < <(grep -oE '(\.\./[a-zA-Z0-9_-]+/)?(templates|references)/[a-zA-Z0-9._-]+\.md' "$FN/SKILL.md" | sort -u)
 assert_eq "every template/reference path in SKILL.md resolves" "" "$missing"
 
-echo "== preference file headings are the contract =="
-
+echo "== the preference file is human-authored only =="
 PE="$FN/templates/preferences-example.md"
-assert_eq "preference skeleton has all five sections" "5" \
-  "$(grep -cE '^## (反感|強偏好|弱偏好|未定|證據紀錄)$' "$PE")"
-assert_eq "preference skeleton has both evidence subsections" "2" \
-  "$(grep -cE '^### (👍 想去|👎 不要)$' "$PE")"
-for h in 反感 強偏好 弱偏好 未定; do
-  if grep -q "$h" "$FN/SKILL.md"; then assert_pass "SKILL.md references section: $h"
-  else assert_fail "SKILL.md references section: $h" "not mentioned"; fi
+if grep -qF "skill 不會寫這個檔" "$PE"; then assert_pass "skeleton says the skill never writes it"
+else assert_fail "skeleton says the skill never writes it" "missing"; fi
+for h in 反感 強偏好 弱偏好 未定 證據紀錄; do
+  if grep -q "^## $h" "$PE"; then
+    assert_fail "the bucket section '$h' is gone from the skeleton" "still present"
+  else assert_pass "the bucket section '$h' is gone from the skeleton"; fi
 done
+# The absence loop above is vacuous against a hollowed-out or truncated file — it
+# would pass just as happily if someone emptied preferences-example.md entirely.
+# Pin the skeleton to actually having the expected shape and substance, not just
+# lacking the retired one.
+if head -1 "$PE" | grep -qF "# 個人偵店偏好"; then assert_pass "skeleton still has its title"
+else assert_fail "skeleton still has its title" "missing or moved"; fi
+if grep -qF "sightings.jsonl" "$PE"; then assert_pass "skeleton points the user at sightings.jsonl"
+else assert_fail "skeleton points the user at sightings.jsonl" "missing"; fi
+nonblank=$(grep -cve '^[[:space:]]*$' "$PE")
+if [[ "$nonblank" -ge 8 ]]; then assert_pass "skeleton has substantive content ($nonblank non-blank lines)"
+else assert_fail "skeleton has substantive content" "only $nonblank non-blank lines"; fi
+
+echo "== SKILL.md wires up the sightings log =="
+if [[ -x "$FN/scripts/sightings" ]]; then assert_pass "sightings script ships with the skill"
+else assert_fail "sightings script ships with the skill" "not found or not +x"; fi
+for phrase in "sightings append" "sightings stats" "<SIGHTINGS_PATH>"; do
+  if grep -qF "$phrase" "$FN/SKILL.md"; then assert_pass "SKILL.md references: $phrase"
+  else assert_fail "SKILL.md references: $phrase" "missing"; fi
+done
+
+echo "== Step 11 no longer keeps books =="
+for gone in "升到" "每區上限 8 條" "最後更新："; do
+  if grep -qF "$gone" "$FN/SKILL.md"; then
+    assert_fail "the old bookkeeping rule '$gone' is gone from SKILL.md" "still present"
+  else assert_pass "the old bookkeeping rule '$gone' is gone from SKILL.md"; fi
+done
+
+echo "== the four rules this task introduced are pinned by meaning, not by token =="
+
+# Rule: the skill never writes preferences.md. A bare mention of the phrase
+# passes even sitting in a comment; also require that no Edit/Write command in
+# SKILL.md targets preferences.md, which is the actual mechanism that would
+# violate the rule.
+if grep -qF "skill 永遠不寫這個檔" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states the skill never writes preferences.md"
+else assert_fail "SKILL.md states the skill never writes preferences.md" "claim missing"; fi
+if grep -iE '(Edit|Write)[^\n]*preferences\.md' "$FN/SKILL.md" >/dev/null; then
+  assert_fail "no Edit/Write command in SKILL.md targets preferences.md" "found one"
+else assert_pass "no Edit/Write command in SKILL.md targets preferences.md"; fi
+
+# Rule: the orchestrator never reads the sightings log into its own context —
+# only `sightings stats` may touch it directly.
+if grep -qF "不要把 log 讀進自己的 context" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states the log must not enter the orchestrator's context"
+else assert_fail "SKILL.md states the log must not enter the orchestrator's context" "claim missing"; fi
+if grep -iE '(cat|Read|head|tail)[^\n]*sightings\.jsonl' "$FN/SKILL.md" >/dev/null; then
+  assert_fail "no direct read of sightings.jsonl appears in SKILL.md" "found one"
+else assert_pass "no direct read of sightings.jsonl appears in SKILL.md"; fi
+
+# Rule: verdict is null-never-omitted for unmarked candidates.
+if grep -qF "沒被標記的一律寫 \`null\`，不要省略" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states unmarked candidates get verdict null, never omitted"
+else assert_fail "SKILL.md states unmarked candidates get verdict null, never omitted" "claim missing"; fi
+
+# Rule: a weak segment (<5) means declare-and-redo with no removal power ON
+# GROUND 4 ONLY, not a quiet fallback and not a blanket ban on all four
+# removal grounds (grounds 1-3 — closed, amenity false, user's own words —
+# must survive a cold start where every segment is <5).
+if grep -qF "不得行使第 4 種刷掉權" "$FN/SKILL.md" && grep -qF "退回重做" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states a weak segment loses only the 4th removal ground, and a redo, not a pass"
+else assert_fail "SKILL.md states a weak segment loses only the 4th removal ground, and a redo, not a pass" "claim missing"; fi
+if grep -qF "不得行使刷掉權" "$FN/SKILL.md"; then
+  assert_fail "SKILL.md no longer over-broadly bans all removal power on a weak segment" "found unqualified ban"
+else assert_pass "SKILL.md no longer over-broadly bans all removal power on a weak segment"; fi
+
+echo "== sightings append's --pool flag is written correctly =="
+
+# --pool takes exactly one value in scripts/sightings; a literal glob
+# (--pool <scratch>/pool-*.json) expands to several bare arguments and the
+# parser's default arm dies with "unknown flag" on the second one. This is the
+# normal path (Step 0.2 fires both nearby and search by default), not an edge
+# case, and the existing tests never caught it because they use the correct
+# repeated-flag form.
+# Check the actual call site (the two lines starting at "scripts/sightings
+# append"), not prose elsewhere that may legitimately name the broken form as
+# a warning example.
+if grep -A1 -F 'scripts/sightings append' "$FN/SKILL.md" | grep -qF -- '--pool <scratch>/pool-*.json'; then
+  assert_fail "the sightings append call site does not glob a single --pool" "found it"
+else assert_pass "the sightings append call site does not glob a single --pool"; fi
+if grep -qF 'pool_flags+=(--pool "$p")' "$FN/SKILL.md"; then
+  assert_pass "SKILL.md builds one --pool flag per pool file"
+else assert_fail "SKILL.md builds one --pool flag per pool file" "missing"; fi
+
+echo "== sightings backfill is documented somewhere a reader would look =="
+
+# The one-time migration off the four-bucket preferences.md exists in the
+# script but was undocumented in every .md under trip-notes/ — unreachable in
+# practice for anyone with an old-format file.
+if grep -qF "sightings backfill" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md documents sightings backfill"
+else assert_fail "SKILL.md documents sightings backfill" "missing"; fi
+if grep -qF "絕不寫回它" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states backfill reads preferences.md and never writes it"
+else assert_fail "SKILL.md states backfill reads preferences.md and never writes it" "missing"; fi
 
 echo "== brief placeholders are all fillable =="
 
-assert_eq "score brief placeholders" "<CONDITIONS> <N> <POOL_PATH> <REVIEWS_PATH>" \
+assert_eq "score brief placeholders" "<CONDITIONS> <N> <POOL_PATH> <REVIEWS_PATH> <SIGHTINGS_PATH>" \
   "$(grep -o '<[A-Z_]*>' "$FN/templates/score-candidates-brief.md" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "research brief placeholders" \
   "<ADDRESS> <FETCHED> <HOURS> <MAPS_URL> <NAME> <QUESTIONS> <STATUS> <TRAVEL_MIN>" \
   "$(grep -o '<[A-Z_]*>' "$FN/templates/research-venue-brief.md" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+
+echo "== the scoring brief mandates segment-then-axes-then-rank =="
+SB="$FN/templates/score-candidates-brief.md"
+for phrase in "先分群" "每條軸都要附計數" "沒有計數的軸不得使用"; do
+  if grep -qF "$phrase" "$SB"; then assert_pass "score brief states: $phrase"
+  else assert_fail "score brief states: $phrase" "missing"; fi
+done
+
+echo "== a weak segment only loses the 4th removal ground in the brief too =="
+if grep -qF "沒有第 4 種" "$SB"; then
+  assert_pass "score-candidates-brief scopes the weak-segment ban to the 4th removal ground"
+else assert_fail "score-candidates-brief scopes the weak-segment ban to the 4th removal ground" "claim missing"; fi
+if grep -qF "並且**沒有刷掉權**" "$SB"; then
+  assert_fail "score-candidates-brief no longer over-broadly bans all removal power on a weak segment" "found unqualified ban"
+else assert_pass "score-candidates-brief no longer over-broadly bans all removal power on a weak segment"; fi
+
+echo "== the eleven research keys are a fixed vocabulary, not an ellipsis =="
+# CRITICAL 1: axis derivation over research.* needs a stable key vocabulary
+# across runs. Pin the actual eleven keys (order-independent), in both the
+# Step 11 sample SKILL.md ships and the brief's log-shape paragraph, so an
+# edit that silently drops or renames one fails here instead of degrading
+# every subsequent run's log invisibly.
+RESEARCH_KEYS=(independent chain in_mall founded own_production price_band seating has_website instagram_state official_info_conflict irregular_closure)
+for f in "$FN/SKILL.md" "$SB"; do
+  n=$(basename "$(dirname "$f")")/$(basename "$f")
+  missing=""
+  for k in "${RESEARCH_KEYS[@]}"; do
+    grep -qF "\`$k\`" "$f" || missing="$missing $k"
+  done
+  if [[ -z "$missing" ]]; then assert_pass "$n names all eleven research keys"
+  else assert_fail "$n names all eleven research keys" "missing:$missing"; fi
+done
+if grep -qF '"research":{...}' "$FN/SKILL.md"; then
+  assert_fail "SKILL.md's Step 11 sample does not use an ellipsis for research" "ellipsis still present"
+else assert_pass "SKILL.md's Step 11 sample does not use an ellipsis for research"; fi
+if grep -qF "缺就是缺，不得補值" "$SB"; then
+  assert_pass "score-candidates-brief states missing research fields are null, never invented"
+else assert_fail "score-candidates-brief states missing research fields are null, never invented" "claim missing"; fi
+
+echo "== the removal bar survives the rewrite =="
+for phrase in "少於 5 筆" "≥ 2 次不同執行" "任何一群都沒有帶同一特徵的 👍" "矛盾證據永久禁止刷掉"; do
+  if grep -qF "$phrase" "$SB"; then assert_pass "score brief keeps the removal bar: $phrase"
+  else assert_fail "score brief keeps the removal bar: $phrase" "missing"; fi
+done
+
+echo "== inference may never silently remove =="
+if grep -qF "若這條推錯了，告訴我" "$SB"; then
+  assert_pass "score brief mandates the correctable removal line"
+else assert_fail "score brief mandates the correctable removal line" "missing"; fi
+
+echo "== a preference match may never rest on review text alone =="
+for phrase in "絕不能只靠評論" "是降級加待確認問題，不是刷掉"; do
+  if grep -qF "$phrase" "$SB"; then assert_pass "score brief bans review-only preference rejection: $phrase"
+  else assert_fail "score brief bans review-only preference rejection: $phrase" "missing"; fi
+done
 
 echo "== the hard-won verification rules survive in the shared briefs =="
 
@@ -119,18 +266,6 @@ else
   assert_fail "score-candidates-brief states UNKNOWN is no-data and survives" \
     "the claim itself is missing (a bare mention of the token is not enough)"
 fi
-
-echo "== the preference skeleton carries every maintenance rule the skill relies on =="
-
-# This file is copied VERBATIM into the user's real ~/.config/trip-notes/preferences.md,
-# so its rule comment is the version that persists on disk. SKILL.md declares it
-# authoritative for preference maintenance; a rule missing here is a rule the user's
-# own file will never carry.
-# Match the RULE, not the 「最後更新：」 field itself — the field is present in the
-# skeleton either way, so a bare token grep would pass with the rule missing.
-if grep -q '必須同時更新檔案開頭的「最後更新：」' "$PE"; then
-  assert_pass "preference skeleton's rules include updating 最後更新"
-else assert_fail "preference skeleton's rules include updating 最後更新" "rule missing from the comment"; fi
 
 echo "== 評論印象 is carried end to end, and always with its disclaimer =="
 

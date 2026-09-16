@@ -162,7 +162,7 @@ out=$(run_maps search --limit 20 "35.681,139.767" 1500 "タイ料理 テラス�
 
 assert_eq "search returns the fixture's places" "2" "$(jq -r '.returned' <<<"$out")"
 assert_eq "search output uses the same top-level keys as nearby" \
-  "places returned shown" "$(jq -r 'del(.fetched,.from_cache) | keys | join(" ")' <<<"$out")"
+  "included_type places query returned shown" "$(jq -r 'del(.fetched,.from_cache) | keys | join(" ")' <<<"$out")"
 assert_eq "search output uses the same per-place keys as nearby" \
   "$(run_maps nearby --limit 1 "35.681,139.767" 500 restaurant | jq -r '.places[0] | keys | join(" ")')" \
   "$(jq -r '.places[0] | keys | join(" ")' <<<"$out")"
@@ -197,6 +197,18 @@ case "$cap" in
   *"capped to 20"*) assert_pass "search warns on stderr when --limit exceeds the API cap" ;;
   *) assert_fail "search warns on stderr when --limit exceeds the API cap" "stderr was [$cap]" ;;
 esac
+
+echo "== pool files say which query produced them =="
+out=$(run_maps search --limit 5 "35.681,139.767" 1500 "クラフトビール" 2>/dev/null)
+assert_eq "search stamps the query text" "クラフトビール" "$(jq -r '.query' <<<"$out")"
+assert_eq "search leaves included_type null" "null" "$(jq -r '.included_type' <<<"$out")"
+
+out=$(run_maps nearby --limit 5 "35.681,139.767" 500 restaurant 2>/dev/null)
+assert_eq "nearby stamps the includedType" "restaurant" "$(jq -r '.included_type' <<<"$out")"
+assert_eq "nearby leaves query null" "null" "$(jq -r '.query' <<<"$out")"
+
+out=$(run_maps nearby --limit 5 "35.681,139.767" 500 2>/dev/null)
+assert_eq "an untyped nearby stamps null, not an empty string" "null" "$(jq -r '.included_type' <<<"$out")"
 
 echo "== reachable (merge + dedupe + travel-time filter) =="
 

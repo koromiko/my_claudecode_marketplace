@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+# sightings — the find-nearby preference memory.
+#
+# One line per SHOWN candidate per run. Not per marked candidate: the signal
+# that matters most is the gap between the rank we showed and the choice the
+# user made, and that only exists if the unmarked ones are written down too.
+#
+# Nothing here infers anything. It records what happened; the scoring agent
+# does the reasoning, every run, from these lines.
+set -euo pipefail
+
+CONFIG_DIR="${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}"
+LOG_DEFAULT="$CONFIG_DIR/sightings.jsonl"
+
+die64() { echo "error: $*" >&2; exit 64; }
+die65() { echo "violation: $*" >&2; exit 65; }
+
+usage() {
+  cat >&2 <<'USAGE'
+usage:
+  sightings append --run <run.json> --top14 <top14.json> --shown <shown.json>
+                   [--pool <pool.json>]... [--log <path>]
+  sightings backfill --from <preferences.md> [--log <path>]
+  sightings stats [--log <path>] [--types <t1,t2>] [--queries <q1,q2>]
+
+Records live at ${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}/sightings.jsonl
+USAGE
+  exit 64
+}
+
+# 月曜日..日曜日 for date's %u (1=Monday .. 7=Sunday). Assumes MAPS_LANG=ja (this
+# skill's default and Japan-only scope) — under MAPS_LANG=en, `hours` lines are
+# in English and none of these labels will ever match, so every derive() call
+# falls through to hours_missing:true even when Google genuinely had hours.
+weekday_jp() {
+  case "$1" in
+    1) echo 月曜日 ;; 2) echo 火曜日 ;; 3) echo 水曜日 ;; 4) echo 木曜日 ;;
+    5) echo 金曜日 ;; 6) echo 土曜日 ;; 7) echo 日曜日 ;;
+    *) echo "" ;;
+  esac
+}
+# short form used by the `closed` array (月火水木金土日)
+weekday_short() {
+  case "$1" in
+    1) echo 月 ;; 2) echo 火 ;; 3) echo 水 ;; 4) echo 木 ;;
+    5) echo 金 ;; 6) echo 土 ;; 7) echo 日 ;; *) echo "" ;;
+  esac
+}
+
+cmd="${1:-}"; [[ -n "$cmd" ]] || usage; shift
+
+case "$cmd" in
+  append)
+    log="$LOG_DEFAULT"; run=""; top14=""; shown=""; pools=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --log)   [[ $# -ge 2 ]] || die64 "--log needs a value";   log="$2";   shift 2 ;;
+        --run)   [[ $# -ge 2 ]] || die64 "--run needs a value";   run="$2";   shift 2 ;;
+        --top14) [[ $# -ge 2 ]] || die64 "--top14 needs a value"; top14="$2"; shift 2 ;;
+        --shown) [[ $# -ge 2 ]] || die64 "--shown needs a value"; shown="$2"; shift 2 ;;
+        --pool)  [[ $# -ge 2 ]] || die64 "--pool needs a value";  pools+=("$2"); shift 2 ;;
+        *) die64 "unknown flag '$1'" ;;
+      esac
+    done
+    for f in "$run" "$top14" "$shown"; do
+      [[ -n "$f" ]] || usage
+      [[ -f "$f" ]] || die64 "no such file: $f"
+    done
+    for p in "${pools[@]:-}"; do
+      [[ -z "$p" || -f "$p" ]] || die64 "no such pool file: $p"
+    done
+
+    # Weekday of the target date, portably. `u` is 1(Mon)..7(Sun), or empty
+    # when the weekday genuinely cannot be determined — never guessed, and
+    # never allowed to fall through to "today" or to a false negative.
+    target_date=$(jq -r '.target_date // empty' "$run")
+    u=""
+    if [[ -n "$target_date" ]]; then
+      if ! u=$(date -j -f "%Y-%m-%d" "$target_date" +%u 2>/dev/null); then
+        u=$(date -d "$target_date" +%u 2>/dev/null) || u=""
+      fi
+    fi
+    if [[ -n "$u" ]]; then
+      wd_long=$(weekday_jp "$u")
+      wd_short=$(weekday_short "$u")
+    else
+      wd_long=""
+      wd_short=""
+    fi
+
+    # place_id -> [queries], built from the pools' own self-description.
+    # had_pools distinguishes "no --pool given at all" (no evidence existed,
+    # so matched_queries must be null) from "pools were given but this
+    # particular place_id wasn't in any of them" (genuine no-hit, []).
+    if [[ ${#pools[@]} -gt 0 ]]; then
+      had_pools=true
+      mq=$(jq -s '
+        [ .[]
+          | (.query // .included_type) as $q
+          | select($q != null)
+          | .places[]? | {place_id, q: $q} ]
+        | group_by(.place_id)
+        | map({key: .[0].place_id, value: [.[].q] | unique})
+        | from_entries' "${pools[@]}")
+    else
+      had_pools=false
+      mq='{}'
+    fi
+
+    # A shown place_id that isn't in top14 is a contract violation, not a
+    # usage error: something upstream fabricated or mismatched an id.
+    missing=$(jq -r --slurpfile t "$top14" '
+      ($t[0].places | map(.place_id)) as $ids
+      | .[] | select(.place_id as $p | $ids | index($p) | not) | .place_id' "$shown")
+    [[ -z "$missing" ]] || die65 "shown place_id not in top14: $missing"
+
+    lines=$(jq -c -n \
+      --slurpfile run_arr "$run" \
+      --slurpfile top_arr "$top14" \
+      --slurpfile shown_arr "$shown" \
+      --argjson mq "$mq" \
+      --argjson had_pools "$had_pools" \
+      --arg wd "$wd_long" --arg wds "$wd_short" '
+      def hm: capture("(?<h>[0-9]+)時(?<m>[0-9]+)分") | ((.h|tonumber)*60 + (.m|tonumber));
+      def fmt: "\(((./60)|floor)|tostring|if length==1 then "0"+. else . end):\((.%60)|tostring|if length==1 then "0"+. else . end)";
+
+      # Returns {open_from, close_at, hours_span_h, hours_split, closed_on_target, hours_missing}
+      #
+      # hours_split is null whenever hours_missing is true — with no parsed
+      # hours at all, "no 中休み" is not a fact we have; it is only ever
+      # true/false when a target-day schedule was actually parsed.
+      #
+      # closed_on_target is evidence-backed, never guessed:
+      #   true  — the target weekday own line says 定休日, or the closed[]
+      #           array names the target weekday
+      #   false — closed[] is non-empty and does NOT name the target weekday
+      #           (Google listed closures; this day is not one of them)
+      #   null  — the weekday is unknown, or there is no closure evidence at
+      #           all (an absent/empty closed[] with no 定休日 line means
+      #           "no closure data", not "never closes")
+      def derive(h; wd; wds):
+        if wd == "" then
+          # Weekday itself is unknown — nothing target-day-specific can be
+          # derived, and that must not silently read as "open". hours_split
+          # is null, not false: "no 中休み" is itself a fact about hours
+          # that are missing.
+          {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
+           closed_on_target:null, hours_missing:true}
+        elif h == null or (h|type) != "object" then
+          {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
+           closed_on_target:null, hours_missing:true}
+        else
+          ( if (h.hours|type) == "array" then
+              ( [ h.hours[] | select(startswith(wd + ":")) ] | first // null )
+            elif (h.hours|type) == "string" then h.hours
+            else null end ) as $line
+          | ( (h.closed // []) ) as $closed
+          | ( ($closed | index(wds)) != null ) as $closed_listed
+          | ( if ($line != null and ($line | test("定休日"))) then true
+              elif $closed_listed then true
+              elif ($closed | length) > 0 then false
+              else null
+              end ) as $closed_on_target
+          | if $line == null then
+              {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
+               closed_on_target:$closed_on_target, hours_missing:true}
+            elif ($line | test("定休日")) then
+              {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+               closed_on_target:true, hours_missing:false}
+            else
+              ( [ $line | scan("[0-9]+時[0-9]+分") ] ) as $parts
+              | if ($parts|length) < 2 then
+                  {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
+                   closed_on_target:$closed_on_target, hours_missing:true}
+                else
+                  # Pair up times in order: (open,close),(open,close),...
+                  # A 中休み (lunch/dinner split) schedule gives more than
+                  # one pair. A dangling odd time at the end (a parse
+                  # oddity) is dropped rather than guessed at.
+                  ( ($parts|length) - (($parts|length) % 2) ) as $even_len
+                  | [ range(0; $even_len; 2)
+                      | { o: ($parts[.] | hm), c: ($parts[.+1] | hm) } ] as $pairs
+                  | $pairs[0].o as $first_o
+                  | $pairs[-1].c as $last_c
+                  | ( [ $pairs[]
+                        | (if .c <= .o then .c + 1440 else .c end) - .o ]
+                      | add ) as $total_min
+                  | {open_from: ($first_o | fmt), close_at: ($last_c | fmt),
+                     hours_span_h: (($total_min / 60) | floor),
+                     hours_split: (($pairs | length) > 1),
+                     closed_on_target: $closed_on_target, hours_missing:false}
+                end
+            end
+        end;
+
+      $run_arr[0] as $run
+      | ($top_arr[0].places | map({key:.place_id, value:.}) | from_entries) as $by_id
+      | $shown_arr[0][]
+      | . as $s
+      | ($by_id[$s.place_id]) as $p
+      | derive($p.hours; $wd; $wds) as $h
+      | {
+          run_id: $run.run_id, run_date: $run.run_date, target_date: $run.target_date,
+          region: $run.region, origin: $run.origin, request: $run.request,
+          queries: $run.queries, mode: $run.mode, max_min: $run.max_min,
+
+          place_id: $p.place_id, name: $p.name, type: $p.type,
+          pool_hits: ($p.pool_hits // null),
+          # null means no pool evidence existed at all for this run (no
+          # --pool given); [] means pools were supplied and genuinely did
+          # not contain this place_id. The two are not the same claim.
+          matched_queries: (if $had_pools then ($mq[$p.place_id] // []) else null end),
+          travel_min: ($p.travel_min // null),
+          rating: ($p.rating // null), reviews: ($p.reviews // null),
+          status: ($p.status // "UNKNOWN"),
+          open_from: $h.open_from, close_at: $h.close_at,
+          hours_span_h: $h.hours_span_h,
+          hours_split: $h.hours_split,
+          closed_on_target: $h.closed_on_target,
+          hours_missing: $h.hours_missing,
+          closed_days: (($p.hours.closed) // []),
+          # Google has no "不定休" field. It only ever arrives from Step 7
+          # verification, so it rides in on the shown record research block
+          # and is null for everything else — never inferred from an empty
+          # closed_days, which means "no closure data", not "closes never".
+          irregular_closure: ($s.research.irregular_closure // null),
+          amenities: ($p.amenities // {}),
+
+          rank_shown: $s.rank_shown, tier: $s.tier,
+          verdict: ($s.verdict // null),
+          research: ($s.research // null)
+        }')
+
+    # An empty shown.json must never plant a blank line, and must not lie
+    # about having appended a record.
+    if [[ -z "$lines" ]]; then
+      echo "sightings: appended 0 record(s) to $log"
+      exit 0
+    fi
+
+    mkdir -p "$(dirname "$log")"
+    printf '%s\n' "$lines" >> "$log"
+
+    n=$(printf '%s\n' "$lines" | wc -l | tr -d ' ')
+    up=$(printf '%s\n' "$lines" | jq -s '[.[]|select(.verdict=="👍")]|length')
+    down=$(printf '%s\n' "$lines" | jq -s '[.[]|select(.verdict=="👎")]|length')
+    none=$(printf '%s\n' "$lines" | jq -s '[.[]|select(.verdict==null)]|length')
+    echo "sightings: appended $n record(s) to $log ($up 👍 / $down 👎 / $none unmarked)"
+    ;;
+
+  backfill)
+    log="$LOG_DEFAULT"; from=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --log)  [[ $# -ge 2 ]] || die64 "--log needs a value";  log="$2";  shift 2 ;;
+        --from) [[ $# -ge 2 ]] || die64 "--from needs a value"; from="$2"; shift 2 ;;
+        *) die64 "unknown flag '$1'" ;;
+      esac
+    done
+    [[ -n "$from" ]] || usage
+    [[ -f "$from" ]] || die64 "no such file: $from"
+    mkdir -p "$(dirname "$log")"
+
+    # Only the 證據紀錄 section. The bucket sections use the same "- " bullet
+    # and would otherwise be read as venues.
+    section=$(awk '/^## 證據紀錄/{s=1; next} /^## /{if(s) exit} s' "$from")
+
+    lines=$(printf '%s\n' "$section" | awk '
+      /^### 👍/ { v="👍"; next }
+      /^### 👎/ { v="👎"; next }
+      /^- / && v != "" { print v "\t" substr($0, 3) }
+    ' | jq -R -c '
+      split("\t") as $f
+      | $f[1]
+      | capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}) · (?<r>[^·]+) · (?<rest>.*)$")
+      | (.rest | split(" — ")) as $nn
+      | {legacy: true,
+         run_date: .d,
+         region: (.r | sub(" +$"; "")),
+         name: ($nn[0] | sub(" +$"; "")),
+         note: (if ($nn|length) > 1 then ($nn[1:] | join(" — ")) else null end),
+         verdict: $f[0]}')
+
+    if [[ -z "$lines" ]]; then
+      echo "sightings: backfilled 0 legacy record(s) — no 證據紀錄 entries found in $from"
+      exit 0
+    fi
+    printf '%s\n' "$lines" >> "$log"
+    echo "sightings: backfilled $(printf '%s\n' "$lines" | wc -l | tr -d ' ') legacy record(s) to $log"
+    ;;
+
+  stats)
+    log="$LOG_DEFAULT"; types=""; queries=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --log)     [[ $# -ge 2 ]] || die64 "--log needs a value";     log="$2";     shift 2 ;;
+        --types)   [[ $# -ge 2 ]] || die64 "--types needs a value";   types="$2";   shift 2 ;;
+        --queries) [[ $# -ge 2 ]] || die64 "--queries needs a value"; queries="$2"; shift 2 ;;
+        *) die64 "unknown flag '$1'" ;;
+      esac
+    done
+    if [[ ! -f "$log" ]]; then
+      echo "sightings: no log at $log (neutral mode)"; exit 0
+    fi
+
+    # jq's slurp/stream parsers do not recover from a syntax error
+    # mid-stream: one bad line anywhere before the end silently discards
+    # every valid line that follows it. So each line is validated on its
+    # own — a bad line can only ever cost itself, never its neighbours.
+    valid_tmp=$(mktemp)
+    bad=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] || continue
+      if jq -e . >/dev/null 2>&1 <<<"$line"; then
+        printf '%s\n' "$line" >> "$valid_tmp"
+      else
+        bad=$((bad + 1))
+      fi
+    done < "$log"
+
+    jq -s -r --arg t "$types" --arg q "$queries" '
+      ($t | split(",") | map(select(. != ""))) as $types
+      | ($q | split(",") | map(select(. != ""))) as $queries
+      | length as $n
+      | ([.[] | select(.verdict=="👍")] | length) as $up
+      | ([.[] | select(.verdict=="👎")] | length) as $down
+      | ([.[] | select(.verdict==null)] | length) as $none
+      | "sightings: \($n) record(s) — \($up) 👍 / \($down) 👎 / \($none) unmarked",
+        ( if ($types|length) + ($queries|length) > 0 then
+            ([ .[]
+               | select( ((.type // "") as $ty | $types | index($ty) != null)
+                         or ((.matched_queries // []) as $m
+                             | ($queries | map(. as $x | $m | index($x) != null) | any)) )
+             ] | length) as $seg
+            | "segment: \($seg) record(s)"
+            + (if $seg < 5 then "  ⚠ 少於 5 筆，推論薄弱且無刷掉權" else "" end)
+          else empty end )' \
+      "$valid_tmp"
+    rm -f "$valid_tmp"
+
+    if [[ "$bad" -gt 0 ]]; then
+      echo "note: $bad unreadable line(s) skipped"
+    fi
+    exit 0
+    ;;
+
+  *) usage ;;
+esac

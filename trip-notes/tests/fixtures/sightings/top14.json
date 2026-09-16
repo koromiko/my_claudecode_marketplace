@@ -1,0 +1,17 @@
+{"origin":"小倉駅","mode":"WALK","max_min":20,"pool_fetched":"2026-09-15T16:03:19Z",
+ "places":[
+  {"place_id":"P_NAKA","name":"角打ちなかむらえん","type":"酒店","travel_min":7,
+   "rating":4.7,"reviews":61,"status":"OPERATIONAL","pool_hits":2,
+   "hours":{"closed":[],"hours":["月曜日: 15時00分～21時00分","火曜日: 15時00分～21時00分",
+     "水曜日: 15時00分～21時00分","木曜日: 15時00分～21時00分","金曜日: 15時00分～21時00分",
+     "土曜日: 13時00分～21時00分","日曜日: 13時00分～20時00分"]}},
+  {"place_id":"P_HAKU","name":"飛来haku","type":"バー","travel_min":5,
+   "rating":4.9,"reviews":16,"status":"OPERATIONAL","pool_hits":1,
+   "hours":{"closed":[],"hours":"19時00分～0時00分"}},
+  {"place_id":"P_BUMBLE","name":"Bar Bumblebees","type":"軽食店","travel_min":4,
+   "rating":4.8,"reviews":6,"status":"OPERATIONAL","pool_hits":1,"hours":null},
+  {"place_id":"P_TIGER","name":"小倉タイガー","type":"バー","travel_min":10,
+   "rating":4.6,"reviews":18,"status":"OPERATIONAL","pool_hits":1,
+   "hours":{"closed":["日"],"hours":["月曜日: 17時00分～23時00分","火曜日: 17時00分～23時00分",
+     "水曜日: 17時00分～23時00分","木曜日: 17時00分～23時00分","金曜日: 17時00分～2時00分",
+     "土曜日: 17時00分～2時00分","日曜日: 定休日"]}}]}

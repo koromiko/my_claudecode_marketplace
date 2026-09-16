@@ -1,0 +1,5 @@
+{"origin":"小倉駅","mode":"WALK","max_min":20,"pool_fetched":"2026-09-15T16:03:19Z",
+ "places":[
+  {"place_id":"P_LUNCH","name":"定食屋なかよし","type":"定食屋","travel_min":6,
+   "rating":4.5,"reviews":30,"status":"OPERATIONAL","pool_hits":1,
+   "hours":{"closed":[],"hours":["土曜日: 11時00分～14時00分、17時00分～21時00分"]}}]}
