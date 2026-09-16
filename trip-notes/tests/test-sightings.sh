@@ -184,6 +184,42 @@ assert_eq "a malformed line does not abort" "0" "$rc"
 assert_has "the skipped line is reported" "1 unreadable line" "$out"
 assert_has "the readable ones still count" "8 record(s)" "$out"
 
+echo "== a malformed line in the MIDDLE does not swallow what follows it =="
+# jq's slurp does not recover from a mid-stream parse error: a naive
+# whole-file jq pass reports the tail as lost, not just the bad line.
+MIDLOG="$TMP/mid.jsonl"
+{
+  echo '{"type":"cafe","verdict":null}'
+  echo '{"broken": '
+  echo '{"type":"cafe","verdict":"👍"}'
+  echo '{"type":"cafe","verdict":"👎"}'
+} > "$MIDLOG"
+out=$("$SIGHTINGS" stats --log "$MIDLOG" 2>&1); rc=$?
+assert_eq "exits 0 despite mid-stream corruption" "0" "$rc"
+assert_has "the three valid records before and after it all survive" "3 record(s)" "$out"
+assert_has "exactly one bad line is reported, not three" "1 unreadable line" "$out"
+
+echo "== a malformed line as the ONLY line still reports cleanly =="
+ONLYBAD="$TMP/onlybad.jsonl"
+echo '{"broken": ' > "$ONLYBAD"
+out=$("$SIGHTINGS" stats --log "$ONLYBAD" 2>&1); rc=$?
+assert_eq "exits 0 with only a bad line" "0" "$rc"
+assert_has "zero good records, not a crash" "0 record(s)" "$out"
+assert_has "the one bad line is reported" "1 unreadable line" "$out"
+
+echo "== the weak-evidence threshold is exactly 5 =="
+TH4="$TMP/th4.jsonl"; : > "$TH4"
+for i in 1 2 3 4; do echo '{"type":"cafe","verdict":null}' >> "$TH4"; done
+out=$("$SIGHTINGS" stats --log "$TH4" --types "cafe" 2>&1)
+assert_has "4 records: segment counted" "segment: 4 record(s)" "$out"
+assert_has "4 records: below threshold, warns" "少於 5 筆" "$out"
+
+TH5="$TMP/th5.jsonl"; : > "$TH5"
+for i in 1 2 3 4 5; do echo '{"type":"cafe","verdict":null}' >> "$TH5"; done
+out=$("$SIGHTINGS" stats --log "$TH5" --types "cafe" 2>&1)
+assert_has "5 records: segment counted" "segment: 5 record(s)" "$out"
+assert_eq "5 records: at threshold, does not warn" "0" "$(grep -c '少於 5 筆' <<<"$out")"
+
 echo "== usage errors are distinguishable =="
 assert_eq "no subcommand exits 64" "64" "$("$SIGHTINGS" >/dev/null 2>&1; echo $?)"
 assert_eq "a missing --run file exits 64" "64" \

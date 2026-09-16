@@ -285,9 +285,20 @@ case "$cmd" in
       echo "sightings: no log at $log (neutral mode)"; exit 0
     fi
 
-    total_lines=$(wc -l < "$log" | tr -d ' ')
-    good=$( (jq -c . "$log" 2>/dev/null || true) | wc -l | tr -d ' ')
-    bad=$(( total_lines - good ))
+    # jq's slurp/stream parsers do not recover from a syntax error
+    # mid-stream: one bad line anywhere before the end silently discards
+    # every valid line that follows it. So each line is validated on its
+    # own — a bad line can only ever cost itself, never its neighbours.
+    valid_tmp=$(mktemp)
+    bad=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] || continue
+      if jq -e . >/dev/null 2>&1 <<<"$line"; then
+        printf '%s\n' "$line" >> "$valid_tmp"
+      else
+        bad=$((bad + 1))
+      fi
+    done < "$log"
 
     jq -s -r --arg t "$types" --arg q "$queries" '
       ($t | split(",") | map(select(. != ""))) as $types
@@ -306,7 +317,8 @@ case "$cmd" in
             | "segment: \($seg) record(s)"
             + (if $seg < 5 then "  ⚠ 少於 5 筆，推論薄弱且無刷掉權" else "" end)
           else empty end )' \
-      <(jq -c . "$log" 2>/dev/null)
+      "$valid_tmp"
+    rm -f "$valid_tmp"
 
     if [[ "$bad" -gt 0 ]]; then
       echo "note: $bad unreadable line(s) skipped"
