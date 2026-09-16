@@ -38,16 +38,29 @@ while read -r p; do
 done < <(grep -oE '(\.\./[a-zA-Z0-9_-]+/)?(templates|references)/[a-zA-Z0-9._-]+\.md' "$FN/SKILL.md" | sort -u)
 assert_eq "every template/reference path in SKILL.md resolves" "" "$missing"
 
-echo "== preference file headings are the contract =="
-
+echo "== the preference file is human-authored only =="
 PE="$FN/templates/preferences-example.md"
-assert_eq "preference skeleton has all five sections" "5" \
-  "$(grep -cE '^## (反感|強偏好|弱偏好|未定|證據紀錄)$' "$PE")"
-assert_eq "preference skeleton has both evidence subsections" "2" \
-  "$(grep -cE '^### (👍 想去|👎 不要)$' "$PE")"
-for h in 反感 強偏好 弱偏好 未定; do
-  if grep -q "$h" "$FN/SKILL.md"; then assert_pass "SKILL.md references section: $h"
-  else assert_fail "SKILL.md references section: $h" "not mentioned"; fi
+if grep -qF "skill 不會寫這個檔" "$PE"; then assert_pass "skeleton says the skill never writes it"
+else assert_fail "skeleton says the skill never writes it" "missing"; fi
+for h in 反感 強偏好 弱偏好 未定 證據紀錄; do
+  if grep -q "^## $h" "$PE"; then
+    assert_fail "the bucket section '$h' is gone from the skeleton" "still present"
+  else assert_pass "the bucket section '$h' is gone from the skeleton"; fi
+done
+
+echo "== SKILL.md wires up the sightings log =="
+if [[ -x "$FN/scripts/sightings" ]]; then assert_pass "sightings script ships with the skill"
+else assert_fail "sightings script ships with the skill" "not found or not +x"; fi
+for phrase in "sightings append" "sightings stats" "<SIGHTINGS_PATH>"; do
+  if grep -qF "$phrase" "$FN/SKILL.md"; then assert_pass "SKILL.md references: $phrase"
+  else assert_fail "SKILL.md references: $phrase" "missing"; fi
+done
+
+echo "== Step 11 no longer keeps books =="
+for gone in "升到" "每區上限 8 條" "最後更新："; do
+  if grep -qF "$gone" "$FN/SKILL.md"; then
+    assert_fail "the old bookkeeping rule '$gone' is gone from SKILL.md" "still present"
+  else assert_pass "the old bookkeeping rule '$gone' is gone from SKILL.md"; fi
 done
 
 echo "== brief placeholders are all fillable =="
@@ -143,18 +156,6 @@ else
   assert_fail "score-candidates-brief states UNKNOWN is no-data and survives" \
     "the claim itself is missing (a bare mention of the token is not enough)"
 fi
-
-echo "== the preference skeleton carries every maintenance rule the skill relies on =="
-
-# This file is copied VERBATIM into the user's real ~/.config/trip-notes/preferences.md,
-# so its rule comment is the version that persists on disk. SKILL.md declares it
-# authoritative for preference maintenance; a rule missing here is a rule the user's
-# own file will never carry.
-# Match the RULE, not the 「最後更新：」 field itself — the field is present in the
-# skeleton either way, so a bare token grep would pass with the rule missing.
-if grep -q '必須同時更新檔案開頭的「最後更新：」' "$PE"; then
-  assert_pass "preference skeleton's rules include updating 最後更新"
-else assert_fail "preference skeleton's rules include updating 最後更新" "rule missing from the comment"; fi
 
 echo "== 評論印象 is carried end to end, and always with its disclaimer =="
 
