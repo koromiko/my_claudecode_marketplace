@@ -141,8 +141,15 @@ Report the resolved type set, the query channels, any `--fields` you added, and 
 先跑一行拿摘要，**不要把 log 讀進自己的 context**：
 
 ```bash
-scripts/sightings stats --queries "<本次查詢詞，逗號分隔>"
+scripts/sightings stats --queries "<本次 includedType 字串與使用者查詢文字，逗號分隔>"
 ```
+
+`matched_queries` 由 `.query // .included_type` 組成，所以純 `nearby` 執行（無
+`search`）存的是 includedType 字串（如 `cafe`），不是使用者的中文用詞。只給使用者
+用詞會對不上分群鍵、得到虛假的 `segment: 0` 與「推論薄弱」警告——把本次用到的
+includedType 字串（`references/api-facts.md` 那張表右欄）和使用者查詢文字**都**
+逗號接進 `--queries`。`--types` 比對的是 Google 在地化顯示名稱，Step 0.5 此刻還沒
+呼叫過 API、不會知道這個值，留給 scoring agent 與測試用，這裡不要用。
 
 它會回報總筆數、相關群大小，以及群小於 5 筆時的警告。log 不存在 → 中性模式，
 一行告知使用者，流程照跑；筆記的 排序依據 寫「尚無目擊紀錄，本次為中性排序（依
@@ -295,7 +302,7 @@ Step 9.2b 刻意把 Instagram 的**發掘**放在這裡而不是 Step 6a：帶 W
 
 ## Step 5 — Scoring
 
-Dispatch one `sonnet` agent with `templates/score-candidates-brief.md`, filling in `<POOL_PATH>` (**`<scratch>/top14.json` from Step 4 — the fourteen, never `reachable.json`**), `<REVIEWS_PATH>`, `<CONDITIONS>` (Step 0.2's extra conditions, in the user's own words), `<N>` (8–12), and `<SIGHTINGS_PATH>` (`~/.config/trip-notes/sightings.jsonl`). The brief is authoritative for what may reject and what may not; the parts you must be able to recognise in its output:
+Dispatch one `sonnet` agent with `templates/score-candidates-brief.md`, filling in `<POOL_PATH>` (**`<scratch>/top14.json` from Step 4 — the fourteen, never `reachable.json`**), `<REVIEWS_PATH>`, `<CONDITIONS>` (Step 0.2's extra conditions, in the user's own words), `<N>` (8–12), and `<SIGHTINGS_PATH>` — **expand the tilde to an absolute path, `$HOME/.config/trip-notes/sightings.jsonl`, before filling it in.** A subagent that opens the path with a file-read tool rather than a shell may not expand `~` itself. The brief is authoritative for what may reject and what may not; the parts you must be able to recognise in its output:
 
 - It returns **排序結果**, **已篩掉**, **未入選**, **評論印象**, **待確認問題清單**, and **排序依據**. Together 排序結果 + 已篩掉 + 未入選 account for **every one of the fourteen** exactly once — the pool it is accounting for is `top14.json`, not the reachable set. The survivors outside the fourteen are yours to record, not its (Step 4's list (c)). If one of the fourteen appears in none of the three buckets, send the agent back rather than papering over it.
 - Structured fields are three-state, and that covers `status` and `hours` too, not only `amenities`. Absent means Google has no data, and never rejects.
@@ -308,8 +315,9 @@ Dispatch one `sonnet` agent with `templates/score-candidates-brief.md`, filling 
 Record for 驗證狀態: 「N 家的 <欄位> 無資料，已列為待確認」.
 
 agent 會回一個 `### 分群與軸` 區段。把它的內容帶進筆記的「排序依據」——**每條軸都要
-帶計數**。相關群少於 5 筆時，agent 必須宣告推論薄弱且不得行使刷掉權；若它在薄弱的
-情況下仍刷掉了候選，退回重做。
+帶計數**。相關群少於 5 筆時，agent 必須宣告推論薄弱，且**不得行使第 4 種刷掉權**
+（從目擊紀錄推論出的刷掉；前三種——已歇業、amenity 明確為否、使用者親口說的話——不
+受影響）；若它在薄弱的情況下仍以第 4 種刷掉了候選，退回重做。
 
 ## Step 6 — Tiered research
 
@@ -369,9 +377,16 @@ tags: [travel, japan, nearby, <type>, ...]
 ## 驗證狀態
 - 已用瀏覽器確認：<list>
 - 無法確認、出發前請自行查證：<list>
-- 排序依據：相關群 <N> 筆目擊；命中軸 <軸 1>（<計數>）、<軸 2>（<計數>）……；
-  下列特徵僅來自評論推測、未經確認：<list>（含全部評論印象）；
-  有 N 家未讀評論
+- 排序依據：三種寫法，依情況擇一：
+  - **有目擊紀錄、相關群 ≥ 5 筆：** 相關群 <N> 筆目擊；命中軸 <軸 1>（<計數>）、
+    <軸 2>（<計數>）……；下列特徵僅來自評論推測、未經確認：<list>（含全部評論印象）；
+    有 N 家未讀評論
+  - **有目擊紀錄、相關群 < 5 筆：** 相關群僅 <N> 筆目擊，推論薄弱，本次未使用任何
+    軸，改以條件符合度與 `rating` 排序（無第 4 種刷掉權）；下列特徵僅來自評論推測、
+    未經確認：<list>（含全部評論印象）；有 N 家未讀評論
+  - **無目擊紀錄（log 不存在）：** 尚無目擊紀錄，本次為中性排序（依 `travel_min`
+    與評分）；下列特徵僅來自評論推測、未經確認：<list>（含全部評論印象）；有 N 家
+    未讀評論
 ```
 
 Use `maps_url` from `trip-maps` verbatim as the Maps link. Never hand-build a `?api=1&query=…` URL — that construction is what produced every wrong-pin bug in the sibling skill.
@@ -593,9 +608,21 @@ Report the file path, the ranked list, whether the run was neutral or preference
 
 ```bash
 cat > <scratch>/shown.json <<'JSON'
-[{"place_id":"...","rank_shown":1,"tier":"首選","verdict":"👍","research":{...}},
+[{"place_id":"...","rank_shown":1,"tier":"首選","verdict":"👍",
+  "research":{"independent":true,"chain":false,"in_mall":false,"founded":null,
+    "own_production":false,"price_band":"¥1,100/飲み比べ","seating":"立ち飲み+テーブル",
+    "has_website":true,"instagram_state":"age_restricted",
+    "official_info_conflict":false,"irregular_closure":true}},
  {"place_id":"...","rank_shown":2,"tier":"首選","verdict":null}]
 JSON
+```
+
+`research` 只有這十一個固定欄位——`independent`、`chain`、`in_mall`、`founded`、
+`own_production`、`price_band`、`seating`、`has_website`、`instagram_state`、
+`official_info_conflict`、`irregular_closure`。不多也不少，缺就是缺，不得補值：查不到
+就填 `null`，絕不能因為填不出來就整個欄位省略，否則下次分群連這個 key 都找不到。
+
+```bash
 cat > <scratch>/run.json <<'JSON'
 {"run_id":"<日期>-<地點>-<主題>","run_date":"<今天>","target_date":"<目標日>",
  "region":"...","origin":"...","request":"<使用者原話，逐字>",
@@ -625,12 +652,20 @@ sighting recorded that way.
 那一筆**——它配上 `rank_shown` 才說得出「我們排第 1 的使用者沒選」，而那是這份記憶
 裡最有價值的一句話。`research` 只有首選層有，其餘省略。
 
-**哪幾家要記，`rank_shown` 怎麼填：** 展示過的每一家指筆記裡出現名字的每一家 ——
-首選、其他候選、以及已篩掉的候選裡**點名的**那些（Step 5 的 已篩掉／未入選；未點名
-的兩種數字統計，`reachable` 的 `dropped_over_limit`／`unroutable`，不是候選，不記）。
-首選與其他候選的 `rank_shown` 是結論表裡的名次；已篩掉的候選裡的店從未被排進結論表，
-`rank_shown` 寫 `null`——它們的 `verdict` 也必然是 `null`，因為使用者從未被給過選
-它們的機會。
+**哪幾家要記，`rank_shown` 怎麼填：** 要記的集合是「**在 `top14.json` 裡，而且被
+筆記點名**」的交集——這是 `scripts/sightings` 實際強制的不變量，不是文件上的建議：
+`shown.json` 裡任何一個 `place_id` 不在 `top14.json`，整個 `append` 會在寫入前就
+以 exit 65 中止，這次執行全部～10 筆目擊都不會落地，不是只丟那一筆。
+
+已篩掉的候選六組裡，只有 Step 5 回報的**已篩掉**／**未入選**在 `top14.json` 之內，
+要記；Step 4 的**已歇業**與**未進評論讀取名額**兩組，依構造就不可能在 `top14.json`
+裡（前者被 `CLOSED` 過濾器剔除、後者被 `.[:14]` 切掉），**不記**——它們從未被排進
+14 家、也從未被讀過評論，記下去只會讓下一次 append 因為 id 對不上而整批失敗。連同
+`reachable` 的 `dropped_over_limit`／`unroutable` 兩種數字統計，總共四組不進 log。
+
+首選與其他候選的 `rank_shown` 是結論表裡的名次；Step 5 已篩掉的候選裡的店從未被排進
+結論表，`rank_shown` 寫 `null`——它們的 `verdict` 也必然是 `null`，因為使用者從未被
+給過選它們的機會。
 
 使用者略過不答是合法結果：`verdict` 全部寫 `null`，記錄照寫。
 

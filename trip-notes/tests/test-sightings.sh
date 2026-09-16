@@ -44,8 +44,17 @@ assert_eq "a place both queries hit lists both" "クラフトビール,角打ち
   "$(jq -sr '.[] | select(.place_id=="P_NAKA") | .matched_queries | sort | join(",")' "$LOG")"
 assert_eq "a place one query hit lists one" "角打ち" \
   "$(jq -sr '.[] | select(.place_id=="P_HAKU") | .matched_queries | join(",")' "$LOG")"
-assert_eq "a place no pool hit gets an empty list, not null" "0" \
-  "$(jq -sr '.[] | select(.place_id=="P_BUMBLE") | .matched_queries | length' "$LOG")"
+assert_eq "a place no pool hit gets an empty list, not null" "[]" \
+  "$(jq -sc '.[] | select(.place_id=="P_BUMBLE") | .matched_queries' "$LOG")"
+
+echo "== no --pool at all means no evidence, never a fabricated empty list =="
+NOPOOLLOG="$TMP/no-pool.jsonl"
+"$SIGHTINGS" append --log "$NOPOOLLOG" --run "$F/run.json" --top14 "$F/top14.json" \
+  --shown "$F/shown.json" >/dev/null 2>&1
+assert_eq "with no --pool, matched_queries is null, not []" "4" \
+  "$(jq -sr '[.[] | select(.matched_queries==null)] | length' "$NOPOOLLOG")"
+assert_eq "with no --pool, no record gets a fabricated empty list" "0" \
+  "$(jq -sr '[.[] | select(.matched_queries==[])] | length' "$NOPOOLLOG")"
 
 echo "== hours are derived for the TARGET weekday, not today =="
 # 2026-09-19 is a Saturday. なかむらえん opens 13:00 on Saturdays, 15:00 on weekdays.
@@ -64,6 +73,8 @@ assert_eq "no hours means null open_from, never a guess" "null" \
   "$(jq -sr '.[] | select(.place_id=="P_BUMBLE") | .open_from' "$LOG")"
 assert_eq "and it is flagged rather than silently empty" "true" \
   "$(jq -sr '.[] | select(.place_id=="P_BUMBLE") | .hours_missing' "$LOG")"
+assert_eq "no hours means null hours_split too, not a fabricated 'no break'" "null" \
+  "$(jq -sr '.[] | select(.place_id=="P_BUMBLE") | .hours_split' "$LOG")"
 assert_eq "a non-首選 row carries no invented research block" "null" \
   "$(jq -sr '.[] | select(.place_id=="P_TIGER") | .research' "$LOG")"
 assert_eq "a 首選 row keeps the research it really had" "false" \

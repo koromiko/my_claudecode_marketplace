@@ -19,9 +19,25 @@ do not edit any file, and do not delegate to further subagents.
 - 目擊紀錄: `<SIGHTINGS_PATH>` — append-only JSONL，一行一筆，每筆是「某次執行展示過的
   某一家店」。含 `type` / `matched_queries` / `rating` / `reviews` / `open_from` /
   `hours_span_h` / `travel_min` / `pool_hits` / `rank_shown` / `tier` / `verdict`，
-  首選層另有 `research`。`verdict` 為 `null` 代表展示過但使用者沒標記——那是弱負面
-  訊號，配上 `rank_shown` 才看得出「我們排第 1 的他沒選」。`legacy: true` 的記錄是從
-  舊偏好檔搬來的，欄位稀疏，只有 `name` / `run_date` / `region` / `verdict` / `note`。
+  以及以下這些**同樣可能是 `null` 的推導欄位，null 代表「沒有資料」，不是一個確定
+  答案**：
+  - `closed_on_target`：`null` 代表沒有公休證據，**不是**「這天有開」；`false` 才是
+    「Google 記了公休資訊、但這天不在其中」。
+  - `hours_missing`：`true` 代表這天的時段完全沒解析出來。
+  - `hours_split`：`hours_missing` 為真時這裡是 `null`，不是 `false`——沒有時段就
+    談不上有沒有中休み，`false` 只在真的解析出單一時段時才成立。
+  - `closed_days`：空陣列 `[]` 代表「沒有公休資料」，**不是**「從不公休」。
+  - `status`：`"UNKNOWN"` 是它的無資料值（見下方三態表），不是缺席也不是關店。
+  - `amenities`：物件裡沒有某個 key 就是那個 amenity 沒資料，不是 `false`。
+  - `irregular_closure`：只存在於 `research` 區塊（見下）。
+  首選層另有 `research`，固定十一個 key：`independent`、`chain`、`in_mall`、
+  `founded`、`own_production`、`price_band`、`seating`、`has_website`、
+  `instagram_state`、`official_info_conflict`、`irregular_closure`——不多也不少，
+  缺就是缺，不得補值：查不到的欄位值是 `null`，不是被省略的 key，也不是猜出來的答案。
+  `verdict` 為 `null` 代表展示過但使用者
+  沒標記——那是弱負面訊號，配上 `rank_shown` 才看得出「我們排第 1 的他沒選」。
+  `legacy: true` 的記錄是從舊偏好檔搬來的，欄位稀疏，只有 `name` / `run_date` /
+  `region` / `verdict` / `note`。
 - 使用者親口說的話: `~/.config/trip-notes/preferences.md`（若存在）。**權威高於任何
   你從目擊紀錄推論出來的東西。** 它是純人工檔，你不得寫入。
 - This run's extra conditions: `<CONDITIONS>`
@@ -97,7 +113,10 @@ for — which is the small independent venue this rule exists to protect.
 3. **才排序。**
 
 若相關群少於 5 筆，或目擊紀錄檔不存在：寫明
-「此店種僅 N 筆目擊，推論薄弱」，改以條件符合度與 `rating` 排序，並且**沒有刷掉權**。
+「此店種僅 N 筆目擊，推論薄弱」，改以條件符合度與 `rating` 排序，並且**沒有第 4 種
+刷掉權**（從目擊紀錄推論出的刷掉）。下方刷掉權清單的第 1–3 種——已歇業、amenity
+明確為否、使用者親口說的話——不受相關群大小影響，仍可正常行使；一家 `CLOSED_PERMANENTLY`
+的店，即使是冷啟動、店種第一次出現，也還是要刷掉。
 
 **`travel_min` is a tiebreak here, never the primary key.** Everything in this
 file already passed the travel-time gate, so re-ranking on it just re-applies a

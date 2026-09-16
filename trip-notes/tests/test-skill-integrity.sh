@@ -101,11 +101,16 @@ if grep -qF "沒被標記的一律寫 \`null\`，不要省略" "$FN/SKILL.md"; t
   assert_pass "SKILL.md states unmarked candidates get verdict null, never omitted"
 else assert_fail "SKILL.md states unmarked candidates get verdict null, never omitted" "claim missing"; fi
 
-# Rule: a weak segment (<5) means declare-and-redo with no removal power, not a
-# quiet fallback.
-if grep -qF "不得行使刷掉權" "$FN/SKILL.md" && grep -qF "退回重做" "$FN/SKILL.md"; then
-  assert_pass "SKILL.md states a weak segment gets no removal power and a redo, not a pass"
-else assert_fail "SKILL.md states a weak segment gets no removal power and a redo, not a pass" "claim missing"; fi
+# Rule: a weak segment (<5) means declare-and-redo with no removal power ON
+# GROUND 4 ONLY, not a quiet fallback and not a blanket ban on all four
+# removal grounds (grounds 1-3 — closed, amenity false, user's own words —
+# must survive a cold start where every segment is <5).
+if grep -qF "不得行使第 4 種刷掉權" "$FN/SKILL.md" && grep -qF "退回重做" "$FN/SKILL.md"; then
+  assert_pass "SKILL.md states a weak segment loses only the 4th removal ground, and a redo, not a pass"
+else assert_fail "SKILL.md states a weak segment loses only the 4th removal ground, and a redo, not a pass" "claim missing"; fi
+if grep -qF "不得行使刷掉權" "$FN/SKILL.md"; then
+  assert_fail "SKILL.md no longer over-broadly bans all removal power on a weak segment" "found unqualified ban"
+else assert_pass "SKILL.md no longer over-broadly bans all removal power on a weak segment"; fi
 
 echo "== sightings append's --pool flag is written correctly =="
 
@@ -151,6 +156,37 @@ for phrase in "先分群" "每條軸都要附計數" "沒有計數的軸不得�
   if grep -qF "$phrase" "$SB"; then assert_pass "score brief states: $phrase"
   else assert_fail "score brief states: $phrase" "missing"; fi
 done
+
+echo "== a weak segment only loses the 4th removal ground in the brief too =="
+if grep -qF "沒有第 4 種" "$SB"; then
+  assert_pass "score-candidates-brief scopes the weak-segment ban to the 4th removal ground"
+else assert_fail "score-candidates-brief scopes the weak-segment ban to the 4th removal ground" "claim missing"; fi
+if grep -qF "並且**沒有刷掉權**" "$SB"; then
+  assert_fail "score-candidates-brief no longer over-broadly bans all removal power on a weak segment" "found unqualified ban"
+else assert_pass "score-candidates-brief no longer over-broadly bans all removal power on a weak segment"; fi
+
+echo "== the eleven research keys are a fixed vocabulary, not an ellipsis =="
+# CRITICAL 1: axis derivation over research.* needs a stable key vocabulary
+# across runs. Pin the actual eleven keys (order-independent), in both the
+# Step 11 sample SKILL.md ships and the brief's log-shape paragraph, so an
+# edit that silently drops or renames one fails here instead of degrading
+# every subsequent run's log invisibly.
+RESEARCH_KEYS=(independent chain in_mall founded own_production price_band seating has_website instagram_state official_info_conflict irregular_closure)
+for f in "$FN/SKILL.md" "$SB"; do
+  n=$(basename "$(dirname "$f")")/$(basename "$f")
+  missing=""
+  for k in "${RESEARCH_KEYS[@]}"; do
+    grep -qF "\`$k\`" "$f" || missing="$missing $k"
+  done
+  if [[ -z "$missing" ]]; then assert_pass "$n names all eleven research keys"
+  else assert_fail "$n names all eleven research keys" "missing:$missing"; fi
+done
+if grep -qF '"research":{...}' "$FN/SKILL.md"; then
+  assert_fail "SKILL.md's Step 11 sample does not use an ellipsis for research" "ellipsis still present"
+else assert_pass "SKILL.md's Step 11 sample does not use an ellipsis for research"; fi
+if grep -qF "缺就是缺，不得補值" "$SB"; then
+  assert_pass "score-candidates-brief states missing research fields are null, never invented"
+else assert_fail "score-candidates-brief states missing research fields are null, never invented" "claim missing"; fi
 
 echo "== the removal bar survives the rewrite =="
 for phrase in "少於 5 筆" "≥ 2 次不同執行" "任何一群都沒有帶同一特徵的 👍" "矛盾證據永久禁止刷掉"; do

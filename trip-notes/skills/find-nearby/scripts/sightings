@@ -28,7 +28,10 @@ USAGE
   exit 64
 }
 
-# 月曜日..日曜日 for date's %u (1=Monday .. 7=Sunday)
+# 月曜日..日曜日 for date's %u (1=Monday .. 7=Sunday). Assumes MAPS_LANG=ja (this
+# skill's default and Japan-only scope) — under MAPS_LANG=en, `hours` lines are
+# in English and none of these labels will ever match, so every derive() call
+# falls through to hours_missing:true even when Google genuinely had hours.
 weekday_jp() {
   case "$1" in
     1) echo 月曜日 ;; 2) echo 火曜日 ;; 3) echo 水曜日 ;; 4) echo 木曜日 ;;
@@ -86,7 +89,11 @@ case "$cmd" in
     fi
 
     # place_id -> [queries], built from the pools' own self-description.
+    # had_pools distinguishes "no --pool given at all" (no evidence existed,
+    # so matched_queries must be null) from "pools were given but this
+    # particular place_id wasn't in any of them" (genuine no-hit, []).
     if [[ ${#pools[@]} -gt 0 ]]; then
+      had_pools=true
       mq=$(jq -s '
         [ .[]
           | (.query // .included_type) as $q
@@ -96,6 +103,7 @@ case "$cmd" in
         | map({key: .[0].place_id, value: [.[].q] | unique})
         | from_entries' "${pools[@]}")
     else
+      had_pools=false
       mq='{}'
     fi
 
@@ -111,11 +119,16 @@ case "$cmd" in
       --slurpfile top_arr "$top14" \
       --slurpfile shown_arr "$shown" \
       --argjson mq "$mq" \
+      --argjson had_pools "$had_pools" \
       --arg wd "$wd_long" --arg wds "$wd_short" '
       def hm: capture("(?<h>[0-9]+)時(?<m>[0-9]+)分") | ((.h|tonumber)*60 + (.m|tonumber));
       def fmt: "\(((./60)|floor)|tostring|if length==1 then "0"+. else . end):\((.%60)|tostring|if length==1 then "0"+. else . end)";
 
       # Returns {open_from, close_at, hours_span_h, hours_split, closed_on_target, hours_missing}
+      #
+      # hours_split is null whenever hours_missing is true — with no parsed
+      # hours at all, "no 中休み" is not a fact we have; it is only ever
+      # true/false when a target-day schedule was actually parsed.
       #
       # closed_on_target is evidence-backed, never guessed:
       #   true  — the target weekday own line says 定休日, or the closed[]
@@ -128,11 +141,13 @@ case "$cmd" in
       def derive(h; wd; wds):
         if wd == "" then
           # Weekday itself is unknown — nothing target-day-specific can be
-          # derived, and that must not silently read as "open".
-          {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+          # derived, and that must not silently read as "open". hours_split
+          # is null, not false: "no 中休み" is itself a fact about hours
+          # that are missing.
+          {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
            closed_on_target:null, hours_missing:true}
         elif h == null or (h|type) != "object" then
-          {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+          {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
            closed_on_target:null, hours_missing:true}
         else
           ( if (h.hours|type) == "array" then
@@ -147,7 +162,7 @@ case "$cmd" in
               else null
               end ) as $closed_on_target
           | if $line == null then
-              {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+              {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
                closed_on_target:$closed_on_target, hours_missing:true}
             elif ($line | test("定休日")) then
               {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
@@ -155,7 +170,7 @@ case "$cmd" in
             else
               ( [ $line | scan("[0-9]+時[0-9]+分") ] ) as $parts
               | if ($parts|length) < 2 then
-                  {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+                  {open_from:null, close_at:null, hours_span_h:null, hours_split:null,
                    closed_on_target:$closed_on_target, hours_missing:true}
                 else
                   # Pair up times in order: (open,close),(open,close),...
@@ -191,7 +206,10 @@ case "$cmd" in
 
           place_id: $p.place_id, name: $p.name, type: $p.type,
           pool_hits: ($p.pool_hits // null),
-          matched_queries: ($mq[$p.place_id] // []),
+          # null means no pool evidence existed at all for this run (no
+          # --pool given); [] means pools were supplied and genuinely did
+          # not contain this place_id. The two are not the same claim.
+          matched_queries: (if $had_pools then ($mq[$p.place_id] // []) else null end),
           travel_min: ($p.travel_min // null),
           rating: ($p.rating // null), reviews: ($p.reviews // null),
           status: ($p.status // "UNKNOWN"),
