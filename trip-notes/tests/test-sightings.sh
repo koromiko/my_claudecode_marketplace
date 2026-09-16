@@ -74,6 +74,57 @@ echo "== 定休日 on the target day is recorded as closed =="
 assert_eq "an open target day is not marked closed" "false" \
   "$(jq -sr '.[] | select(.place_id=="P_TIGER") | .closed_on_target' "$LOG")"
 
+echo "== closed_on_target is evidence-backed, never guessed =="
+SUNLOG="$TMP/sunday.jsonl"
+"$SIGHTINGS" append --log "$SUNLOG" --run "$F/run-sunday.json" --top14 "$F/top14.json" \
+  --shown "$F/shown-sunday.json" >/dev/null 2>&1
+# 2026-09-20 is a Sunday. 小倉タイガー's own Sunday line says 定休日.
+assert_eq "a real 定休日 on the target day is true, not just an open flag" "true" \
+  "$(jq -sr '.[] | select(.place_id=="P_TIGER") | .closed_on_target' "$SUNLOG")"
+# なかむらえん has an empty closed[] and its Sunday line is normal hours —
+# there is no closure evidence either way, so this must be null, not false.
+assert_eq "no closure evidence at all is null, not an invented false" "null" \
+  "$(jq -sr '.[] | select(.place_id=="P_NAKA") | .closed_on_target' "$SUNLOG")"
+
+echo "== an unknown target weekday nullifies rather than guesses =="
+NOTGTLOG="$TMP/no-target.jsonl"
+"$SIGHTINGS" append --log "$NOTGTLOG" --run "$F/run-no-target.json" --top14 "$F/top14.json" \
+  --shown "$F/shown.json" >/dev/null 2>&1
+assert_eq "with no target_date, every closed_on_target is null" "4" \
+  "$(jq -sr '[.[] | select(.closed_on_target==null)] | length' "$NOTGTLOG")"
+assert_eq "with no target_date, every open_from is null" "4" \
+  "$(jq -sr '[.[] | select(.open_from==null)] | length' "$NOTGTLOG")"
+assert_eq "with no target_date, hours_missing is true for everyone, even 飛来haku's single-string schedule" "4" \
+  "$(jq -sr '[.[] | select(.hours_missing==true)] | length' "$NOTGTLOG")"
+
+echo "== a split 中休み schedule sums the ranges, not last-minus-first =="
+SPLITLOG="$TMP/split.jsonl"
+"$SIGHTINGS" append --log "$SPLITLOG" --run "$F/run.json" --top14 "$F/top14-split.json" \
+  --shown "$F/shown-split.json" >/dev/null 2>&1
+assert_eq "open_from is the first range's open time" "11:00" \
+  "$(jq -sr '.[] | select(.place_id=="P_LUNCH") | .open_from' "$SPLITLOG")"
+assert_eq "close_at is the last range's close time" "21:00" \
+  "$(jq -sr '.[] | select(.place_id=="P_LUNCH") | .close_at' "$SPLITLOG")"
+assert_eq "hours_span_h sums both ranges (3+4), not 21-11" "7" \
+  "$(jq -sr '.[] | select(.place_id=="P_LUNCH") | .hours_span_h' "$SPLITLOG")"
+assert_eq "hours_split says a break happened" "true" \
+  "$(jq -sr '.[] | select(.place_id=="P_LUNCH") | .hours_split' "$SPLITLOG")"
+assert_eq "a single-range record is not marked split" "false" \
+  "$(jq -sr '.[] | select(.place_id=="P_NAKA") | .hours_split' "$LOG")"
+
+echo "== an empty shown.json appends nothing =="
+EMPTYLOG="$TMP/empty.jsonl"
+: > "$EMPTYLOG"
+eout=$("$SIGHTINGS" append --log "$EMPTYLOG" --run "$F/run.json" --top14 "$F/top14.json" \
+        --shown "$F/shown-empty.json" 2>&1); erc=$?
+assert_eq "an empty shown.json still exits 0" "0" "$erc"
+assert_has "the summary says zero records, not a blank one" "appended 0 record(s)" "$eout"
+assert_eq "the log file gains no lines" "0" "$(wc -l < "$EMPTYLOG" | tr -d ' ')"
+
+echo "== a missing flag value exits 64, not 1 =="
+assert_eq "--run with no value exits 64" "64" \
+  "$("$SIGHTINGS" append --log "$LOG" --run >/dev/null 2>&1; echo $?)"
+
 echo "== run context is copied onto every record =="
 assert_eq "every record carries the run_id" "4" \
   "$(jq -sr '[.[] | select(.run_id=="2026-09-16-kokura-craftbeer")] | length' "$LOG")"

@@ -51,11 +51,11 @@ case "$cmd" in
     log="$LOG_DEFAULT"; run=""; top14=""; shown=""; pools=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --log)   log="${2:?--log needs a path}"; shift 2 ;;
-        --run)   run="${2:?--run needs a file}"; shift 2 ;;
-        --top14) top14="${2:?--top14 needs a file}"; shift 2 ;;
-        --shown) shown="${2:?--shown needs a file}"; shift 2 ;;
-        --pool)  pools+=("${2:?--pool needs a file}"); shift 2 ;;
+        --log)   [[ $# -ge 2 ]] || die64 "--log needs a value";   log="$2";   shift 2 ;;
+        --run)   [[ $# -ge 2 ]] || die64 "--run needs a value";   run="$2";   shift 2 ;;
+        --top14) [[ $# -ge 2 ]] || die64 "--top14 needs a value"; top14="$2"; shift 2 ;;
+        --shown) [[ $# -ge 2 ]] || die64 "--shown needs a value"; shown="$2"; shift 2 ;;
+        --pool)  [[ $# -ge 2 ]] || die64 "--pool needs a value";  pools+=("$2"); shift 2 ;;
         *) die64 "unknown flag '$1'" ;;
       esac
     done
@@ -67,14 +67,23 @@ case "$cmd" in
       [[ -z "$p" || -f "$p" ]] || die64 "no such pool file: $p"
     done
 
+    # Weekday of the target date, portably. `u` is 1(Mon)..7(Sun), or empty
+    # when the weekday genuinely cannot be determined — never guessed, and
+    # never allowed to fall through to "today" or to a false negative.
     target_date=$(jq -r '.target_date // empty' "$run")
+    u=""
     if [[ -n "$target_date" ]]; then
-      u=$(date -j -f "%Y-%m-%d" "$target_date" +%u 2>/dev/null || echo "")
-    else
-      u=""
+      if ! u=$(date -j -f "%Y-%m-%d" "$target_date" +%u 2>/dev/null); then
+        u=$(date -d "$target_date" +%u 2>/dev/null) || u=""
+      fi
     fi
-    wd_long=$(weekday_jp "${u:-0}")
-    wd_short=$(weekday_short "${u:-0}")
+    if [[ -n "$u" ]]; then
+      wd_long=$(weekday_jp "$u")
+      wd_short=$(weekday_short "$u")
+    else
+      wd_long=""
+      wd_short=""
+    fi
 
     # place_id -> [queries], built from the pools' own self-description.
     if [[ ${#pools[@]} -gt 0 ]]; then
@@ -97,8 +106,6 @@ case "$cmd" in
       | .[] | select(.place_id as $p | $ids | index($p) | not) | .place_id' "$shown")
     [[ -z "$missing" ]] || die65 "shown place_id not in top14: $missing"
 
-    mkdir -p "$(dirname "$log")"
-
     lines=$(jq -c -n \
       --slurpfile run_arr "$run" \
       --slurpfile top_arr "$top14" \
@@ -108,34 +115,65 @@ case "$cmd" in
       def hm: capture("(?<h>[0-9]+)時(?<m>[0-9]+)分") | ((.h|tonumber)*60 + (.m|tonumber));
       def fmt: "\(((./60)|floor)|tostring|if length==1 then "0"+. else . end):\((.%60)|tostring|if length==1 then "0"+. else . end)";
 
-      # Returns {open_from, close_at, hours_span_h, closed_on_target, hours_missing}
+      # Returns {open_from, close_at, hours_span_h, hours_split, closed_on_target, hours_missing}
+      #
+      # closed_on_target is evidence-backed, never guessed:
+      #   true  — the target weekday own line says 定休日, or the closed[]
+      #           array names the target weekday
+      #   false — closed[] is non-empty and does NOT name the target weekday
+      #           (Google listed closures; this day is not one of them)
+      #   null  — the weekday is unknown, or there is no closure evidence at
+      #           all (an absent/empty closed[] with no 定休日 line means
+      #           "no closure data", not "never closes")
       def derive(h; wd; wds):
-        if h == null or (h|type) != "object" then
-          {open_from:null, close_at:null, hours_span_h:null,
+        if wd == "" then
+          # Weekday itself is unknown — nothing target-day-specific can be
+          # derived, and that must not silently read as "open".
+          {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+           closed_on_target:null, hours_missing:true}
+        elif h == null or (h|type) != "object" then
+          {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
            closed_on_target:null, hours_missing:true}
         else
           ( if (h.hours|type) == "array" then
               ( [ h.hours[] | select(startswith(wd + ":")) ] | first // null )
             elif (h.hours|type) == "string" then h.hours
             else null end ) as $line
-          | ( (h.closed // []) | index(wds) != null ) as $closed_listed
+          | ( (h.closed // []) ) as $closed
+          | ( ($closed | index(wds)) != null ) as $closed_listed
+          | ( if ($line != null and ($line | test("定休日"))) then true
+              elif $closed_listed then true
+              elif ($closed | length) > 0 then false
+              else null
+              end ) as $closed_on_target
           | if $line == null then
-              {open_from:null, close_at:null, hours_span_h:null,
-               closed_on_target:$closed_listed, hours_missing:true}
+              {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+               closed_on_target:$closed_on_target, hours_missing:true}
             elif ($line | test("定休日")) then
-              {open_from:null, close_at:null, hours_span_h:null,
+              {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
                closed_on_target:true, hours_missing:false}
             else
               ( [ $line | scan("[0-9]+時[0-9]+分") ] ) as $parts
               | if ($parts|length) < 2 then
-                  {open_from:null, close_at:null, hours_span_h:null,
-                   closed_on_target:$closed_listed, hours_missing:true}
+                  {open_from:null, close_at:null, hours_span_h:null, hours_split:false,
+                   closed_on_target:$closed_on_target, hours_missing:true}
                 else
-                  ($parts[0]|hm) as $o | ($parts[1]|hm) as $c
-                  | (if $c <= $o then $c + 1440 else $c end) as $c2
-                  | {open_from: ($o|fmt), close_at: ($c|fmt),
-                     hours_span_h: ((($c2 - $o)/60)|floor),
-                     closed_on_target: $closed_listed, hours_missing:false}
+                  # Pair up times in order: (open,close),(open,close),...
+                  # A 中休み (lunch/dinner split) schedule gives more than
+                  # one pair. A dangling odd time at the end (a parse
+                  # oddity) is dropped rather than guessed at.
+                  ( ($parts|length) - (($parts|length) % 2) ) as $even_len
+                  | [ range(0; $even_len; 2)
+                      | { o: ($parts[.] | hm), c: ($parts[.+1] | hm) } ] as $pairs
+                  | $pairs[0].o as $first_o
+                  | $pairs[-1].c as $last_c
+                  | ( [ $pairs[]
+                        | (if .c <= .o then .c + 1440 else .c end) - .o ]
+                      | add ) as $total_min
+                  | {open_from: ($first_o | fmt), close_at: ($last_c | fmt),
+                     hours_span_h: (($total_min / 60) | floor),
+                     hours_split: (($pairs | length) > 1),
+                     closed_on_target: $closed_on_target, hours_missing:false}
                 end
             end
         end;
@@ -159,6 +197,7 @@ case "$cmd" in
           status: ($p.status // "UNKNOWN"),
           open_from: $h.open_from, close_at: $h.close_at,
           hours_span_h: $h.hours_span_h,
+          hours_split: $h.hours_split,
           closed_on_target: $h.closed_on_target,
           hours_missing: $h.hours_missing,
           closed_days: (($p.hours.closed) // []),
@@ -174,6 +213,14 @@ case "$cmd" in
           research: ($s.research // null)
         }')
 
+    # An empty shown.json must never plant a blank line, and must not lie
+    # about having appended a record.
+    if [[ -z "$lines" ]]; then
+      echo "sightings: appended 0 record(s) to $log"
+      exit 0
+    fi
+
+    mkdir -p "$(dirname "$log")"
     printf '%s\n' "$lines" >> "$log"
 
     n=$(printf '%s\n' "$lines" | wc -l | tr -d ' ')
