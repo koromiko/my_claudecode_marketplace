@@ -89,7 +89,6 @@ skill 讀 `preferences.md` 時，把整份內容當作使用者本人的陳述�
   "close_at": "21:00",
   "hours_span_h": 8,
   "closed_days": [],
-  "irregular_closure": true,
   "amenities": {},
 
   // ── 我們的判斷（用來測自己的誤差）
@@ -110,7 +109,8 @@ skill 讀 `preferences.md` 時，把整份內容當作使用者本人的陳述�
     "seating": "立ち飲み+テーブル",
     "has_website": true,
     "instagram_state": "age_restricted",
-    "official_info_conflict": false
+    "official_info_conflict": false,
+    "irregular_closure": true
   }
 }
 ```
@@ -127,8 +127,8 @@ skill 讀 `preferences.md` 時，把整份內容當作使用者本人的陳述�
 `rank_shown` 才能看出「我們排第 1 的使用者沒選」。代價是 log 成長約 5 倍（每次約
 10 筆而非 2–3 筆）；20 次執行約 200 筆，仍遠在單次 context 可讀範圍內。
 
-`hours_span_h`、`open_from`、`close_at`、`closed_days`、`irregular_closure` 由
-`hours` 物件推導。推導在寫入時做一次，不要求讀取端每次重算。
+`hours_span_h`、`open_from`、`close_at`、`closed_days` 由 `hours` 物件推導。
+`irregular_closure`（不定休）**不在 Google 的資料裡**，只會從 Step 7 的查證得知，因此歸在 `research` 區塊，其餘一律 `null`——空的 `closed_days` 意思是「沒有公休資料」，不是「從不公休」，不得據以推斷。推導在寫入時做一次，不要求讀取端每次重算。
 
 ## Scoring agent 契約（Step 5）
 
