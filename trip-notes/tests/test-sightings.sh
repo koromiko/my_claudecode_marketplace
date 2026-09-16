@@ -158,6 +158,8 @@ assert_eq "no field is invented to fill the gaps" "null" \
   "$(jq -sr '.[]|select(.name|test("マクドナルド"))|.rating' "$BLOG")"
 assert_eq "bucket lines are not mistaken for evidence" "0" \
   "$(jq -sr '[.[]|select(.name|test("獨立店"))]|length' "$BLOG")"
+assert_eq "legacy records omit fields the prose never carried, not null them" "0" \
+  "$(jq -sr '[.[]|select(has("matched_queries") or has("rating") or has("reviews") or has("travel_min") or has("rank_shown") or has("tier") or has("research"))]|length' "$BLOG")"
 
 echo "== usage errors are distinguishable =="
 assert_eq "no subcommand exits 64" "64" "$("$SIGHTINGS" >/dev/null 2>&1; echo $?)"

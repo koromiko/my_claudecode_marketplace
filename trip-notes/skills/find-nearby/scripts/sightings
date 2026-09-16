@@ -261,9 +261,7 @@ case "$cmd" in
          region: (.r | sub(" +$"; "")),
          name: ($nn[0] | sub(" +$"; "")),
          note: (if ($nn|length) > 1 then ($nn[1:] | join(" — ")) else null end),
-         verdict: $f[0],
-         rating: null, reviews: null, travel_min: null,
-         matched_queries: [], rank_shown: null, tier: null, research: null}')
+         verdict: $f[0]}')
 
     if [[ -z "$lines" ]]; then
       echo "sightings: backfilled 0 legacy record(s) — no 證據紀錄 entries found in $from"
