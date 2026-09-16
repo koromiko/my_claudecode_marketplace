@@ -227,6 +227,14 @@ K="$F/kokura-replay.jsonl"
 # support: both 👍-less venues had it, and none of the three picks did.
 seg='[.[] | select((.matched_queries // []) | any(. == "日本酒" or . == "クラフトビール" or . == "角打ち" or . == "ビアバー"))]'
 assert_eq "the segment is six venues" "6" "$(jq -s "$seg | length" "$K")"
+
+# The inline predicate above is a restatement for readability; this is the
+# actual production code path (type ∈ --types OR matched_queries ∩ --queries
+# ≠ ∅, CSV-parsed) computing the same segment. If these ever disagree, the
+# shipped segmentation no longer reproduces the Kokura case.
+out=$("$SIGHTINGS" stats --log "$K" --queries "日本酒,クラフトビール,角打ち,ビアバー" 2>&1)
+assert_has "the shipped stats segmentation agrees: six venues" "segment: 6 record(s)" "$out"
+
 assert_eq "own_production has zero 👍 inside the segment" "0" \
   "$(jq -s "$seg | [.[] | select(.research.own_production == true and .verdict == \"👍\")] | length" "$K")"
 assert_eq "and it is exactly the two the user skipped" "2" \
