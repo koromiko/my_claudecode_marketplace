@@ -220,6 +220,38 @@ out=$("$SIGHTINGS" stats --log "$TH5" --types "cafe" 2>&1)
 assert_has "5 records: segment counted" "segment: 5 record(s)" "$out"
 assert_eq "5 records: at threshold, does not warn" "0" "$(grep -c '少於 5 筆' <<<"$out")"
 
+echo "== the Kokura regression case is queryable from the log alone =="
+K="$F/kokura-replay.jsonl"
+
+# The axis the old buckets fired on. Inside the sake/beer segment it has NO
+# support: both 👍-less venues had it, and none of the three picks did.
+seg='[.[] | select((.matched_queries // []) | any(. == "日本酒" or . == "クラフトビール" or . == "角打ち" or . == "ビアバー"))]'
+assert_eq "the segment is six venues" "6" "$(jq -s "$seg | length" "$K")"
+assert_eq "own_production has zero 👍 inside the segment" "0" \
+  "$(jq -s "$seg | [.[] | select(.research.own_production == true and .verdict == \"👍\")] | length" "$K")"
+assert_eq "and it is exactly the two the user skipped" "2" \
+  "$(jq -s "$seg | [.[] | select(.research.own_production == true and .verdict == null)] | length" "$K")"
+
+# The axis the user actually picked on, which the old model had no field for.
+assert_eq "all three picks open at or before 13:00" "3" \
+  "$(jq -s "$seg | [.[] | select(.verdict == \"👍\" and .open_from != null and .open_from <= \"13:00\")] | length" "$K")"
+assert_eq "no pick opens later than that" "0" \
+  "$(jq -s "$seg | [.[] | select(.verdict == \"👍\" and .open_from != null and .open_from > \"13:00\")] | length" "$K")"
+
+# The inversion: the log must be able to say where our ranking was wrong.
+assert_eq "our #1 was not picked" "null" \
+  "$(jq -sr '.[] | select(.rank_shown == 1 and .run_id == "2026-09-16-kokura-craftbeer") | .verdict' "$K")"
+assert_eq "a venue we ranked 8th was" "👍" \
+  "$(jq -sr '.[] | select(.rank_shown == 8 and .run_id == "2026-09-16-kokura-craftbeer") | .verdict' "$K")"
+
+# The contradiction rule's raw material: in_mall has a 👍, so it may never remove.
+assert_eq "in_mall has a 👍 and can therefore never earn removal power" "1" \
+  "$(jq -s '[.[] | select(.research.in_mall == true and .verdict == "👍")] | length' "$K")"
+
+echo "== cross-segment traits do not leak =="
+assert_eq "own_production's 👍 all come from outside the drinks segment" "2" \
+  "$(jq -s '[.[] | select(.research.own_production == true and .verdict == "👍")] | length' "$K")"
+
 echo "== usage errors are distinguishable =="
 assert_eq "no subcommand exits 64" "64" "$("$SIGHTINGS" >/dev/null 2>&1; echo $?)"
 assert_eq "a missing --run file exits 64" "64" \
