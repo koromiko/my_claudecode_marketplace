@@ -114,12 +114,14 @@ that are otherwise equal, and say so when it decided something.
 1. `status` 是 `CLOSED_PERMANENTLY` 或 `CLOSED_TEMPORARILY` — 那兩個值以外一律保留；
    `OPERATIONAL` and `UNKNOWN` both survive（見上方 `UNKNOWN` is its no-data value）
 2. 某個 amenity 欄位對使用者要求的條件明確為 `false`
-3. 使用者在 `preferences.md` 裡親口說的話明確適用
+3. 使用者在 `preferences.md` 裡親口說的話明確適用，**且**這個候選確實符合的證據是結構化
+   資料（`type`、`amenities`、`hours`、`status`）或使用者自己的原話——**絕不能只靠評論
+   文字**。只靠評論文字判定「這句話適用於這家店」的，是降級加待確認問題，不是刷掉。
 4. 從目擊紀錄推論出的特徵，且**同時**滿足：
    - 相關群**不是**少於 5 筆
    - 該群內 **≥ 2 筆 👎** 共有該特徵
    - 這些 👎 來自 **≥ 2 次不同執行**（同一次執行裡注意到的兩項特徵只算 1 次）
-   - **任何一群都沒有**帶同一特徵的 👍（矛盾證據永久禁止刷掉）
+   - **任何一群都沒有帶同一特徵的 👍**（矛盾證據永久禁止刷掉）
 
 第 4 種每刷掉一個，「已篩掉」那行必須寫成：
 `<店名> — 本次推論「<特徵>」（證據：N 筆 👎 / M 筆 👍）。若這條推錯了，告訴我。`

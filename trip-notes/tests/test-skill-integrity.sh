@@ -66,7 +66,7 @@ for phrase in "先分群" "每條軸都要附計數" "沒有計數的軸不得�
 done
 
 echo "== the removal bar survives the rewrite =="
-for phrase in "少於 5 筆" "≥ 2 次不同執行" "任何一群都沒有"; do
+for phrase in "少於 5 筆" "≥ 2 次不同執行" "任何一群都沒有帶同一特徵的 👍" "矛盾證據永久禁止刷掉"; do
   if grep -qF "$phrase" "$SB"; then assert_pass "score brief keeps the removal bar: $phrase"
   else assert_fail "score brief keeps the removal bar: $phrase" "missing"; fi
 done
@@ -75,6 +75,12 @@ echo "== inference may never silently remove =="
 if grep -qF "若這條推錯了，告訴我" "$SB"; then
   assert_pass "score brief mandates the correctable removal line"
 else assert_fail "score brief mandates the correctable removal line" "missing"; fi
+
+echo "== a preference match may never rest on review text alone =="
+for phrase in "絕不能只靠評論" "是降級加待確認問題，不是刷掉"; do
+  if grep -qF "$phrase" "$SB"; then assert_pass "score brief bans review-only preference rejection: $phrase"
+  else assert_fail "score brief bans review-only preference rejection: $phrase" "missing"; fi
+done
 
 echo "== the hard-won verification rules survive in the shared briefs =="
 
