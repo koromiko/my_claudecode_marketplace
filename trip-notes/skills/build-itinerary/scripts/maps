@@ -583,9 +583,11 @@ dispatch() {
     # avoid — inert only while --limit equals the API's own cap of 20, and a
     # silent *selector* the moment anyone passes a smaller --limit.
     check "$(post "${PLACES}/places:searchNearby" "$mask" "$body")" \
-      | jq --argjson lim "$limit" "$JQ_COMPACT$JQ_PLACE"'
+      | jq --argjson lim "$limit" --arg it "${3:-}" "$JQ_COMPACT$JQ_PLACE"'
       { returned: (.places // [] | length),
         shown: ([(.places // []) | length, $lim] | min),
+        query: null,
+        included_type: (if $it == "" then null else $it end),
         places: [ (.places // [])[] | place_row('"$amen_expr"') ]
                 | .[0:$lim] }'
     ;;
@@ -616,9 +618,11 @@ dispatch() {
       '{textQuery: $q, languageCode: $lang, regionCode: $reg, maxResultCount: 20,
         locationBias: {circle: {center: {latitude: $lat, longitude: $lng}, radius: $r}}}')
     check "$(post "${PLACES}/places:searchText" "$PLACES_MASK" "$body")" \
-      | jq --argjson lim "$limit" "$JQ_COMPACT$JQ_PLACE"'
+      | jq --argjson lim "$limit" --arg q "$*" "$JQ_COMPACT$JQ_PLACE"'
       { returned: (.places // [] | length),
         shown: ([(.places // []) | length, $lim] | min),
+        query: (if $q == "" then null else $q end),
+        included_type: null,
         places: [ (.places // [])[] | place_row({}) ]
                 | .[0:$lim] }'
     ;;
