@@ -230,8 +230,51 @@ case "$cmd" in
     echo "sightings: appended $n record(s) to $log ($up 👍 / $down 👎 / $none unmarked)"
     ;;
 
-  backfill|stats)
-    echo "error: '$cmd' is not implemented yet" >&2; exit 64 ;;
+  backfill)
+    log="$LOG_DEFAULT"; from=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --log)  [[ $# -ge 2 ]] || die64 "--log needs a value";  log="$2";  shift 2 ;;
+        --from) [[ $# -ge 2 ]] || die64 "--from needs a value"; from="$2"; shift 2 ;;
+        *) die64 "unknown flag '$1'" ;;
+      esac
+    done
+    [[ -n "$from" ]] || usage
+    [[ -f "$from" ]] || die64 "no such file: $from"
+    mkdir -p "$(dirname "$log")"
+
+    # Only the 證據紀錄 section. The bucket sections use the same "- " bullet
+    # and would otherwise be read as venues.
+    section=$(awk '/^## 證據紀錄/{s=1; next} /^## /{if(s) exit} s' "$from")
+
+    lines=$(printf '%s\n' "$section" | awk '
+      /^### 👍/ { v="👍"; next }
+      /^### 👎/ { v="👎"; next }
+      /^- / && v != "" { print v "\t" substr($0, 3) }
+    ' | jq -R -c '
+      split("\t") as $f
+      | $f[1]
+      | capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}) · (?<r>[^·]+) · (?<rest>.*)$")
+      | (.rest | split(" — ")) as $nn
+      | {legacy: true,
+         run_date: .d,
+         region: (.r | sub(" +$"; "")),
+         name: ($nn[0] | sub(" +$"; "")),
+         note: (if ($nn|length) > 1 then ($nn[1:] | join(" — ")) else null end),
+         verdict: $f[0],
+         rating: null, reviews: null, travel_min: null,
+         matched_queries: [], rank_shown: null, tier: null, research: null}')
+
+    if [[ -z "$lines" ]]; then
+      echo "sightings: backfilled 0 legacy record(s) — no 證據紀錄 entries found in $from"
+      exit 0
+    fi
+    printf '%s\n' "$lines" >> "$log"
+    echo "sightings: backfilled $(printf '%s\n' "$lines" | wc -l | tr -d ' ') legacy record(s) to $log"
+    ;;
+
+  stats)
+    echo "error: 'stats' is not implemented yet" >&2; exit 64 ;;
 
   *) usage ;;
 esac

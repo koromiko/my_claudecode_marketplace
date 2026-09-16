@@ -136,6 +136,29 @@ echo "== append never rewrites =="
   --shown "$F/shown.json" --pool "$F/pool-a.json" >/dev/null 2>&1
 assert_eq "a second run appends rather than replacing" "8" "$(wc -l < "$LOG" | tr -d ' ')"
 
+echo "== backfill converts the legacy evidence log without inventing fields =="
+BLOG="$TMP/backfill.jsonl"
+out=$("$SIGHTINGS" backfill --from "$F/legacy-preferences.md" --log "$BLOG" 2>&1); rc=$?
+assert_eq "backfill exits 0" "0" "$rc"
+assert_eq "three evidence lines, three records" "3" "$(wc -l < "$BLOG" | tr -d ' ')"
+assert_has "the summary says how many" "backfilled 3" "$out"
+assert_eq "👍 entries keep their verdict" "2" \
+  "$(jq -sr '[.[]|select(.verdict=="👍")]|length' "$BLOG")"
+assert_eq "👎 entries keep theirs" "1" \
+  "$(jq -sr '[.[]|select(.verdict=="👎")]|length' "$BLOG")"
+assert_eq "every backfilled record is flagged legacy" "3" \
+  "$(jq -sr '[.[]|select(.legacy==true)]|length' "$BLOG")"
+assert_eq "the date is parsed out" "2026-09-13" \
+  "$(jq -sr '.[]|select(.name|test("マクドナルド"))|.run_date' "$BLOG")"
+assert_eq "the region is parsed out" "埼玉東松山" \
+  "$(jq -sr '.[]|select(.name|test("マクドナルド"))|.region' "$BLOG")"
+assert_eq "the prose survives as a note" "全國速食連鎖" \
+  "$(jq -sr '.[]|select(.name|test("マクドナルド"))|.note' "$BLOG")"
+assert_eq "no field is invented to fill the gaps" "null" \
+  "$(jq -sr '.[]|select(.name|test("マクドナルド"))|.rating' "$BLOG")"
+assert_eq "bucket lines are not mistaken for evidence" "0" \
+  "$(jq -sr '[.[]|select(.name|test("獨立店"))]|length' "$BLOG")"
+
 echo "== usage errors are distinguishable =="
 assert_eq "no subcommand exits 64" "64" "$("$SIGHTINGS" >/dev/null 2>&1; echo $?)"
 assert_eq "a missing --run file exits 64" "64" \
