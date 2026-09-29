@@ -69,13 +69,6 @@
       "version": "0.1.1",
       "source": "./shopping-price-compare",
       "category": "shopping"
-    },
-    {
-      "name": "trip-notes",
-      "description": "Verified travel notes as Obsidian markdown — drive/train itineraries, plus a nearby-places finder ranked against your own saved preferences",
-      "version": "2.1.0",
-      "source": "./trip-notes",
-      "category": "travel"
     }
   ]
 }

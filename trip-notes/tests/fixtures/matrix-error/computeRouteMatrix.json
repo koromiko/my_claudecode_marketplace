@@ -1,8 +1,0 @@
-[{
-  "error": {
-    "code": 400,
-    "message": "Request exceeded the maximum number of Addresses and Place IDs. The total number of Addresses and Place IDs in the request must be <= 50.",
-    "status": "INVALID_ARGUMENT"
-  }
-}
-]

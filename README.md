@@ -25,6 +25,8 @@ A local marketplace for Claude Code plugins, providing custom tools, skills, and
 
 ## Available Plugins
 
+> `trip-notes` moved to its own repository: https://github.com/koromiko/trip-notes
+
 ### session-manager
 
 Terminal session management - fork sessions, run commands in panes/tabs, capture output.
