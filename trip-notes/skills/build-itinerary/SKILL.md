@@ -18,6 +18,19 @@ Skill assets:
 - `templates/verify-brief.md` — brief for the agent-browser verification subagent (image and blog URLs; map links and Instagram embeds are not browser-verified here)
 - `templates/verify-facts-brief.md` — brief for verifying **time-and-access claims** (opening hours, 定休日, last train/bus, station walking minutes) against official sources — required in train mode, recommended whenever the drive note quotes closing times
 
+## Execution environment — Mac or cloud session
+
+`CLAUDE_CODE_REMOTE=true` means a cloud session (claude.ai/code). Two things differ there:
+
+- **Maps key.** The VM has no `~/.config/trip-notes/maps.env`; the environment's API credential supplies the key through the proxy, and `trip-maps` sends no key header. Exit 78 cannot happen there — an API error saying the key is missing or invalid means the credential is not configured: tell the user and fall back as Step 0.5 describes.
+- **The note.** Write it into the vault as usual. A note left on the VM is lost when the session ends, and the session can push only to its own branch — so delivery goes through a PR, which the user merges from their phone. After the fix loop, before the report:
+  1. **Frontmatter**: make sure the note has `publish-private: true` (add a frontmatter block if there is none; keep any existing keys). That puts it on the user's password-gated site once merged. Never add `publish: true` — that one is public.
+  2. **Commit only the note file(s)** — `git add <path>` by path, never `-A` — and push the session branch.
+  3. **Open a PR into `main`** with whatever PR tooling the session has. Title: the note's title. Body: the site URL(s) below and a two-line summary of 驗證狀態. If no PR tool works, say so and ask the user to use the session's Create PR button — do not end without the branch pushed.
+  4. **Site URL**: if `TRIP_NOTES_SITE_URL` is set, the page will be at `$TRIP_NOTES_SITE_URL/<note path relative to the vault folder, without .md, whitespace replaced by ->`. It goes live only after the PR is merged and the site rebuilds (a few minutes) — say that, don't present it as live.
+
+  Step 6's report then leads with the PR link and the site URL.
+
 ## Step 0.5 — Resolve every place against Google Maps FIRST
 
 **Run this before dispatching any research agent, in both pipelines.** It is a handful of shell calls, costs almost no tokens, and it settles — deterministically — the facts that used to be the skill's main error source.

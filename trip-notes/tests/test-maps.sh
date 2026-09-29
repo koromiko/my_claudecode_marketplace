@@ -498,6 +498,21 @@ rm -f "$cap_pool"
 
 rm -f "$pool_a" "$pool_b"
 
+# Missing key: locally that is exit 78; in a cloud session the egress proxy
+# injects the key, so the script must carry on without one. HOME points at an
+# empty dir so ~/.config/trip-notes/maps.env cannot be found.
+nokey_home=$(mktemp -d)
+nokey_cache=$(mktemp -d)
+env -u GOOGLE_MAPS_API_KEY -u CLAUDE_CODE_REMOTE HOME="$nokey_home" \
+  TRIP_MAPS_STUB_DIR="$FIXTURES" TRIP_MAPS_CACHE_DIR="$nokey_cache" \
+  "$MAPS" place "test" >/dev/null 2>&1
+assert_eq "no key and not in the cloud exits 78" "78" "$?"
+env -u GOOGLE_MAPS_API_KEY HOME="$nokey_home" CLAUDE_CODE_REMOTE=true \
+  TRIP_MAPS_STUB_DIR="$FIXTURES" TRIP_MAPS_CACHE_DIR="$nokey_cache" \
+  "$MAPS" place "test" >/dev/null 2>&1
+assert_eq "no key in the cloud runs anyway (proxy injects the key)" "0" "$?"
+rm -rf "$nokey_home" "$nokey_cache"
+
 echo
 echo "-- $PASSED passed, $FAILED failed --"
 if [[ ${#FAIL_DETAILS[@]} -gt 0 ]]; then printf '%s\n' "${FAIL_DETAILS[@]}"; fi

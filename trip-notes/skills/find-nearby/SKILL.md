@@ -14,13 +14,18 @@ Skill assets:
   `../build-itinerary/scripts/maps`). This skill ships no script of its own.
   If `trip-maps` is not found, use `../build-itinerary/scripts/maps` directly.
   If it exits 78 the API key is missing (`~/.config/trip-notes/maps.env`) —
-  tell the user and stop; do not guess distances or hours.
+  tell the user and stop; do not guess distances or hours. (Cloud sessions get
+  the key differently — see "Execution environment".)
 - `../build-itinerary/scripts/note-provenance` — provenance gate: checks the
   finished note's Maps cids and 「無資料」 claims against the data files it was
   built from. Not on PATH; call it by that relative path.
 - `scripts/sightings` — the skill's own memory: `stats` summarises the sightings
   log without reading it into context, `append` writes to it. Not on PATH; call
   it by that relative path.
+- `scripts/config-sync` — syncs `preferences.md` and `sightings.jsonl` with a
+  private R2 bucket (`pull` / `push`), so the Mac and cloud sessions share one
+  memory. See "Execution environment" below. Not on PATH; call it by that
+  relative path.
 - `references/api-facts.md` — the validated `includedType` strings, amenity field
   names, and API limits. **The type table below comes from this file. Never use a
   type that is not listed there.**
@@ -33,6 +38,20 @@ Skill assets:
 - `../build-itinerary/templates/verify-brief.md` — agent-browser URL/image verification
 
 The two borrowed briefs are **referenced, not copied**. Their rules were bought with real incidents (the `networkidle` ban came from a ~50-minute hang; "the verify agent may not spawn subagents" came from a verification that returned an empty answer). A second copy would be a copy that drifts.
+
+## Execution environment — Mac or cloud session
+
+`CLAUDE_CODE_REMOTE=true` means a cloud session (claude.ai/code). The VM has none of this Mac's `~/.config`, so the memory travels through R2 and the note travels through git:
+
+| | Mac | Cloud (`CLAUDE_CODE_REMOTE=true`) |
+|---|---|---|
+| Maps key | `~/.config/trip-notes/maps.env` | the environment's API credential; the proxy attaches it and `trip-maps` sends no key header. Exit 78 cannot happen there — an API error saying the key is missing or invalid means the credential is not configured: tell the user and stop |
+| Memory | `~/.config/trip-notes/` | same path, empty until Step 0.5 runs `scripts/config-sync pull` |
+| `config-sync pull` fails (Step 0.5) | usually "no backend" (rclone remote not set up) — one line to the user, carry on | say so in one line, run in neutral mode, and say so again in 排序依據 and Step 10 |
+| `config-sync push` (Step 11) | run it; "no backend" is a one-line note, not a failure | **required** — sightings left on the VM are lost when the session ends. On failure retry once, then tell the user plainly that this run's sightings were not saved. Never commit `sightings.jsonl` or `preferences.md` to git instead |
+| The note | written into the vault | written into the vault, then delivered as a PR exactly as `../build-itinerary/SKILL.md` → "Execution environment" → "The note" describes (`publish-private: true`, commit only the note, push, PR into `main`, site URL). Do this after Step 9 and lead Step 10 with the PR link and site URL |
+
+`config-sync` only ever moves `preferences.md` and `sightings.jsonl`; `maps.env` never leaves the machine.
 
 ## Inputs
 
@@ -128,6 +147,12 @@ Validated layer-2 field names (`--fields`): `outdoorSeating`, `allowsDogs`, `ser
 Report the resolved type set, the query channels, any `--fields` you added, and the extra conditions. One line, before the API calls go out — the point is that the user can catch a misreading **before** the time is spent, not after a whole note was built around the wrong thing.
 
 ## Step 0.5 — 記憶
+
+先同步，再讀（Mac 與 cloud 都跑；失敗時怎麼辦見「Execution environment」）：
+
+```bash
+scripts/config-sync pull
+```
 
 兩個來源，權威分明：
 
@@ -669,7 +694,13 @@ sighting recorded that way.
 
 使用者略過不答是合法結果：`verdict` 全部寫 `null`，記錄照寫。
 
-回報一行：「已記錄 10 筆目擊（3 👍 / 1 👎 / 6 未標記）」。
+然後把 log 推回 R2（cloud 必做，見「Execution environment」）：
+
+```bash
+scripts/config-sync push
+```
+
+回報一行：「已記錄 10 筆目擊（3 👍 / 1 👎 / 6 未標記）」，並附上 push 的結果。
 
 **不再有升級運算、條目上限、合併與汰換。** 那些帳本身就是錯誤來源。
 

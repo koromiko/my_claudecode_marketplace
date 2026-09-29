@@ -80,7 +80,8 @@
 #
 # origin/dest accept:  "place_id:ChIJ..."  |  "35.65,139.83"  |  a free-text address
 #
-# Key lookup order: $GOOGLE_MAPS_API_KEY, then ~/.config/trip-notes/maps.env
+# Key lookup order: $GOOGLE_MAPS_API_KEY, then ~/.config/trip-notes/maps.env;
+# with CLAUDE_CODE_REMOTE=true and neither set, the cloud proxy injects it.
 # Language/region default to ja/JP; override with $MAPS_LANG / $MAPS_REGION.
 
 set -euo pipefail
@@ -91,7 +92,14 @@ if [[ -z "${GOOGLE_MAPS_API_KEY:-}" && -f "$KEYFILE" ]]; then
   # shellcheck disable=SC1090
   . "$KEYFILE"
 fi
-if [[ -z "${GOOGLE_MAPS_API_KEY:-}" ]]; then
+# Cloud sessions (CLAUDE_CODE_REMOTE=true) get the key from an API credential
+# on the environment: the egress proxy attaches X-Goog-Api-Key after the request
+# leaves the VM, so the session never sees it. There we send no key header at
+# all. Locally a missing key is still an error (exit 78).
+AUTH_HEADER=()
+if [[ -n "${GOOGLE_MAPS_API_KEY:-}" ]]; then
+  AUTH_HEADER=(-H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}")
+elif [[ "${CLAUDE_CODE_REMOTE:-}" != true ]]; then
   echo "error: GOOGLE_MAPS_API_KEY not set and $KEYFILE not found." >&2
   echo "       Create it with:  printf 'export GOOGLE_MAPS_API_KEY=%s\\n' \"\$KEY\" > $KEYFILE" >&2
   exit 78
@@ -132,7 +140,7 @@ post() {
   fi
   curl -sS --max-time 20 -X POST "$1" \
     -H "Content-Type: application/json" \
-    -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
+    ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} \
     -H "X-Goog-FieldMask: $2" \
     -d "$3"
 }
@@ -146,7 +154,7 @@ api_get() {
     return
   fi
   curl -sS --max-time 20 \
-    -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
+    ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} \
     -H "X-Goog-FieldMask: $2" \
     "$3"
 }

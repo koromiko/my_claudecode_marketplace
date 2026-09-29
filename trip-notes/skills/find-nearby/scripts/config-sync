@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# config-sync — keep find-nearby's memory in step between this Mac and cloud
+# sessions, through a private Cloudflare R2 bucket. Never through git: the
+# plugin repo is public, and the files are personal.
+#
+#   config-sync pull   R2 -> local (merge)
+#   config-sync push   pull first, then local -> R2
+#
+# Files, and only these two — maps.env is never uploaded:
+#   preferences.md   hand-written by the user; the newer copy wins
+#   sightings.jsonl  append-only log; merged as a line union (local order first,
+#                    remote-only lines appended), so records appended on both
+#                    sides since the last sync all survive
+#
+# Local dir: ${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}
+# Bucket:    ${TRIP_NOTES_R2_BUCKET:-trip-notes-config}
+# Backend:
+#   - rclone, if the remote "$TRIP_NOTES_RCLONE_REMOTE" (default r2-trip-notes) is configured (Mac)
+#   - otherwise awscli, using TRIP_NOTES_R2_ACCESS_KEY_ID / TRIP_NOTES_R2_SECRET_ACCESS_KEY /
+#     TRIP_NOTES_R2_ENDPOINT (cloud VM). Namespaced so they cannot collide with
+#     another project's AWS_* variables in a shared cloud environment.
+#
+# Exit codes: 0 ok, 1 usage/config/transfer error.
+set -euo pipefail
+
+CONFIG_DIR="${TRIP_NOTES_CONFIG:-$HOME/.config/trip-notes}"
+BUCKET="${TRIP_NOTES_R2_BUCKET:-trip-notes-config}"
+REMOTE="${TRIP_NOTES_RCLONE_REMOTE:-r2-trip-notes}"
+FILES=(preferences.md sightings.jsonl)
+
+usage() { sed -n '5,6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+die() { echo "config-sync: $*" >&2; exit 1; }
+
+[[ $# -eq 1 ]] || usage
+direction="$1"
+[[ "$direction" == pull || "$direction" == push ]] || usage
+
+# --- backend -------------------------------------------------------------
+# TRIP_NOTES_SYNC_STUB_DIR is a test seam: a plain directory stands in for the
+# bucket, so the merge logic can be tested without credentials or network.
+if [[ -n "${TRIP_NOTES_SYNC_STUB_DIR:-}" ]]; then
+  backend=stub
+elif command -v rclone >/dev/null && rclone listremotes 2>/dev/null | grep -qx "$REMOTE:"; then
+  backend=rclone
+elif command -v aws >/dev/null; then
+  backend=aws
+  [[ -n "${TRIP_NOTES_R2_ACCESS_KEY_ID:-}" && -n "${TRIP_NOTES_R2_SECRET_ACCESS_KEY:-}" ]] \
+    || die "awscli found but TRIP_NOTES_R2_ACCESS_KEY_ID / TRIP_NOTES_R2_SECRET_ACCESS_KEY are not set"
+  [[ -n "${TRIP_NOTES_R2_ENDPOINT:-}" ]] || die "TRIP_NOTES_R2_ENDPOINT is not set"
+  export AWS_ACCESS_KEY_ID="$TRIP_NOTES_R2_ACCESS_KEY_ID"
+  export AWS_SECRET_ACCESS_KEY="$TRIP_NOTES_R2_SECRET_ACCESS_KEY"
+  export AWS_DEFAULT_REGION=auto
+else
+  die "no backend: configure rclone remote '$REMOTE:' or install awscli (pip install awscli)"
+fi
+
+# download <dir> — the bucket's copies of FILES into <dir>, keeping mtimes.
+download() {
+  case "$backend" in
+    stub)
+      local f
+      for f in "${FILES[@]}"; do
+        [[ -f "$TRIP_NOTES_SYNC_STUB_DIR/$f" ]] && cp -p "$TRIP_NOTES_SYNC_STUB_DIR/$f" "$1/"
+      done
+      return 0 ;;
+    rclone)
+      rclone copy "$REMOTE:$BUCKET" "$1" --include preferences.md --include sightings.jsonl ;;
+    aws)
+      aws s3 cp "s3://$BUCKET/" "$1" --recursive --only-show-errors \
+        --endpoint-url "$TRIP_NOTES_R2_ENDPOINT" \
+        --exclude '*' --include preferences.md --include sightings.jsonl ;;
+  esac
+}
+
+# upload — sightings.jsonl unconditionally: push always pulls first, so the
+# local log is already a superset of the bucket's, and an mtime comparison would
+# skip it whenever the merge lands in the same second as the bucket copy.
+# preferences.md only when the local copy is newer.
+upload() {
+  [[ -f "$CONFIG_DIR/sightings.jsonl" ]] && case "$backend" in
+    stub)   cp -p "$CONFIG_DIR/sightings.jsonl" "$TRIP_NOTES_SYNC_STUB_DIR/" ;;
+    rclone) rclone copyto "$CONFIG_DIR/sightings.jsonl" "$REMOTE:$BUCKET/sightings.jsonl" ;;
+    aws)    aws s3 cp "$CONFIG_DIR/sightings.jsonl" "s3://$BUCKET/sightings.jsonl" \
+              --only-show-errors --endpoint-url "$TRIP_NOTES_R2_ENDPOINT" ;;
+  esac
+  [[ -f "$CONFIG_DIR/preferences.md" ]] || return 0
+  case "$backend" in
+    stub)
+      if [[ ! -f "$TRIP_NOTES_SYNC_STUB_DIR/preferences.md" \
+            || "$CONFIG_DIR/preferences.md" -nt "$TRIP_NOTES_SYNC_STUB_DIR/preferences.md" ]]; then
+        cp -p "$CONFIG_DIR/preferences.md" "$TRIP_NOTES_SYNC_STUB_DIR/"
+      fi ;;
+    rclone)
+      rclone copyto "$CONFIG_DIR/preferences.md" "$REMOTE:$BUCKET/preferences.md" --update ;;
+    aws)
+      aws s3 sync "$CONFIG_DIR" "s3://$BUCKET/" --only-show-errors \
+        --endpoint-url "$TRIP_NOTES_R2_ENDPOINT" --exclude '*' --include preferences.md ;;
+  esac
+}
+
+# --- pull (also the first half of push) ----------------------------------
+mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+download "$tmp" || die "download from $backend failed"
+
+changed=()
+if [[ -f "$tmp/preferences.md" ]]; then
+  if [[ ! -f "$CONFIG_DIR/preferences.md" || "$tmp/preferences.md" -nt "$CONFIG_DIR/preferences.md" ]]; then
+    cp -p "$tmp/preferences.md" "$CONFIG_DIR/preferences.md"
+    changed+=(preferences.md)
+  fi
+fi
+if [[ -f "$tmp/sightings.jsonl" ]]; then
+  local_log="$CONFIG_DIR/sightings.jsonl"
+  if [[ ! -f "$local_log" ]]; then
+    cp -p "$tmp/sightings.jsonl" "$local_log"
+    changed+=(sightings.jsonl)
+  else
+    awk 'NF && !seen[$0]++' "$local_log" "$tmp/sightings.jsonl" > "$tmp/merged"
+    # Rewrite only on a real difference, so an idle sync never bumps the mtime.
+    if ! cmp -s "$tmp/merged" "$local_log"; then
+      cat "$tmp/merged" > "$local_log"
+      changed+=(sightings.jsonl)
+    fi
+  fi
+fi
+echo "config-sync: pulled via $backend (updated: ${changed[*]:-nothing})" >&2
+
+# --- push ------------------------------------------------------------------
+if [[ "$direction" == push ]]; then
+  upload || die "upload via $backend failed"
+  echo "config-sync: pushed via $backend" >&2
+fi

@@ -86,6 +86,10 @@ Where `build-itinerary` answers "how do I travel this route", `find-nearby` answ
 - 雙管道的 fallback 是「兩邊都發」—— 「什麼時候用哪個」這種判斷容易被略過，略過時掉進的必須是完整的那條路。
 - 偏好檔只能 `Edit` 不能 `Write` —— 使用者手改的內容必須存活。
 
+## Cloud sessions
+
+Both skills run on claude.ai/code as well as on the Mac; they branch on `CLAUDE_CODE_REMOTE=true` ("Execution environment" in each SKILL.md). The Maps key comes from the environment's API credential (`maps` sends no key header there), find-nearby's memory travels through a private R2 bucket via `find-nearby/scripts/config-sync`, and the note travels through the vault's git. Setup: `docs/cloud-setup.md`. This repo is public — no personal data, keys, or account IDs in it.
+
 ## Key conventions
 
 `find-nearby` 以相對路徑引用 `build-itinerary/templates/verify-brief.md` 與 `verify-facts-brief.md`。改動那兩份時要同時考慮兩個呼叫端。引用而非複製，是因為其中的規則（`networkidle` 禁令、verify agent 不得再開 subagent）是用真實事故換來的，第二份副本等於允許漂移。
@@ -96,4 +100,5 @@ Where `build-itinerary` answers "how do I travel this route", `find-nearby` answ
 trip-notes/tests/test-maps.sh              # maps script, offline via fixtures
 trip-notes/tests/test-skill-integrity.sh   # markdown cross-references + the provenance gate is wired in
 trip-notes/tests/test-note-provenance.sh   # the provenance gate itself
+trip-notes/tests/test-config-sync.sh       # R2 memory sync (stub bucket): line-union merge, newer-wins, maps.env never leaves
 ```
