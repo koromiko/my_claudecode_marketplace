@@ -38,7 +38,7 @@
     {
       "name": "default-tools",
       "description": "Tool auto-approval with sensitive-path guards, Ollama LLM fallback, macOS notifications, an opt-in Stop-hook code review with pluggable reviewers (local LLM, generic CLI, in-session subagent), and a rule-adherence command that grades CLAUDE.md rules against past session transcripts",
-      "version": "1.8.1",
+      "version": "1.10.0",
       "source": "./default-tools",
       "category": "workflow"
     },
@@ -69,13 +69,6 @@
       "version": "0.1.1",
       "source": "./shopping-price-compare",
       "category": "shopping"
-    },
-    {
-      "name": "travel-drive-itinerary",
-      "description": "Build a verified self-drive day-trip itinerary (Google Maps links, driving times, local blog references, photos for every stop and extra nearby spot) starting from a single place name",
-      "version": "0.2.0",
-      "source": "./travel-drive-itinerary",
-      "category": "travel"
     }
   ]
 }

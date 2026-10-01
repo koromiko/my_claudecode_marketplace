@@ -78,6 +78,15 @@ Mechanics:
 - Mark the bead in the batch report as `status: "absorbed"` — this is a successful outcome, just not the parallel one. Surface it in the orchestrator's final summary so the user knows.
 - Worktree the child created may still be reusable; check it before tearing down. If reusable, continue from there. If not (e.g. corrupted state), make a fresh worktree.
 
+## Review-gate NO-GO is not a retry
+
+A NO-GO from the Step 9 review gate does **not** consume a retry and does not feed the table above.
+Retries are for children that failed to produce a verifiable result; a NO-GO means the child produced
+one and it needs changes. Handle it in the gate's own loop (`independent-review-gate.md`): forward the
+blocking list to the child via `SendMessage`, re-verify, dispatch a **fresh** reviewer, up to 3 rounds.
+After a third NO-GO the bead is `review_blocked` — do not ABSORB it and do not re-dispatch a child;
+surface the blocking list to the user and leave the branch out of the merge list.
+
 ## Per-wave sequential fallback
 
 After a wave completes (all dispatches resolved one way or another, all retries exhausted, all ABSORBs done):
@@ -111,6 +120,7 @@ After the line, proceed sequentially without further drama.
 
 ## What ABSORB and sequential fallback are NOT
 
-- **Not** a license to skip verification. Step 8 (orchestrator review) still runs on absorbed and sequential beads. Build still has to be green; UI surface still needs QA.
+- **Not** a license to skip verification. Step 8 (mechanical re-derivation) still runs on absorbed and sequential beads. Build still has to be green; UI surface still needs QA.
+- **Not** a license to skip the Independent Review Gate. Step 9 runs on absorbed and sequential beads too — and matters more there, because the parent wrote the code, so a fresh reviewer is the only independent eye on the diff.
 - **Not** a license to skip the batch report. Beads that fall to ABSORB or sequential are recorded in the `fallbacks:` block of `batch-report.yaml`.
-- **Not** a license to close beads. Project rule (`CLAUDE.md`) still applies: `bd close` only after merge to `main`.
+- **Not** a license to close beads early. `bd close` happens at Step 11, after the bead's code is on `main` — which needs a GO (Step 9) and a MERGE verdict (Step 10), absorbed and sequential beads included.

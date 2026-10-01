@@ -12,6 +12,11 @@ Pick `subagent_type` and `model` per bead from the manifest the parent built at 
 | Small + non-UI: `files_hint` ≤ 2 AND `ui_surface=false` AND `acceptance_criteria` ≤ 3                         | `general-purpose`   | `sonnet`  | Sonnet handles dev + build + report.yaml indistinguishably; Opus is overpaid here.        |
 | **Default** — anything else (UI surface, multi-file, ≥4 ACs, edge function, migration, test scaffolding)       | `general-purpose`   | `opus`    | The child collapses planner + dev + QA + reviewer into one stream — Opus reasoning pays. |
 
+**The routing table does not decide the review gate.** A `codex-exec` bead still goes through Step 9
+unless it meets the trivial carve-out in `independent-review-gate.md` (mechanical diff, no control-flow
+or data-shape change, `ui_surface: false`) — which is most but not all of what routes to codex-exec.
+Sonnet- and Opus-routed beads always go through it.
+
 **Edge cases.** When unsure between sonnet and opus, pick opus — a misclassified bead that fails on Sonnet has to be ABSORBed and re-run, which costs more than the model premium. When unsure between codex-exec and general-purpose, pick general-purpose — codex-exec children skip the worktree-scoped report.yaml and need a different verification path at Step 8 (lint + tsc + targeted unit test instead of `npm run build`).
 
 ## Envelope

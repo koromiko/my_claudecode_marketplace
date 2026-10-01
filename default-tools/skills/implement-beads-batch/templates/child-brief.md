@@ -20,30 +20,45 @@ You are a **sub-orchestrator** for one bead, dispatched by the `implement-beads-
 
 ### Worktree pre-flight (run BEFORE you touch the bead's work)
 
-Your worktree is a fresh `git worktree add` — it has source files but **not** the per-machine setup the parent repo has. Two things are missing and you must fix them before running build/test gates, or your gates will fail for reasons unrelated to your bead:
+Your worktree is a fresh `git worktree add` — it has source files but **not** the per-machine setup the parent repo has. Fix that before running build/test gates, or your gates will fail for reasons unrelated to your bead.
 
 ```sh
 PARENT_REPO=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
 
-# 1. .env.local — required by `npm run build` for any page touching process.env.NEXT_PUBLIC_*.
-#    Without it Next.js fails with "Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL".
-if [ ! -f .env.local ]; then
-  if [ -f "$PARENT_REPO/.env.local" ]; then
-    cp "$PARENT_REPO/.env.local" .env.local
-  else
-    echo "NEEDS_ELEVATION:env:parent-missing-env-local"
-    # write status: "failed" and exit; do not proceed without env.
-  fi
-fi
+# 1. Local env files — copy whatever the parent actually has. Next.js needs .env.local
+#    for any page reading process.env.NEXT_PUBLIC_*; without it the build dies with
+#    "Missing required environment variable: ...".
+for f in .env.local .env.development.local; do
+  [ ! -f "$f" ] && [ -f "$PARENT_REPO/$f" ] && cp "$PARENT_REPO/$f" "$f"
+done
 
-# 2. node_modules — symlink to the parent's. The lockfile is identical (same base commit),
-#    so this is correct AND avoids a 60–120s `npm install` per worktree.
+# 2. node_modules — symlinking to the parent avoids a 60–120s install and is correct
+#    (identical lockfile, same base commit). But SOME bundlers reject a symlinked
+#    module root, so treat this as an optimization that must be validated, not a given.
 if [ ! -d node_modules ] && [ -d "$PARENT_REPO/node_modules" ]; then
   ln -s "$PARENT_REPO/node_modules" node_modules
 fi
 ```
 
-Skipping pre-flight is the most common cause of false-failure builds in batched runs. Do it first.
+**Do not fail the bead on a missing env file.** If the parent has no `.env.local`, that is normal for many repos — the build may not need one. Proceed, and only escalate `NEEDS_ELEVATION:env:<var>` if the build actually fails with a missing-variable error naming that variable.
+
+**Validate the symlink, don't assume it.** Run the build gate once immediately after pre-flight, before writing any code. If it fails with a symlink/module-resolution error — e.g. Turbopack's `Symlink [project]/node_modules is invalid, it points out of the filesystem root`, or pnpm/yarn PnP resolution errors — then:
+
+```sh
+rm node_modules && npm install     # or the repo's package manager
+```
+
+and re-run the gate. Record in your `report.yaml` that the symlink was rejected, so the parent can surface it. A real install costs a minute; a misattributed build failure costs a retry cycle.
+
+**Find the real build command — don't assume it lives at the repo root.** Monorepos frequently have no root `build` script; the gate is then the app workspace's own script:
+
+```sh
+node -e "console.log(Object.keys(require('./package.json').scripts||{}).join(' '))"
+```
+
+If there's no root `build`, locate the app package (`apps/*/package.json`, `packages/*/package.json`) and run its build — `npm run build --workspace=<pkg>` or `npm run build` from inside that directory. Use the same command for lint/typecheck. State the exact command you used in `report.yaml`; the parent re-runs it verbatim during verification, and an unqualified `npm run build` that dies on `Missing script: "build"` reads as a red bead.
+
+Establishing a green baseline before you touch code is the single highest-value pre-flight step: it separates "my change broke it" from "this worktree was never buildable."
 
 ### Hard gates (your work is not done until all are green)
 
@@ -76,12 +91,29 @@ When you finish — success, partial, or failed — your **last action** is to w
 
 **Missing status file = implicit failure.** Write it even when you fail — the parent uses it to choose between retry, ABSORB, and sequential fallback.
 
+### Independent review happens after you finish — expect a round trip
+
+The parent runs an **Independent Review Gate** on your diff once you return: a fresh reviewer agent
+that did not write your code returns GO or NO-GO. Your own inline review pass does **not** satisfy
+that gate, so do not treat "I reviewed it myself" as the end of the story.
+
+Two consequences for you:
+
+- **Make the diff reviewable.** Commit with a message that states intent, keep unrelated churn out,
+  and make sure `report.yaml` names the exact build/lint/test commands you ran — the reviewer is
+  handed those commands verbatim and will run them.
+- **Stay reachable.** After you write your status file, the parent may `SendMessage` you a numbered
+  list of blocking items from a NO-GO verdict. Fix every item in the same worktree and branch, re-run
+  your gates, update `report.yaml` and the status file with the new `head_sha`, and report back.
+  Do not open a new branch or worktree for review fixes.
+
 ### What "done" looks like for you
 
 - `report.yaml` written, all gates green.
 - Status file written with `status: "success"`.
 - Branch committed, worktree clean (`git status` shows nothing uncommitted you intended to keep).
-- You did **not** run `bd close <id>`. The project rule is: bead closure happens only after a human merges to `main`. Just leave the bead `in_progress` and let the parent surface the unmerged branch.
+- A GO from the parent's review gate is what makes your branch mergeable — expect the round trip above before the batch is over.
+- You did **not** run `bd close <id>`, merge, or push. Closure happens only after the bead's code is on `main`, and the parent is the one that gets it there — after an independent reviewer returns GO and a merge-verdict judge returns MERGE. Leave the bead `in_progress`, leave your branch unmerged, and let the parent land it.
 
 ## Preamble (paste verbatim — end)
 

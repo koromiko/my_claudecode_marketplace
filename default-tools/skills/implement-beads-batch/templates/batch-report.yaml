@@ -23,7 +23,8 @@ results:
   - bead_id: <id>
     title: <one-line>
     wave: 1
-    status: success | absorbed | sequential_fallback | failed
+    status: merged | escalated | review_blocked | integration_failed | failed
+    path: success | absorbed | sequential_fallback   # how the implementation was produced
     branch: <branch-name>
     head_sha: <sha>
     base_branch: <main | predecessor-branch>
@@ -41,6 +42,34 @@ results:
       reason_if_skipped: <only "ui_surface=false" or "qa:skip label" are valid>
       artifacts: [<screenshot path inside the worktree>, ...]
 
+    # GATE: every bead with status "success" or "absorbed" must have verdict GO from an
+    # independent reviewer that did not write the code (Step 9). skipped: true is valid only
+    # with skipped_reason "trivial". A NO-GO after 3 rounds => status review_blocked, branch
+    # withheld from the merge sequence, blocking items copied into escalations.
+    review_gate:
+      verdict: GO | NO-GO
+      rounds: <1 | 2 | 3>
+      reviewers: [<agent name per round, e.g. review-nt-a-r1>, ...]
+      skipped: false
+      skipped_reason: <only "trivial" is valid>
+      blocking_items: []        # final reviewer's list when verdict is NO-GO
+
+    # GATE: merge_verdict.verdict must be MERGE before the branch touches main, and a MERGE is
+    # only valid on top of review_gate.verdict == GO. Either one alone is not enough.
+    merge_verdict:
+      verdict: MERGE | ESCALATE
+      judge: <fork agent name, e.g. verdict-nt-a>
+      reason: <required when ESCALATE>
+      follow_up_beads: [<title — one-line description>, ...]   # proposed by a MERGE verdict
+
+    # Filled at Step 11. merge_commit is empty for anything that did not land.
+    merge:
+      merged: true | false
+      merge_commit: <sha on main>
+      order: <1-based position in the landing sequence>
+      not_merged_reason: <escalate | review_blocked | integration_failed | blocked_by:<bead-id> | conflict>
+      worktree_removed: true | false      # true only for merged beads
+
     report_yaml_path: <.agents/reports/<bead-id>/report.yaml inside worktree>
     status_file_path: <.agents/batch/<batch-id>/status/<id>.json>
 
@@ -51,12 +80,38 @@ results:
 # not buried in a paragraph. Aggregated from per-child report.yaml + retry diagnostics.
 escalations: []
 
-# Unmerged branches in the order a human should merge them. Chained beads list their
-# predecessor with " <- " so the merge order is unambiguous.
+# What actually landed on origin/main, in the order it was merged. Chained beads list their
+# predecessor with " <- " so the landing order is unambiguous.
 # Example:
-#   - "nt-a · nt-a/feature-x · 1234abc · /path/to/wt-nt-a"
-#   - "nt-d · nt-d/feature-y · 5678def · /path/to/wt-nt-d <- nt-a"
-unmerged_branches: []
+#   - "nt-a · nt-a/feature-x · merge 1234abc"
+#   - "nt-d · nt-d/feature-y · merge 5678def <- nt-a"
+merged: []
+
+# GATE: every bead here is still in_progress with its worktree intact, and every entry states a
+# reason a human can act on. Beads blocked only because a predecessor did not land say so.
+not_merged:
+  - bead_id: <id>
+    branch: <branch-name>
+    head_sha: <sha>
+    worktree: <absolute path — NOT removed>
+    reason: <escalate | review_blocked | integration_failed | blocked_by:<bead-id> | conflict>
+    detail: <the judge's ESCALATE reason, the reviewer's blocking list, or the failure tail>
+
+# The integration gate from Step 11: the whole merge sequence built and tested together on main.
+# GATE: nothing is pushed while this is red.
+integration_gate:
+  ran: true | false
+  command: <exact command, e.g. npm run build --workspace=apps/web>
+  exit_code: 0
+  suites: [<other suites run, e.g. uv run pytest apps/api>, ...]
+  culprit_bead: <id — only when a red gate was bisected>
+
+# Follow-up beads actually created (bd create) from MERGE verdicts.
+follow_ups_filed: []
+
+pushed:
+  origin_main_sha: <sha>
+  verified_up_to_date: true | false
 
 # Beads that went through ABSORB (parent ran inline) or sequential fallback. Empty on a
 # clean run. Non-empty entries should be reflected in the orchestrator's user-facing
@@ -64,3 +119,7 @@ unmerged_branches: []
 fallbacks:
   absorbed: []
   sequential: []
+
+# Beads that exhausted the 3-round review gate without a GO. Their branches exist but are NOT
+# mergeable; each entry carries the final reviewer's blocking list. Also surfaced under not_merged.
+review_blocked: []

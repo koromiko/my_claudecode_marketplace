@@ -19,3 +19,6 @@ swift-project-tools
 *.pyc
 .DS_Store
 **/.DS_Store
+
+# Skill eval workspaces (generated)
+**/skills/*-workspace/

@@ -81,3 +81,11 @@ If the plan triggers an unusual case (a "broad scope" solo wave, a wave that hit
 | All beads "broad scope" (no hints) | Descriptions too vague | Surface; either improve descriptions or run sequentially |
 | Wave keeps fitting only 1 bead | Heavy file overlap across the batch | Probably should be one bead, not many — surface to user |
 | Child reports `base_branch: main` for a chained bead | Child ignored the per-bead tail | Step 8 verification fails; re-dispatch with the tail re-emphasized |
+
+## Chained waves wait for GO, not just for return
+
+A wave-N+1 bead that branches off a wave-N bead's branch must be dispatched only after that
+predecessor holds a **GO** from the Step 9 Independent Review Gate. Dispatching off a branch that is
+still in a NO-GO fix loop bases the child on code that is about to be rewritten, and the resulting
+diff is unreviewable. A predecessor that ends `review_blocked` blocks its dependents: report them as
+not attempted rather than chaining onto an unmergeable branch.
