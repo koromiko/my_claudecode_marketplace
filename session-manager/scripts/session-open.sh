@@ -41,16 +41,17 @@ cmd_attach() {
     open_iterm_window "tmux -L '$esock' -CC attach -t '$esess'" && echo ok
 }
 
-# Focus the iTerm session serving a given tty. locator's iTerm GUID is not an
-# AppleScript session id, so match on tty (which locator does emit) instead.
-focus_iterm() {   # <tty>  (bare "ttysNNN" from locator, or "/dev/ttysNNN")
+# Raise the iTerm session whose controlling tty matches $1 (bare "ttysNNN" or
+# "/dev/ttysNNN"). Returns 0 on a match (window raised), non-zero on no match —
+# never dies, so callers decide whether a miss is fatal.
+raise_iterm_tty() {   # <tty>
     local tty="$1" want escaped
-    [ -n "$tty" ] || die "usage: focus-iterm <tty>"
-    # locator strips /dev/; iTerm's AppleScript `tty of s` is the full device
-    # path — normalize to that so the comparison matches.
+    [ -n "$tty" ] || return 1
+    # locator/tmux emit device names both bare and /dev/-prefixed; iTerm's
+    # AppleScript `tty of s` is the full device path — normalize to that.
     want="/dev/${tty#/dev/}"
     escaped=$(escape_applescript "$want")
-    osascript 2>/dev/null <<OSA >/dev/null || die "iTerm session not found for tty: $tty"
+    osascript 2>/dev/null >/dev/null <<OSA
 tell application "iTerm"
   activate
   repeat with w in windows
@@ -68,17 +69,38 @@ tell application "iTerm"
   error "not found"
 end tell
 OSA
+}
+
+# Focus the iTerm session serving a given tty. locator's iTerm GUID is not an
+# AppleScript session id, so match on tty (which locator does emit) instead.
+focus_iterm() {   # <tty>  (bare "ttysNNN" from locator, or "/dev/ttysNNN")
+    local tty="$1"
+    [ -n "$tty" ] || die "usage: focus-iterm <tty>"
+    raise_iterm_tty "$tty" || die "iTerm session not found for tty: $tty"
     echo ok
 }
 
 # Focus a tmux pane. socket is a -L basename; pane_id is a tmux pane target.
+# Under tmux -CC every project has its own client attached to its own session,
+# so we navigate WITHIN the pane's own session (select-window/select-pane) and
+# never switch-client — a bare `switch-client -t <pane>` retargets whatever
+# client tmux last used, hijacking another project's iTerm window. To surface
+# the pane we raise the iTerm window of a client already attached to that
+# session (the -CC client's tty is a real iTerm session tty; the tmux pane pty
+# is not), preferring the most-recently-active client.
 focus_tmux() {    # <socket> <pane_id>
-    local socket="$1" pane_id="$2"
+    local socket="$1" pane_id="$2" sess ctty
     [ -n "$socket" ] && [ -n "$pane_id" ] || die "usage: focus-tmux <socket> <pane_id>"
     tmux -L "$socket" select-window -t "$pane_id" 2>/dev/null || \
         die "tmux window not found: $pane_id (socket $socket)"
     tmux -L "$socket" select-pane   -t "$pane_id" 2>/dev/null || true
-    tmux -L "$socket" switch-client -t "$pane_id" 2>/dev/null || true
+    sess=$(tmux -L "$socket" display-message -p -t "$pane_id" '#{session_id}' 2>/dev/null)
+    if [ -n "$sess" ]; then
+        ctty=$(tmux -L "$socket" list-clients -t "$sess" \
+                   -F '#{client_activity} #{client_tty}' 2>/dev/null \
+               | sort -rn | head -1 | cut -d' ' -f2-)
+        [ -n "$ctty" ] && raise_iterm_tty "$ctty"
+    fi
     echo ok
 }
 

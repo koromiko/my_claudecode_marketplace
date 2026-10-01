@@ -27,10 +27,18 @@ bash "$SCRIPT" attach "default" "mysess" >/dev/null
 check "attach builds tmux -L -CC attach with session name" \
     "grep -q \"tmux -L 'default' -CC attach -t 'mysess'\" \"$TMP/osa.txt\""
 
-# focus tests: set up fake tmux
+# focus tests: set up fake tmux. It records argv and answers the two queries
+# focus_tmux issues: the pane's session id, and a most-recently-active client
+# whose tty is a real iTerm session tty (NOT the tmux pane pty).
 cat > "$TMP/tmux" <<'FAKE'
 #!/bin/bash
 echo "$@" >> "$TMUX_CAPTURE"
+for a in "$@"; do
+  case "$a" in
+    display-message) echo '$5'; exit 0 ;;
+    list-clients)    printf '%s\n%s\n' '100 /dev/ttys041' '200 /dev/ttys042'; exit 0 ;;
+  esac
+done
 FAKE
 chmod +x "$TMP/tmux"
 export TMUX_CAPTURE="$TMP/tmux.txt"
@@ -47,6 +55,11 @@ bash "$SCRIPT" focus-tmux "default" "%3" >/dev/null
 check "focus-tmux uses -L socket basename" "grep -q -- '-L default' \"$TMUX_CAPTURE\""
 check "focus-tmux selects the pane id" "grep -q '%3' \"$TMUX_CAPTURE\""
 check "focus-tmux does not use -S" "! grep -q -- '-S ' \"$TMUX_CAPTURE\""
+# Regression: switch-client with no -c hijacks another project's client window.
+check "focus-tmux never runs switch-client" "! grep -q 'switch-client' \"$TMUX_CAPTURE\""
+# It raises the iTerm window of the pane's OWN most-recently-active client tty,
+# not the tmux pane pty.
+check "focus-tmux raises the session's client window" "grep -q '/dev/ttys042' \"$TMP/osa.txt\""
 
 bash "$SCRIPT" bogus-cmd >/dev/null 2>&1; rc=$?
 check "unknown subcommand errors" "[ $rc -ne 0 ]"

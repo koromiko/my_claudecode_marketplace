@@ -176,8 +176,12 @@ duplicating them. Subcommands:
   `tmux -L` basename and the target is the tmux session NAME (both from
   locator via `--json`), not the Claude session id. Backs the live-row
   **Attach ‑CC** button (tmux-hosted sessions only).
-- `focus-tmux <socket> <pane_id>` — `tmux -L '<socket>' select-window` /
-  `select-pane` / `switch-client` on that pane. Backs **Go to pane** for
+- `focus-tmux <socket> <pane_id>` — `select-window`/`select-pane` within the
+  pane's **own** tmux session, then raises the iTerm window of a client already
+  attached to that session (most-recently-active; the -CC client's tty is a real
+  iTerm session tty, the tmux pane pty is not). It deliberately does **not**
+  `switch-client`: a bare `switch-client -t <pane>` retargets whatever client
+  tmux last used, hijacking another project's window. Backs **Go to pane** for
   tmux-hosted sessions.
 - `focus-iterm <tty>` — selects the iTerm session whose `tty` matches (the
   locator iTerm GUID is not an AppleScript session id, so tty is the reliable
